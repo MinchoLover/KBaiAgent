@@ -38,6 +38,7 @@ REQUIRED_FILES = (
     "scripts/run_regression.py",
     "scripts/export_finetuning_candidates.py",
     "scripts/export_finetuning_dataset.py",
+    "scripts/run_decision_demo.py",
     "docs/ARCHITECTURE.md",
     "docs/STAGE0_DOCUMENT_INTAKE.md",
     "docs/STAGE1_CONTRACT.md",
@@ -52,6 +53,10 @@ REQUIRED_FILES = (
     "docs/JUDGE_QA_KO.md",
     "docs/TEAM_HANDOFF.md",
     "docs/VALIDATION_REPORT.md",
+    "docs/repositioning/CURRENT_STATE.md",
+    "docs/repositioning/IMPLEMENTATION_PLAN.md",
+    "docs/repositioning/TEAM_POSITIONING.md",
+    "docs/repositioning/FINAL_REPORT.md",
     "samples/stage1_scenarios.json",
     "samples/sample_extraction.json",
     "samples/company_cashflow.json",
@@ -170,7 +175,7 @@ def _check_readme(errors: List[str]) -> None:
 
 
 def _check_demo(errors: List[str]) -> None:
-    from src.demo import run_offline_demo
+    from src.demo import run_decision_support_demo, run_offline_demo
 
     result = run_offline_demo()
     if not result["validation"].stage2_allowed:
@@ -202,6 +207,19 @@ def _check_demo(errors: List[str]) -> None:
         errors.append("offline workflow trace order is invalid")
     if not workflow.critic_result or not workflow.critic_result.passed:
         errors.append("offline workflow critic did not pass")
+
+    import_demo = run_decision_support_demo("BUYER")
+    export_demo = run_decision_support_demo("SELLER")
+    import_packet = import_demo["consultation_packet"].packet
+    export_packet = export_demo["consultation_packet"].packet
+    if import_demo["stage2"].open_exposure != "80000.00":
+        errors.append("import decision demo open exposure is invalid")
+    if import_packet.risk_summary.buffer_shortfall_krw != "600000.00":
+        errors.append("import decision demo buffer shortfall is invalid")
+    if import_packet.risk_summary.payment_gap_krw != "0.00":
+        errors.append("import decision demo confuses buffer and payment gap")
+    if "FX_RECEIPT_RISK" not in export_packet.risk_summary.risk_codes:
+        errors.append("export decision demo lost receipt risk direction")
 
 
 def _check_output_schemas(errors: List[str]) -> None:
@@ -244,7 +262,12 @@ def _check_imports(errors: List[str]) -> None:
         "src.document_intake.extractor",
         "src.document_intake.openai_adapter",
         "src.application.demo_service",
+        "src.application.consultation_service",
         "src.application.stage2_input_service",
+        "src.consultation.packet",
+        "src.consultation.response_mapping",
+        "src.consultation.risk_classifier",
+        "src.domain.consultation_models",
         "src.security.upload_guard",
         "src.stage1.adapter",
         "src.stage2.engine",

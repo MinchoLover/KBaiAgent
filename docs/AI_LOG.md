@@ -74,3 +74,19 @@ Streamlit AppTest의 전체 오프라인 데모와 금융 표시 formatter 테�
 실제 Chrome headless 렌더링에서 1600px 전략 카드·현금 결과 화면과 820px 지표
 재배치를 확인했으며, 폼 primary button의 최종 계산 스타일도 브라우저 computed
 style로 확인했습니다.
+
+## 2026-07-24 KB AI Challenge repositioning
+
+Codex가 기존 Stage 2 금융 엔진과 Stage 1 JSON/REST 계약을 유지하면서 수출입 금융
+의사결정 지원 수직 슬라이스를 구현했습니다. 거래 방향 사용자 확인,
+`src/consultation/`의 결정론 위험 분류·상담 매핑, 버전형 JSON·Markdown 상담 패킷,
+수입·수출 API-free 대표 데모와 Streamlit 결과 흐름을 추가했습니다.
+
+위험 판정과 상담 패킷 숫자에는 LLM을 사용하지 않았습니다. 상담 후보는 공식 상품
+추천이 아니라 일반 상담 범주이며 모두 은행 검토와 사람 판단을 요구합니다. 수입
+대표 사례의 최소 운영자금 부족 600,000원과 지급 부족 0원을 분리하고, 수출 대표
+사례에서 환율 하락에 따른 `FX_RECEIPT_RISK`를 검증했습니다.
+
+실제 OpenAI API, 외부 Stage 1 endpoint, 상품 web search, Git push와 배포는 수행하지
+않았습니다. 전체 기능은 로컬 fixture, 수동/고정 스트레스, 결정론 계산·패킷으로
+외부 서비스 없이 재현했습니다.

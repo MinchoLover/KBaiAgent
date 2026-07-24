@@ -82,3 +82,30 @@ Trade-off: 운영·심사 데모에서 기술 상태를 한눈에 보기는 어�
 
 Revisit condition: 거래은행용 다중 고객 case management, 역할별 권한과 상담 이력
 요구가 P0가 될 때 별도 advisor view를 설계합니다.
+
+## 12. Risk codes before consultation copy
+
+위험 설명과 금융 대응을 LLM이 자유생성하지 않습니다. Stage 2 결과의 손실, 최소
+운영자금 부족, 현금 적자, 대출한도 반영 후 부족과 정보 누락을
+`src/consultation/risk_classifier.py`가 고정 코드와 근거값으로 분류합니다.
+상담 범주는 거래 방향과 위험 코드의 명시적 mapping에서만 생성합니다.
+
+이 선택은 표현의 다양성보다 재현성과 잘못된 금융 판단 방지를 우선합니다. 규칙에
+없는 실제 KB 상품이나 적격성은 생성하지 않고 은행 검토 필요 상태로 남깁니다.
+
+## 13. Deterministic consultation packet as the P0 report
+
+P0의 필수 산출물은 Stage 3 헤지 grid나 Stage 4 상품 검색을 완료해야만 열리는 기존
+확장 보고서가 아니라, Stage 2 직후 생성되는 JSON·Markdown 상담 패킷입니다. 패킷은
+금융 숫자를 Stage 2 결과에서 직접 복사하고 계산 버전, 입력 hash, 환율 기준시각,
+시나리오 ID, 원문 문서 hash와 사용자 확인 필드를 포함합니다.
+
+LLM 보고서는 선택적 설명 계층으로 유지합니다. LLM 장애 또는 Stage 3/4 미실행이
+핵심 상담 준비 흐름을 막지 않습니다.
+
+## 14. Buffer risk is not payment failure
+
+`maximum_buffer_shortfall`은 기업이 스스로 정한 최소 운영자금 방어선 미달이고,
+`post_credit_shortfall`은 현금과 입력한 대출한도 반영 후에도 남는 자금 부족입니다.
+상담 패킷에서는 후자를 `payment_gap_krw`로 명명합니다. 수입 대표 사례는 전자가
+600,000원이고 후자가 0원이므로 지급불능으로 분류하지 않습니다.

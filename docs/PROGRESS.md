@@ -21,7 +21,13 @@
 - [x] JSON, validator, provider/fallback, workflow trace의 고급 영역 분리
 - [x] 다크 테마와 820px 반응형 지표 레이아웃
 - [x] macOS/Windows launcher and env template
-- [x] 175 API-free tests
+- [x] 거래 방향·통화·금액·결제일 네 필드 사용자 확인 gate
+- [x] Stage 2 결과 기반 구조화 위험 코드와 근거값
+- [x] 위험·거래 방향 기반 일반 금융상담 범주 매핑
+- [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
+- [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
+- [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
+- [x] 184 API-free tests
 - [x] offline evaluation and regression baseline
 - [ ] live OpenAI smoke test — API key required
 - [ ] production auth/malware scanning/CI — follow-up scope
