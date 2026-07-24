@@ -360,24 +360,45 @@ class EndToEndTests(unittest.TestCase):
         )
         role_widget.set_value("판매자 · SELLER").run()
         self.assertEqual(len(app.exception), 0)
-        full_demo = next(
+        export_demo = next(
             button
             for button in app.button
-            if button.label == "전체 오프라인 데모 실행"
+            if button.label == "수출기업 대표 데모"
         )
-        full_demo.click().run()
+        export_demo.click().run()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(
             [tab.label for tab in app.tabs],
             [
                 "1  거래 확인",
                 "2  환율 가정",
-                "3  현금 영향",
-                "4  대응 전략",
-                "5  상담 상품",
+                "3  리스크 진단",
+                "4  대응 시뮬레이션",
+                "5  공식 상담 정보",
                 "6  상담 리포트",
             ],
         )
+        self.assertEqual(
+            next(
+                radio.value
+                for radio in app.radio
+                if radio.label == "이 거래에서 우리 회사의 역할"
+            ),
+            "판매자 · SELLER",
+        )
+        self.assertTrue(
+            any(
+                "FX_RECEIPT_RISK" in item.value
+                for item in app.markdown
+            )
+        )
+        import_demo = next(
+            button
+            for button in app.button
+            if button.label == "수입기업 대표 데모"
+        )
+        import_demo.click().run()
+        self.assertEqual(len(app.exception), 0)
         self.assertEqual(
             next(
                 radio.value

@@ -64,9 +64,9 @@ def render_stepper(completed_stage: int) -> None:
         "거래 확인",
         "값 확정",
         "환율 가정",
-        "현금 영향",
-        "대응 전략",
-        "상담 상품",
+        "리스크 진단",
+        "대응 검토",
+        "공식 정보",
         "상담 리포트",
     ]
     cells = st.columns(len(labels))

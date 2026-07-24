@@ -20,8 +20,9 @@ from src.application.stage2_input_service import (
     Stage2FormInput,
     build_stage2_input_from_form,
 )
+from src.application.consultation_service import build_decision_support
 from src.config import Settings
-from src.demo import run_offline_demo
+from src.demo import run_decision_support_demo
 from src.document_intake.confirmation import (
     ConfirmationRecord,
     create_confirmation_record,
@@ -31,10 +32,16 @@ from src.document_intake.extractor import (
     ExtractionError,
     extract_trade_document_with_metadata,
 )
+from src.domain.consultation_models import (
+    ConsultationPacketResult,
+    ConsultationTopic,
+    DecisionSupportResult,
+    RiskAssessment,
+)
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
-from src.domain.stage2_models import Stage2Result
+from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.stage3_models import Stage3Result
 from src.security.upload_guard import validate_upload
 from src.ui.components import (
@@ -86,6 +93,21 @@ def _model_from_state(key: str, model_class: Any) -> Optional[Any]:
 
 def _save_model(key: str, value: Any) -> None:
     st.session_state[key] = value.model_dump()
+
+
+def _save_decision_support(value: DecisionSupportResult) -> None:
+    _save_model("risk_assessment", value.risk_assessment)
+    st.session_state["consultation_topics"] = [
+        item.model_dump() for item in value.consultation_topics
+    ]
+    _save_model("consultation_packet", value.consultation_packet)
+
+
+def _consultation_topics_from_state() -> List[ConsultationTopic]:
+    return [
+        ConsultationTopic.model_validate(item)
+        for item in st.session_state.get("consultation_topics", [])
+    ]
 
 
 def _workflow_from_state() -> Optional[WorkflowState]:
@@ -156,6 +178,116 @@ def _decimal_or_zero(value: Any) -> Decimal:
     except (InvalidOperation, ValueError, TypeError):
         return Decimal("0")
     return parsed if parsed.is_finite() else Decimal("0")
+
+
+def _decimal_total(values: List[str]) -> str:
+    return format(
+        sum(
+            (Decimal(str(value)) for value in values),
+            Decimal("0"),
+        ),
+        "f",
+    )
+
+
+def _stage2_form_defaults(
+    value: Optional[Stage2Input],
+) -> Dict[str, Any]:
+    defaults: Dict[str, Any] = {
+        "current_cash": "200000000",
+        "minimum_buffer": "50000000",
+        "credit_limit": "30000000",
+        "acceptable_loss": "10000000",
+        "as_of": date.today(),
+        "usable_fx": "10000",
+        "same_flow_amount": "0",
+        "same_flow_date": date.today(),
+        "same_flow_direction": "INFLOW",
+        "hedge_amount": "0",
+        "hedge_rate": "1400",
+        "hedge_fee": "0",
+        "bank_spread": "15",
+        "bank_fee": "50000",
+        "cashflows": [
+            {
+                "date": str(date.today()),
+                "amount": "30000000",
+                "direction": "INFLOW",
+                "category": "REVENUE",
+                "description": "예정 매출 입금",
+            }
+        ],
+        "revenue_reduction": "0",
+        "revenue_delay": 0,
+        "cost_increase": "0",
+    }
+    if value is None:
+        return defaults
+
+    flows = [
+        flow
+        for exposure in value.exposures
+        for flow in exposure.same_currency_flows
+    ]
+    hedges = [
+        exposure.existing_hedge
+        for exposure in value.exposures
+        if exposure.existing_hedge is not None
+    ]
+    defaults.update(
+        {
+            "current_cash": value.current_krw_cash,
+            "minimum_buffer": value.minimum_cash_buffer,
+            "credit_limit": value.credit_limit,
+            "acceptable_loss": value.acceptable_fx_loss,
+            "as_of": date.fromisoformat(value.as_of_date),
+            "usable_fx": _decimal_total(
+                [
+                    exposure.usable_fx_balance
+                    for exposure in value.exposures
+                ]
+            ),
+            "same_flow_amount": _decimal_total(
+                [flow.amount for flow in flows]
+            ),
+            "same_flow_date": (
+                date.fromisoformat(flows[0].date)
+                if flows
+                else date.fromisoformat(value.as_of_date)
+            ),
+            "same_flow_direction": (
+                flows[0].direction
+                if flows
+                else (
+                    "INFLOW"
+                    if value.exposures[0].trade_type == "IMPORT"
+                    else "OUTFLOW"
+                )
+            ),
+            "hedge_amount": _decimal_total(
+                [hedge.amount for hedge in hedges]
+            ),
+            "hedge_rate": (
+                hedges[0].locked_rate if hedges else "1400"
+            ),
+            "hedge_fee": _decimal_total(
+                [hedge.fee for hedge in hedges]
+            ),
+            "bank_spread": value.bank_spread_bps,
+            "bank_fee": value.bank_fee,
+            "cashflows": [
+                item.model_dump() for item in value.krw_cashflows
+            ],
+            "revenue_reduction": (
+                value.composite_stress.revenue_reduction_percent
+            ),
+            "revenue_delay": value.composite_stress.revenue_delay_days,
+            "cost_increase": (
+                value.composite_stress.cost_increase_percent
+            ),
+        }
+    )
+    return defaults
 
 
 def _scenario_label(value: str) -> str:
@@ -245,14 +377,20 @@ def _advanced_downloads_title() -> None:
     )
 
 
-def _demo_all() -> None:
+def _demo_all(company_role: str = "BUYER") -> None:
     clear_transaction_widgets(st.session_state)
     st.session_state["run_mode_widget"] = "데모 모드"
-    st.session_state["company_role_widget"] = "구매자 · BUYER"
+    st.session_state["company_role_widget"] = (
+        "구매자 · BUYER"
+        if company_role == "BUYER"
+        else "판매자 · SELLER"
+    )
     st.session_state["company_country_widget"] = "KR"
-    st.session_state["stage1_mode_widget"] = "MANUAL_STRESS"
-    result = run_offline_demo()
+    st.session_state["stage1_mode_widget"] = "EXTERNAL_STAGE1"
+    result = run_decision_support_demo(company_role)
     extraction = result["extraction"]
+    source_path, source_mime, unused_extraction = _demo_fixture(company_role)
+    del unused_extraction
     _save_model("extraction", extraction)
     _save_model("extraction_original", extraction)
     _save_model("extraction_validation", result["validation"])
@@ -262,7 +400,7 @@ def _demo_all() -> None:
         extraction=extraction,
         validation=result["validation"],
         confirmations=result["confirmation"].checks,
-        source_filename="sample_invoice.png",
+        source_filename=source_path.name,
         prompt_version=get_prompt_version(),
         confirmation_record=result["confirmation"],
     )
@@ -270,27 +408,26 @@ def _demo_all() -> None:
         extraction=extraction,
         validation=result["validation"],
         confirmations=result["confirmation"].checks,
-        source_filename="sample_invoice.png",
+        source_filename=source_path.name,
         source_sha256=result["confirmation"].source_sha256,
         confirmed_at=result["confirmation"].confirmed_at,
     )
-    _save_model(
-        "stage1_load",
-        Stage1LoadResult(
-            source="MANUAL",
-            scenario_set=result["stage1"],
-        ),
-    )
+    _save_model("stage1_load", result["stage1_load"])
     _save_model("stage2_input", result["stage2_input"])
     _save_model("stage2_result", result["stage2"])
+    _save_model("risk_assessment", result["risk_assessment"])
+    st.session_state["consultation_topics"] = [
+        item.model_dump() for item in result["consultation_topics"]
+    ]
+    _save_model("consultation_packet", result["consultation_packet"])
     _save_model("stage3_result", result["stage3"])
     _save_model("stage4_result", result["stage4"])
     _save_model("report_result", result["report"])
     _save_workflow(result["workflow_state"])
     metadata = validate_upload(
-        file_bytes=SAMPLE_PATH.read_bytes(),
-        filename=SAMPLE_PATH.name,
-        claimed_mime_type="image/png",
+        file_bytes=source_path.read_bytes(),
+        filename=source_path.name,
+        claimed_mime_type=source_mime,
     )
     st.session_state["upload_metadata"] = {
         "filename": metadata.filename,
@@ -300,7 +437,9 @@ def _demo_all() -> None:
         "page_count": metadata.page_count,
     }
     st.session_state["skip_signature_sync_once"] = True
-    st.session_state["demo_just_loaded"] = True
+    st.session_state["demo_just_loaded"] = (
+        "수입기업" if company_role == "BUYER" else "수출기업"
+    )
 
 
 def _reset_state() -> None:
@@ -830,13 +969,23 @@ with st.sidebar:
         )
         st.caption("모델은 서버 환경변수로 관리됩니다.")
     st.button(
-        "전체 오프라인 데모 실행",
+        "수입기업 대표 데모",
         type="primary",
         width="stretch",
         on_click=_demo_all,
+        args=("BUYER",),
     )
-    if st.session_state.pop("demo_just_loaded", False):
-        st.success("샘플 거래의 전체 분석 결과를 준비했습니다.")
+    st.button(
+        "수출기업 대표 데모",
+        width="stretch",
+        on_click=_demo_all,
+        args=("SELLER",),
+    )
+    loaded_demo = st.session_state.pop("demo_just_loaded", None)
+    if loaded_demo:
+        st.success("{} 샘플의 전체 분석 결과를 준비했습니다.".format(
+            loaded_demo
+        ))
     st.button(
         "세션 결과 초기화",
         width="stretch",
@@ -856,9 +1005,9 @@ progress_labels = [
     "거래값 검토 중",
     "거래값 확정",
     "환율 가정 준비",
-    "현금 영향 계산 완료",
-    "대응 전략 준비",
-    "상담 후보 준비",
+    "리스크 진단·상담 패킷 완료",
+    "대응 시뮬레이션 준비",
+    "공식 상담 정보 준비",
     "리포트 준비",
 ]
 progress_label = progress_labels[min(completed_stage + 1, 7)]
@@ -867,7 +1016,7 @@ if hero_stage2 is None:
     hero_signal_label = "START HERE"
     hero_signal_title = "문서 한 장으로 시작하세요"
     hero_signal_detail = (
-        "샘플 케이스는 왼쪽의 전체 오프라인 데모 실행으로 바로 확인할 수 있습니다."
+        "왼쪽에서 수입기업 또는 수출기업 대표 데모를 바로 확인할 수 있습니다."
     )
 else:
     (
@@ -880,13 +1029,14 @@ else:
 st.markdown(
     "<section class='hero-shell'>"
     "<div class='hero-copy'>"
-    "<div class='eyebrow'>FX CASHFLOW CONTROL · 기업 재무 담당자용</div>"
-    "<h1>환율이 움직여도,<br>우리 회사 현금은 버틸까?</h1>"
-    "<p>무역문서의 결제조건을 확인하고 환율별 원화 부담, "
-    "운영자금 부족 시점, 대응 후보를 한 흐름에서 점검합니다.</p>"
+    "<div class='eyebrow'>TRADE FINANCE DECISION SUPPORT · 기업 재무 담당자용</div>"
+    "<h1>수출입 거래<br>리스크 진단</h1>"
+    "<p>거래정보와 기업 현금정보를 바탕으로 환율 변화가 실제 결제액과 "
+    "운영자금에 미치는 영향을 분석하고, 필요한 KB 상담을 준비합니다.</p>"
     "<div class='hero-pills'>"
     "<span class='hero-pill'>{}</span>"
-    "<span class='hero-pill'>금융 계산은 일반 코드</span>"
+    "<span class='hero-pill'>스트레스 시나리오 · 예측 아님</span>"
+    "<span class='hero-pill'>금융 숫자는 결정론 계산</span>"
     "<span class='hero-pill'>현재 · {}</span>"
     "</div></div>"
     "<aside class='hero-signal {}'>"
@@ -908,9 +1058,9 @@ stage0_tab, stage1_tab, stage2_tab, stage3_tab, stage4_tab, stage5_tab = (
         [
             "1  거래 확인",
             "2  환율 가정",
-            "3  현금 영향",
-            "4  대응 전략",
-            "5  상담 상품",
+            "3  리스크 진단",
+            "4  대응 시뮬레이션",
+            "5  공식 상담 정보",
             "6  상담 리포트",
         ]
     )
@@ -1346,7 +1496,7 @@ with stage0_tab:
             banner_icon = "✓"
             banner_title = "거래값 확정 완료"
             banner_copy = (
-                "통화·결제금액·결제일을 사용자가 확인했습니다. "
+                "거래 방향·통화·결제금액·결제일을 사용자가 확인했습니다. "
                 "이제 환율 가정 단계로 이동할 수 있습니다."
             )
         elif validation.validation_pass:
@@ -1354,7 +1504,7 @@ with stage0_tab:
             banner_icon = "3"
             banner_title = "자동 검증 완료 · 핵심값 확인이 남았습니다"
             banner_copy = (
-                "아래 원문 근거와 통화·결제금액·결제일을 대조한 뒤 "
+                "아래 원문 근거와 거래 방향·통화·결제금액·결제일을 대조한 뒤 "
                 "거래를 확정하세요."
             )
         else:
@@ -1397,6 +1547,7 @@ with stage0_tab:
         resolved_due = validation.resolved_due_date or ""
         confirmation_submit = False
         confirmed_due = resolved_due
+        trade_type_ok = False
         currency_ok = False
         amount_ok = False
         due_ok = False
@@ -1416,16 +1567,22 @@ with stage0_tab:
                     ),
                     key="confirmed_due_widget",
                 )
-                check_cols = st.columns(3)
-                currency_ok = check_cols[0].checkbox(
+                check_cols = st.columns(4)
+                trade_type_ok = check_cols[0].checkbox(
+                    "{} 거래 방향을 확인했습니다".format(
+                        validation.derived_trade_type
+                    ),
+                    key="confirm_trade_type_widget",
+                )
+                currency_ok = check_cols[1].checkbox(
                     "통화를 원문과 대조했습니다",
                     key="confirm_currency_widget",
                 )
-                amount_ok = check_cols[1].checkbox(
+                amount_ok = check_cols[2].checkbox(
                     "결제금액을 원문과 대조했습니다",
                     key="confirm_amount_widget",
                 )
-                due_ok = check_cols[2].checkbox(
+                due_ok = check_cols[3].checkbox(
                     "결제일과 조건을 대조했습니다",
                     key="confirm_due_widget",
                 )
@@ -1450,6 +1607,7 @@ with stage0_tab:
                     source_filename=metadata["filename"],
                     source_sha256=metadata["sha256"],
                     company_country=company_country,
+                    trade_type_confirmed=trade_type_ok,
                     confirmed_by="streamlit-user",
                 )
                 confirmed_validation = validate_confirmation(
@@ -1482,7 +1640,7 @@ with stage0_tab:
                 )
                 if not confirmed_validation.stage2_allowed:
                     st.error(
-                        "거래를 확정하지 못했습니다. 세 항목을 모두 대조하고 "
+                        "거래를 확정하지 못했습니다. 네 항목을 모두 대조하고 "
                         "중요 검증 문제를 해결하세요."
                     )
                 else:
@@ -1512,19 +1670,23 @@ with stage0_tab:
         )
         if confirmation is not None and confirmed_validation is not None:
             if confirmed_validation.stage2_allowed:
-                confirmed_cols = st.columns(3)
+                confirmed_cols = st.columns(4)
                 confirmed_cols[0].metric(
+                    "확정 거래 방향",
+                    confirmed_validation.derived_trade_type,
+                )
+                confirmed_cols[1].metric(
                     "확정 통화",
                     extraction.currency or "-",
                 )
-                confirmed_cols[1].metric(
+                confirmed_cols[2].metric(
                     "확정 결제금액",
                     format_foreign(
                         extraction.amount_due or "0",
                         extraction.currency or "",
                     ),
                 )
-                confirmed_cols[2].metric(
+                confirmed_cols[3].metric(
                     "확정 결제일",
                     confirmation.checks.confirmed_due_date or "-",
                 )
@@ -1756,10 +1918,10 @@ with stage1_tab:
 
 with stage2_tab:
     _section_intro(
-        "STEP 3 · 현금 영향",
-        "환율이 바뀔 때 우리 회사 현금이 실제로 얼마나 남는지 계산합니다",
+        "STEP 3 · 리스크 진단",
+        "환율 변화가 실제 결제액과 운영자금에 미치는 영향을 계산합니다",
         "현재 현금, 반드시 지켜야 할 운영자금, 예정 입출금을 입력하면 "
-        "결제일까지의 잔고와 부족 시점을 날짜별로 계산합니다.",
+        "결제일까지의 잔고, 위험 원인과 KB 상담 준비사항을 함께 생성합니다.",
     )
     stage1_load = _model_from_state("stage1_load", Stage1LoadResult)
     document_input = st.session_state.get("stage2_document_input")
@@ -1773,6 +1935,11 @@ with stage2_tab:
         )
     else:
         trade = document_input["trade"]
+        stored_stage2_input = _model_from_state(
+            "stage2_input",
+            Stage2Input,
+        )
+        form_defaults = _stage2_form_defaults(stored_stage2_input)
         st.caption(
             "확정 거래 · {} · {} · 결제일 {}".format(
                 format_foreign(
@@ -1792,37 +1959,37 @@ with stage2_tab:
             cash_cols = st.columns(4)
             current_cash = cash_cols[0].text_input(
                 "현재 원화 현금",
-                value="200000000",
+                value=form_defaults["current_cash"],
                 help="오늘 기준으로 실제 사용할 수 있는 원화 현금",
                 key="stage2_current_cash_widget",
             )
             minimum_buffer = cash_cols[1].text_input(
                 "반드시 남길 운영자금",
-                value="50000000",
+                value=form_defaults["minimum_buffer"],
                 help="급여·임차료 등 운영을 위해 지켜야 하는 최소 현금",
                 key="stage2_minimum_buffer_widget",
             )
             credit_limit = cash_cols[2].text_input(
                 "사용 가능한 대출한도",
-                value="30000000",
+                value=form_defaults["credit_limit"],
                 key="stage2_credit_limit_widget",
             )
             acceptable_loss = cash_cols[3].text_input(
                 "허용 가능한 환율 추가부담",
-                value="10000000",
+                value=form_defaults["acceptable_loss"],
                 key="stage2_acceptable_loss_widget",
             )
             timing_cols = st.columns(2)
             as_of = timing_cols[0].date_input(
                 "현금 계산 기준일",
-                value=date.today(),
+                value=form_defaults["as_of"],
                 key="stage2_as_of_widget",
             )
             usable_fx = timing_cols[1].text_input(
                 "결제에 사용할 수 있는 보유외화 · {}".format(
                     trade["currency"]
                 ),
-                value="10000",
+                value=form_defaults["usable_fx"],
                 key="stage2_usable_fx_widget",
             )
 
@@ -1833,17 +2000,22 @@ with stage2_tab:
             natural_cols = st.columns(3)
             same_flow_amount = natural_cols[0].text_input(
                 "예정 외화금액",
-                value="0",
+                value=form_defaults["same_flow_amount"],
                 key="stage2_same_flow_amount_widget",
             )
             same_flow_date = natural_cols[1].date_input(
                 "예정일",
-                value=as_of,
+                value=form_defaults["same_flow_date"],
                 key="stage2_same_flow_date_widget",
             )
             same_flow_direction = natural_cols[2].selectbox(
                 "외화 흐름",
                 ["INFLOW", "OUTFLOW"],
+                index=(
+                    0
+                    if form_defaults["same_flow_direction"] == "INFLOW"
+                    else 1
+                ),
                 format_func=lambda value: {
                     "INFLOW": "들어올 외화",
                     "OUTFLOW": "나갈 외화",
@@ -1862,43 +2034,42 @@ with stage2_tab:
                 hedge_cols = st.columns(3)
                 hedge_amount = hedge_cols[0].text_input(
                     "기존 헤지 외화금액",
-                    value="0",
+                    value=form_defaults["hedge_amount"],
                     key="stage2_hedge_amount_widget",
                 )
                 locked_rate = hedge_cols[1].text_input(
                     "기존 헤지 약정환율",
-                    value="1400",
+                    value=form_defaults["hedge_rate"],
                     key="stage2_locked_rate_widget",
                 )
                 hedge_fee = hedge_cols[2].text_input(
                     "기존 헤지 수수료",
-                    value="0",
+                    value=form_defaults["hedge_fee"],
                     key="stage2_hedge_fee_widget",
                 )
                 fee_cols = st.columns(2)
                 bank_spread = fee_cols[0].text_input(
                     "은행 환전 스프레드 · bps",
-                    value="15",
+                    value=form_defaults["bank_spread"],
                     key="stage2_bank_spread_widget",
                 )
                 bank_fee = fee_cols[1].text_input(
                     "거래별 은행 수수료",
-                    value="50000",
+                    value=form_defaults["bank_fee"],
                     key="stage2_bank_fee_widget",
                 )
 
             st.markdown("#### ③ 결제일까지 예정된 원화 입출금")
             st.caption("행을 추가하거나 삭제해 회사의 현금 일정을 반영하세요.")
             default_cashflows = pd.DataFrame(
-                [
-                    {
-                        "date": str(date.today()),
-                        "amount": "30000000",
-                        "direction": "INFLOW",
-                        "category": "REVENUE",
-                        "description": "예정 매출 입금",
-                    }
-                ]
+                form_defaults["cashflows"],
+                columns=[
+                    "date",
+                    "amount",
+                    "direction",
+                    "category",
+                    "description",
+                ],
             )
             edited_cashflows = st.data_editor(
                 default_cashflows,
@@ -1928,19 +2099,19 @@ with stage2_tab:
                 stress_cols = st.columns(3)
                 revenue_reduction = stress_cols[0].text_input(
                     "매출 감소 비율 · 0.10=10%",
-                    value="0",
+                    value=form_defaults["revenue_reduction"],
                     key="stage2_revenue_reduction_widget",
                 )
                 revenue_delay = stress_cols[1].number_input(
                     "매출 입금 지연 일수",
                     min_value=0,
                     max_value=365,
-                    value=0,
+                    value=form_defaults["revenue_delay"],
                     key="stage2_revenue_delay_widget",
                 )
                 cost_increase = stress_cols[2].text_input(
                     "비용 증가 비율 · 0.10=10%",
-                    value="0",
+                    value=form_defaults["cost_increase"],
                     key="stage2_cost_increase_widget",
                 )
             stage2_submit = st.form_submit_button(
@@ -1998,6 +2169,35 @@ with stage2_tab:
                 _save_model("stage2_result", result)
                 _save_workflow(workflow)
                 clear_downstream(st.session_state, 3)
+                extraction_for_decision = _model_from_state(
+                    "extraction",
+                    TradeDocumentExtraction,
+                )
+                confirmation_for_decision = _model_from_state(
+                    "confirmation",
+                    ConfirmationRecord,
+                )
+                if (
+                    extraction_for_decision is None
+                    or confirmation_for_decision is None
+                    or workflow.market_risk is None
+                    or workflow.market_risk.data is None
+                ):
+                    raise ValueError(
+                        "위험 분류에 필요한 확정 거래 또는 환율 가정이 없습니다."
+                    )
+                decision_support = build_decision_support(
+                    case_id=workflow.case_id,
+                    extraction=extraction_for_decision,
+                    confirmation=confirmation_for_decision,
+                    stage1=workflow.market_risk.data.scenario_set,
+                    stage2_input=stage2_input,
+                    stage2_result=result,
+                    missing_information=list(
+                        extraction_for_decision.missing_required_fields
+                    ),
+                )
+                _save_decision_support(decision_support)
                 st.success("환율별 현금 영향 계산을 완료했습니다.")
                 st.rerun()
             except (ValueError, TypeError) as exc:
@@ -2045,7 +2245,14 @@ with stage2_tab:
                 ),
                 default=Decimal("0"),
             )
-            metrics = st.columns(4)
+            highest_payment_gap = max(
+                (
+                    _decimal_or_zero(item.post_credit_shortfall)
+                    for item in scenario_results
+                ),
+                default=Decimal("0"),
+            )
+            metrics = st.columns(5)
             metrics[0].metric(
                 (
                     "기준 환율 결제액"
@@ -2055,7 +2262,11 @@ with stage2_tab:
                 format_krw(stage2_result.base_required_or_proceeds_krw),
             )
             metrics[1].metric(
-                "최대 환율 추가부담",
+                (
+                    "최대 환율 추가비용"
+                    if stage2_result.trade_type == "IMPORT"
+                    else "최대 원화 수취 감소"
+                ),
                 format_krw(max(highest_loss, Decimal("0"))),
             )
             metrics[2].metric(
@@ -2065,6 +2276,14 @@ with stage2_tab:
             metrics[3].metric(
                 "최대 운영자금 부족",
                 format_krw(highest_buffer_gap),
+            )
+            metrics[4].metric(
+                "대출한도 반영 후 부족",
+                format_krw(highest_payment_gap),
+                help=(
+                    "최소 운영자금 부족과 다릅니다. 현금과 입력한 대출한도를 "
+                    "모두 반영해도 남는 실제 자금 부족입니다."
+                ),
             )
 
             st.markdown("#### 환율 구간별 현금 결과")
@@ -2138,6 +2357,165 @@ with stage2_tab:
             if stage2_result.warnings:
                 for warning in stage2_result.warnings:
                     st.warning(warning)
+
+            risk_assessment = _model_from_state(
+                "risk_assessment",
+                RiskAssessment,
+            )
+            consultation_topics = _consultation_topics_from_state()
+            consultation_packet = _model_from_state(
+                "consultation_packet",
+                ConsultationPacketResult,
+            )
+            if risk_assessment is not None:
+                st.divider()
+                st.markdown("### 위험 원인")
+                status_labels = {
+                    "SAFE": "현재 입력 기준 방어선 유지",
+                    "LOSS_LIMIT_EXCEEDED": "허용 손실한도 초과",
+                    "BUFFER_SHORTFALL": "최소 운영자금 부족",
+                    "NEGATIVE_CASH": "현금 잔고 음수",
+                    "PAYMENT_GAP": "가용자금 반영 후 지급 부족",
+                }
+                risk_labels = {
+                    "FX_COST_RISK": "환율 상승 시 수입 결제비용 증가",
+                    "FX_RECEIPT_RISK": "환율 하락 시 수출대금 원화 수취 감소",
+                    "LOSS_LIMIT_EXCEEDED": "입력한 손실한도 초과",
+                    "LIQUIDITY_BUFFER_RISK": "최소 운영자금 방어선 미달",
+                    "NEGATIVE_CASH_RISK": "현금 잔고 음수",
+                    "PAYMENT_CAPACITY_RISK": "현금·대출한도 반영 후 지급 부족",
+                    "TIMING_MISMATCH_RISK": "현금 유입·지급 시점 불일치",
+                    "DOCUMENT_INFORMATION_GAP": "거래·자금 정보 확인 필요",
+                }
+                status_tone = (
+                    "danger"
+                    if risk_assessment.status
+                    in {"NEGATIVE_CASH", "PAYMENT_GAP"}
+                    else "warning"
+                    if risk_assessment.status != "SAFE"
+                    else ""
+                )
+                st.markdown(
+                    "<div class='state-banner {}'><span class='state-icon'>"
+                    "{}</span><div><strong>{}</strong><p>가장 불리한 "
+                    "스트레스 시나리오는 {}입니다. 판정은 LLM이 아니라 "
+                    "계산 결과와 임계값 규칙으로 생성했습니다.</p></div></div>".format(
+                        status_tone,
+                        "!" if risk_assessment.status != "SAFE" else "✓",
+                        escape(
+                            status_labels.get(
+                                risk_assessment.status,
+                                risk_assessment.status,
+                            )
+                        ),
+                        escape(risk_assessment.worst_scenario_id),
+                    ),
+                    unsafe_allow_html=True,
+                )
+                if risk_assessment.findings:
+                    finding_rows = []
+                    for finding in risk_assessment.findings:
+                        trigger_value = finding.trigger_value
+                        threshold = finding.threshold or "-"
+                        if finding.unit == "KRW":
+                            trigger_value = format_krw(
+                                finding.trigger_value
+                            )
+                            threshold = (
+                                format_krw(finding.threshold)
+                                if finding.threshold is not None
+                                else "-"
+                            )
+                        finding_rows.append(
+                            {
+                                "위험 원인": risk_labels.get(
+                                    finding.risk_code,
+                                    finding.risk_code,
+                                ),
+                                "코드": finding.risk_code,
+                                "시나리오": (
+                                    finding.scenario_id or "공통"
+                                ),
+                                "발생값": trigger_value,
+                                "기준값": threshold,
+                                "중요도": finding.severity,
+                            }
+                        )
+                    st.dataframe(
+                        finding_rows,
+                        width="stretch",
+                        hide_index=True,
+                    )
+                else:
+                    st.success(
+                        "현재 입력에서는 구조화된 주요 위험 기준을 넘지 않았습니다."
+                    )
+
+            if consultation_topics:
+                st.markdown("### 검토할 금융 대응")
+                st.caption(
+                    "아래 항목은 규칙 기반 상담 범주입니다. 상품 추천·승인·"
+                    "최적 헤지 확정이 아니며 실제 조건은 KB 담당자 검토가 필요합니다."
+                )
+                for topic in consultation_topics:
+                    with st.expander(topic.title, expanded=True):
+                        st.caption(
+                            "{} · 근거 {} · 사람 검토 필수".format(
+                                topic.category,
+                                ", ".join(topic.triggered_by) or "정기 점검",
+                            )
+                        )
+                        st.write(topic.explanation)
+                        topic_cols = st.columns(2)
+                        with topic_cols[0]:
+                            st.markdown("**추가 확인 정보**")
+                            for information in topic.required_information:
+                                st.write("· {}".format(information))
+                        with topic_cols[1]:
+                            st.markdown("**상담 시 질문**")
+                            for question in topic.questions:
+                                st.write("· {}".format(question))
+                        st.info(
+                            "이용 가능 여부와 조건은 사용자와 KB 담당자의 "
+                            "상담·심사를 통해 최종 확인합니다."
+                        )
+
+            if consultation_packet is not None:
+                st.markdown("### KB 상담 준비")
+                packet = consultation_packet.packet
+                packet_cols = st.columns(3)
+                packet_cols[0].metric(
+                    "Case ID",
+                    packet.case_id[:12],
+                )
+                packet_cols[1].metric(
+                    "계산 버전",
+                    packet.calculation_version,
+                )
+                packet_cols[2].metric(
+                    "확인 완료 핵심필드",
+                    "{}/4".format(len(packet.user_confirmed_fields)),
+                )
+                download_cols = st.columns(2)
+                with download_cols[0]:
+                    json_download(
+                        label="KB 상담 패킷 · JSON",
+                        value=packet,
+                        filename="kb_consultation_packet.json",
+                        key="download_consultation_packet_json",
+                    )
+                with download_cols[1]:
+                    st.download_button(
+                        "KB 상담 패킷 · Markdown",
+                        data=consultation_packet.markdown,
+                        file_name="kb_consultation_packet.md",
+                        mime="text/markdown",
+                        key="download_consultation_packet_markdown",
+                    )
+                with st.expander("상담 패킷 미리보기", expanded=False):
+                    st.markdown(consultation_packet.markdown)
+                st.warning(packet.disclaimer)
+
             with st.expander("노출과 방어수단 계산 상세", expanded=False):
                 exposure_cols = st.columns(4)
                 exposure_cols[0].metric(
@@ -2194,10 +2572,10 @@ with stage2_tab:
 
 with stage3_tab:
     _section_intro(
-        "STEP 4 · 대응 전략",
-        "한 가지 정답 대신, 감당 가능한 대응 조합을 비교합니다",
+        "STEP 4 · 대응 시뮬레이션",
+        "선택 단계로 여러 헤지 조합의 계산상 결과를 비교합니다",
         "선물환·분할환전·미헤지 비율을 바꿔가며 손실과 유동성 제약을 "
-        "동시에 만족하는 후보 세 가지를 계산합니다.",
+        "비교합니다. 최적 비율이나 실행 결정을 확정하지 않습니다.",
     )
     stage2_result = _model_from_state("stage2_result", Stage2Result)
     if stage2_result is None:
@@ -2327,8 +2705,8 @@ with stage3_tab:
 
 with stage4_tab:
     _section_intro(
-        "STEP 5 · 상담 상품",
-        "공식 출처가 확인된 금융상품·지원제도만 연결합니다",
+        "STEP 5 · 공식 상담 정보",
+        "선택 단계로 공식 출처가 확인된 금융상품·지원제도만 연결합니다",
         "앞에서 계산한 대응 전략과 관련 있는 후보를 찾습니다. "
         "가입 자격·승인·한도·금리는 확정하지 않고 상담에서 확인할 항목으로 남깁니다.",
     )
@@ -2482,10 +2860,70 @@ with stage4_tab:
 with stage5_tab:
     _section_intro(
         "STEP 6 · 상담 리포트",
-        "계산 결과와 상담 질문을 한 문서로 정리합니다",
-        "은행·보험기관 상담 전에 공유할 수 있도록 확정 거래, 현금 영향, "
-        "대응 후보와 공식 출처를 근거 경로와 함께 정리합니다.",
+        "계산 결과와 상담 질문을 재현 가능한 패킷으로 정리합니다",
+        "위험 진단까지 완료하면 JSON·Markdown 상담 패킷을 바로 받을 수 있습니다. "
+        "헤지 시뮬레이션과 공식 정보 검색은 선택 단계입니다.",
     )
+    consultation_packet = _model_from_state(
+        "consultation_packet",
+        ConsultationPacketResult,
+    )
+    if consultation_packet is None:
+        st.markdown(
+            "<div class='state-banner warning'><span class='state-icon'>3</span>"
+            "<div><strong>먼저 리스크 진단을 완료하세요</strong>"
+            "<p>확정 거래와 환율·현금정보를 계산하면 위험 원인, 대응 후보와 "
+            "상담 준비 패킷이 함께 생성됩니다.</p></div></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        packet = consultation_packet.packet
+        st.markdown(
+            "<div class='state-banner'><span class='state-icon'>✓</span>"
+            "<div><strong>KB 상담 준비 패킷이 완성되었습니다</strong>"
+            "<p>패킷 숫자는 Stage 2 결정론 계산 결과에서 직접 가져왔으며 "
+            "LLM이 다시 계산하거나 변형하지 않았습니다.</p></div></div>",
+            unsafe_allow_html=True,
+        )
+        packet_metrics = st.columns(4)
+        packet_metrics[0].metric(
+            "거래 방향",
+            packet.company_summary.trade_type,
+        )
+        packet_metrics[1].metric(
+            "열린 환노출",
+            format_foreign(
+                packet.exposure_summary.open_exposure_fx,
+                packet.company_summary.currency,
+            ),
+        )
+        packet_metrics[2].metric(
+            "운영자금 부족",
+            format_krw(packet.risk_summary.buffer_shortfall_krw),
+        )
+        packet_metrics[3].metric(
+            "대출한도 반영 후 부족",
+            format_krw(packet.risk_summary.payment_gap_krw),
+        )
+        packet_downloads = st.columns(2)
+        with packet_downloads[0]:
+            json_download(
+                label="상담 패킷 다운로드 · JSON",
+                value=packet,
+                filename="kb_consultation_packet.json",
+                key="download_consultation_packet_json_stage5",
+            )
+        with packet_downloads[1]:
+            st.download_button(
+                "상담 패킷 다운로드 · Markdown",
+                data=consultation_packet.markdown,
+                file_name="kb_consultation_packet.md",
+                mime="text/markdown",
+                key="download_consultation_packet_markdown_stage5",
+            )
+        st.markdown("### 상담 패킷 미리보기")
+        st.markdown(consultation_packet.markdown)
+
     extraction = _model_from_state("extraction", TradeDocumentExtraction)
     confirmation = _model_from_state("confirmation", ConfirmationRecord)
     stage1_load = _model_from_state("stage1_load", Stage1LoadResult)
@@ -2503,17 +2941,16 @@ with stage5_tab:
             stage4_result,
         )
     )
+    st.divider()
+    st.markdown("### 선택 · 헤지·공식자료를 포함한 확장 리포트")
     if not all_ready:
-        st.markdown(
-            "<div class='state-banner warning'><span class='state-icon'>5</span>"
-            "<div><strong>앞 단계의 결과가 아직 모두 준비되지 않았습니다</strong>"
-            "<p>거래 확인부터 공식 상담 후보까지 완료하면 최종 리포트를 "
-            "만들 수 있습니다.</p></div></div>",
-            unsafe_allow_html=True,
+        st.info(
+            "기본 상담 패킷은 위에서 이미 완성됩니다. 대응 시뮬레이션과 공식 "
+            "상담 정보를 실행하면 출처를 포함한 확장 리포트도 만들 수 있습니다."
         )
     else:
         if st.button(
-            "상담 준비 리포트 만들기",
+            "확장 상담 리포트 만들기",
             type="primary",
             key="generate_report",
         ):
@@ -2544,7 +2981,7 @@ with stage5_tab:
         if report_result is not None:
             st.markdown(
                 "<div class='state-banner'><span class='state-icon'>✓</span>"
-                "<div><strong>상담 준비 리포트가 완성되었습니다</strong>"
+                "<div><strong>확장 상담 리포트가 완성되었습니다</strong>"
                 "<p>수치와 출처를 다시 확인한 뒤 거래은행 또는 보험기관과 "
                 "공유하세요.</p></div></div>",
                 unsafe_allow_html=True,
@@ -2592,8 +3029,8 @@ st.divider()
 st.markdown(
     "<div style='display:flex;justify-content:space-between;gap:1rem;"
     "flex-wrap:wrap;color:#7f92a8;font-size:.76rem;padding:.5rem 0'>"
-    "<span>FX FLOW CONTROL · 기업 재무 담당자용 리스크 점검</span>"
+    "<span>수출입 금융 의사결정 지원 · 기업 재무 담당자용</span>"
     "<span>AI는 문서 추출·설명만 지원 · 금융 계산은 일반 코드 · "
-    "상품은 상담 후보</span></div>",
+    "대응은 상담 후보</span></div>",
     unsafe_allow_html=True,
 )
