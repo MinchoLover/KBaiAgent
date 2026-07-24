@@ -135,6 +135,7 @@ class TradeDocumentExtraction(StrictModel):
 
 
 class ConfirmationState(StrictModel):
+    trade_type_confirmed: bool = False
     currency_confirmed: bool = False
     amount_due_confirmed: bool = False
     due_date_confirmed: bool = False
@@ -147,7 +148,8 @@ class ConfirmationState(StrictModel):
         installment_schedule_confirmed: bool = False,
     ) -> bool:
         return (
-            self.currency_confirmed
+            self.trade_type_confirmed
+            and self.currency_confirmed
             and self.amount_due_confirmed
             and self.due_date_confirmed
             and (

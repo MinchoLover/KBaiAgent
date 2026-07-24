@@ -1,6 +1,9 @@
-"""Backward-compatible offline demo entry point."""
+"""Backward-compatible offline demo entry points."""
 
-from src.application.demo_service import run_offline_demo
+from src.application.demo_service import (
+    run_decision_support_demo,
+    run_offline_demo,
+)
 
 
-__all__ = ["run_offline_demo"]
+__all__ = ["run_decision_support_demo", "run_offline_demo"]

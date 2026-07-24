@@ -48,6 +48,7 @@ def create_confirmation_record(
     source_filename: str,
     source_sha256: str,
     company_country: str,
+    trade_type_confirmed: bool = False,
     confirmed_by: Optional[str] = None,
     confirmed_at: Optional[str] = None,
 ) -> ConfirmationRecord:
@@ -64,6 +65,7 @@ def create_confirmation_record(
 
     timestamp = confirmed_at or datetime.now(timezone.utc).isoformat()
     checks = ConfirmationState(
+        trade_type_confirmed=trade_type_confirmed,
         currency_confirmed=currency_confirmed,
         amount_due_confirmed=amount_due_confirmed,
         due_date_confirmed=due_date_confirmed,

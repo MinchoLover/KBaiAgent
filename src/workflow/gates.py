@@ -37,5 +37,7 @@ def confirmation_gate(state: WorkflowState) -> GateDecision:
             )
         )
     ):
-        reasons.append("통화·금액·결제일 사용자 확인이 완료되지 않았습니다.")
+        reasons.append(
+            "거래 방향·통화·금액·결제일 사용자 확인이 완료되지 않았습니다."
+        )
     return GateDecision(allowed=not reasons, reasons=list(dict.fromkeys(reasons)))

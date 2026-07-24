@@ -1146,7 +1146,7 @@ def build_stage2_input(
         installment_schedule_confirmed=bool(extraction.installments)
     ):
         raise ValueError(
-            "금액·통화·결제일을 각각 사용자 확인해야 합니다."
+            "거래 방향·금액·통화·결제일을 각각 사용자 확인해야 합니다."
         )
     if not validation.stage2_allowed:
         raise ValueError(

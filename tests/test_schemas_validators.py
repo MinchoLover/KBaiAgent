@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def confirmed_state(due_date: str = "2026-10-18") -> ConfirmationState:
     return ConfirmationState(
+        trade_type_confirmed=True,
         currency_confirmed=True,
         amount_due_confirmed=True,
         due_date_confirmed=True,
@@ -212,8 +213,22 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(validation.stage2_allowed)
         self.assertTrue(validation.needs_human_review)
 
+    def test_confirmation_gate_requires_trade_type_confirmation(self):
+        checks = confirmed_state().model_copy(
+            update={"trade_type_confirmed": False}
+        )
+        validation = validate_extraction(
+            sample_extraction(),
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=checks,
+        )
+        self.assertTrue(validation.validation_pass)
+        self.assertFalse(validation.stage2_allowed)
+
     def test_confirmation_gate_requires_single_settlement_date_value(self):
         checks = ConfirmationState(
+            trade_type_confirmed=True,
             currency_confirmed=True,
             amount_due_confirmed=True,
             due_date_confirmed=True,
@@ -236,6 +251,7 @@ class ValidationTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         checks = ConfirmationState(
+            trade_type_confirmed=True,
             currency_confirmed=True,
             amount_due_confirmed=True,
             due_date_confirmed=True,
@@ -267,6 +283,7 @@ class ValidationTests(unittest.TestCase):
                 source_filename="invoice.png",
                 source_sha256="a" * 64,
                 company_country="KR",
+                trade_type_confirmed=True,
             )
 
     def test_confirmation_record_validates_audit_metadata(self):
@@ -281,6 +298,7 @@ class ValidationTests(unittest.TestCase):
                 source_filename="../invoice.png",
                 source_sha256="not-a-fingerprint",
                 company_country="KR",
+                trade_type_confirmed=True,
             )
         with self.assertRaises(ValidationError):
             create_confirmation_record(
@@ -293,6 +311,7 @@ class ValidationTests(unittest.TestCase):
                 source_filename="../invoice.png",
                 source_sha256="a" * 64,
                 company_country="KR",
+                trade_type_confirmed=True,
                 confirmed_at="2026-07-23T09:00:00",
             )
 
@@ -307,6 +326,7 @@ class ValidationTests(unittest.TestCase):
             source_filename="invoice.png",
             source_sha256="a" * 64,
             company_country="KR",
+            trade_type_confirmed=True,
         )
 
         with self.assertRaises(ValueError):
@@ -538,6 +558,7 @@ class ValidationTests(unittest.TestCase):
             source_filename="invoice.pdf",
             source_sha256="a" * 64,
             company_country="KR",
+            trade_type_confirmed=True,
             confirmed_at="2026-07-23T09:00:00+09:00",
         )
         extraction, validation = apply_deterministic_review_state(
