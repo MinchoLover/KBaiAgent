@@ -1,0 +1,85 @@
+{
+  "extraction": {
+    "document_type": "COMMERCIAL_INVOICE",
+    "document_number": "INV-SYN-003",
+    "seller_name": "Cedar Mock Textiles GmbH",
+    "seller_country": "DE",
+    "buyer_name": "Daehan Fictional Retail Ltd.",
+    "buyer_country": "KR",
+    "company_role": "BUYER",
+    "trade_type": "IMPORT",
+    "currency": "EUR",
+    "grand_total": "9800.00",
+    "amount_due": "9800.00",
+    "issue_date": "2026-03-01",
+    "contract_date": null,
+    "shipment_date": null,
+    "explicit_due_date": null,
+    "derived_due_date": "2026-03-31",
+    "payment_terms": "Net 30 Days",
+    "incoterm": null,
+    "installments": [],
+    "evidence": [
+      {
+        "field": "document_notice",
+        "page": 1,
+        "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "The test-only notice is printed at the top."
+      },
+      {
+        "field": "seller_name",
+        "page": 1,
+        "source_text": "Seller: Cedar Mock Textiles GmbH (DE)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Seller label and country are explicit."
+      },
+      {
+        "field": "buyer_name",
+        "page": 1,
+        "source_text": "Buyer: Daehan Fictional Retail Ltd. (KR)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Buyer label and country are explicit."
+      },
+      {
+        "field": "currency",
+        "page": 1,
+        "source_text": "Currency: EUR",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit label."
+      },
+      {
+        "field": "amount_due",
+        "page": 1,
+        "source_text": "Amount Due: EUR 9800.00",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit amount due."
+      },
+      {
+        "field": "issue_date",
+        "page": 1,
+        "source_text": "Invoice Date: 2026-03-01",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit invoice date."
+      },
+      {
+        "field": "payment_terms",
+        "page": 1,
+        "source_text": "Payment Terms: Net 30 Days",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Net term is explicit; Python derives date."
+      }
+    ],
+    "warnings": [],
+    "missing_required_fields": [],
+    "needs_human_review": true
+  },
+  "metadata": {
+    "mode": "fixture",
+    "latency_seconds": "0",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "estimated_api_cost": "0",
+    "prompt_version": "1.2.0"
+  }
+}

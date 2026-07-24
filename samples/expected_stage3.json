@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0",
+  "status": "CANDIDATES_NOT_ADVICE",
+  "grid_step_percent": 10,
+  "objective_mode": "WORST_CASE_ROBUST",
+  "candidates": [
+    {
+      "rank": 1,
+      "forward_ratio": "1",
+      "staged_conversion_ratio": "0",
+      "unhedged_ratio": "0",
+      "held_fx_ratio": "0.1",
+      "worst_case_loss": "189000.00",
+      "expected_loss": null,
+      "assumed_hedge_cost": "189000.00",
+      "estimated_buffer_shortfall": "0.00",
+      "liquidity_impact": "0.00",
+      "constraints_satisfied": true,
+      "acceptable_loss_exceeded": false,
+      "rationale": "선물환 비중으로 최악 환율 손실을 제한; 입력된 손실·유동성 제약을 계산상 충족",
+      "limitations": [
+        "비용률과 분할환전 잔여 위험계수는 데모 가정입니다.",
+        "실제 가격·한도·회계 영향은 금융기관 확인이 필요합니다."
+      ],
+      "required_product_types": [
+        "FORWARD",
+        "FX_RISK_INSURANCE_REVIEW"
+      ]
+    },
+    {
+      "rank": 2,
+      "forward_ratio": "0.9",
+      "staged_conversion_ratio": "0.1",
+      "unhedged_ratio": "0",
+      "held_fx_ratio": "0.1",
+      "worst_case_loss": "807345.00",
+      "expected_loss": null,
+      "assumed_hedge_cost": "176400.00",
+      "estimated_buffer_shortfall": "0.00",
+      "liquidity_impact": "0.00",
+      "constraints_satisfied": true,
+      "acceptable_loss_exceeded": false,
+      "rationale": "선물환 비중으로 최악 환율 손실을 제한; 분할환전 비중으로 시점 집중을 완화; 입력된 손실·유동성 제약을 계산상 충족",
+      "limitations": [
+        "비용률과 분할환전 잔여 위험계수는 데모 가정입니다.",
+        "실제 가격·한도·회계 영향은 금융기관 확인이 필요합니다."
+      ],
+      "required_product_types": [
+        "FORWARD",
+        "STAGED_CONVERSION",
+        "FX_DEPOSIT",
+        "FX_RISK_INSURANCE_REVIEW"
+      ]
+    },
+    {
+      "rank": 3,
+      "forward_ratio": "0.8",
+      "staged_conversion_ratio": "0.2",
+      "unhedged_ratio": "0",
+      "held_fx_ratio": "0.1",
+      "worst_case_loss": "1425690.00",
+      "expected_loss": null,
+      "assumed_hedge_cost": "163800.00",
+      "estimated_buffer_shortfall": "0.00",
+      "liquidity_impact": "0.00",
+      "constraints_satisfied": true,
+      "acceptable_loss_exceeded": false,
+      "rationale": "선물환 비중으로 최악 환율 손실을 제한; 분할환전 비중으로 시점 집중을 완화; 입력된 손실·유동성 제약을 계산상 충족",
+      "limitations": [
+        "비용률과 분할환전 잔여 위험계수는 데모 가정입니다.",
+        "실제 가격·한도·회계 영향은 금융기관 확인이 필요합니다."
+      ],
+      "required_product_types": [
+        "FORWARD",
+        "STAGED_CONVERSION",
+        "FX_DEPOSIT",
+        "FX_RISK_INSURANCE_REVIEW"
+      ]
+    }
+  ],
+  "assumptions": [
+    "후보는 자문이 아니라 입력 가정 아래 grid 탐색한 검토안입니다.",
+    "선물환 비용률 0.15%, 분할환전 비용률 0.05%를 데모 가정으로 사용했습니다.",
+    "신규 헤지 비용은 기존 헤지·자연상계 제외 후 open exposure에만 적용했습니다.",
+    "분할환전 잔여 위험은 미헤지의 50%로 근사했습니다."
+  ],
+  "warnings": [
+    "실제 가격, 신용한도, 세무·회계 영향은 금융기관과 확인해야 합니다."
+  ]
+}

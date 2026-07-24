@@ -1,0 +1,90 @@
+{
+  "document_type": "SALES_CONTRACT",
+  "document_number": "SC-SYN-007",
+  "seller_name": "Garnet Fictional Robotics Ltd.",
+  "seller_country": "JP",
+  "buyer_name": "Mirae Sample Manufacturing Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": "USD",
+  "grand_total": "100000.00",
+  "amount_due": "100000.00",
+  "issue_date": null,
+  "contract_date": "2026-05-02",
+  "shipment_date": null,
+  "explicit_due_date": null,
+  "derived_due_date": null,
+  "payment_terms": "30% advance; 70% after acceptance",
+  "incoterm": null,
+  "installments": [
+    {
+      "sequence": 1,
+      "amount": "30000.00",
+      "currency": "USD",
+      "due_date": "2026-05-10",
+      "condition": "advance"
+    },
+    {
+      "sequence": 2,
+      "amount": "70000.00",
+      "currency": "USD",
+      "due_date": "2026-07-31",
+      "condition": "after acceptance"
+    }
+  ],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The test-only notice is printed at the top."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Garnet Fictional Robotics Ltd. (JP)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Seller label and country are explicit."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Mirae Sample Manufacturing Ltd. (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Buyer label and country are explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "Total Price / Amount Due: USD 100000.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Currency is explicit in total."
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "Total Price / Amount Due: USD 100000.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Total payable amount is explicit."
+    },
+    {
+      "field": "contract_date",
+      "page": 1,
+      "source_text": "Contract Date: 2026-05-02",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit contract date."
+    },
+    {
+      "field": "installments",
+      "page": 1,
+      "source_text": "Installment 1: USD 30000.00 due 2026-05-10; Installment 2: USD 70000.00 due 2026-07-31",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Both installments are explicit."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}

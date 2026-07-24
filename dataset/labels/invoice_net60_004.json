@@ -1,0 +1,82 @@
+{
+  "document_type": "COMMERCIAL_INVOICE",
+  "document_number": "INV-SYN-004",
+  "seller_name": "Delta Example Metals Pte. Ltd.",
+  "seller_country": "SG",
+  "buyer_name": "Incheon Demo Works Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": "SGD",
+  "grand_total": "22000.00",
+  "amount_due": "22000.00",
+  "issue_date": "2026-03-15",
+  "contract_date": null,
+  "shipment_date": "2026-03-20",
+  "explicit_due_date": null,
+  "derived_due_date": "2026-05-14",
+  "payment_terms": "NET 60",
+  "incoterm": null,
+  "installments": [],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The test-only notice is printed at the top."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Delta Example Metals Pte. Ltd. (SG)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Seller label and country are explicit."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Incheon Demo Works Ltd. (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Buyer label and country are explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "Currency: SGD",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit label."
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "Amount Due: SGD 22000.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit amount due."
+    },
+    {
+      "field": "issue_date",
+      "page": 1,
+      "source_text": "Invoice Date: 2026-03-15",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit invoice date."
+    },
+    {
+      "field": "shipment_date",
+      "page": 1,
+      "source_text": "Shipment Date: 2026-03-20",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit shipment date."
+    },
+    {
+      "field": "payment_terms",
+      "page": 1,
+      "source_text": "Payment Terms: NET 60",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Net term is explicit."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}

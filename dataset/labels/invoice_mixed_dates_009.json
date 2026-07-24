@@ -1,0 +1,89 @@
+{
+  "document_type": "COMMERCIAL_INVOICE",
+  "document_number": "INV-SYN-009",
+  "seller_name": "Ion Mock Instruments Inc.",
+  "seller_country": "US",
+  "buyer_name": "Daejeon Demo Research Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": "USD",
+  "grand_total": "16000.00",
+  "amount_due": "16000.00",
+  "issue_date": "2026-02-01",
+  "contract_date": "2026-01-15",
+  "shipment_date": "2026-02-10",
+  "explicit_due_date": "2026-03-03",
+  "derived_due_date": null,
+  "payment_terms": null,
+  "incoterm": null,
+  "installments": [],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The test-only notice is printed at the top."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Ion Mock Instruments Inc. (US)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Seller label and country are explicit."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Daejeon Demo Research Ltd. (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Buyer label and country are explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "Currency: USD",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit label."
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "Amount Due: USD 16000.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit amount due."
+    },
+    {
+      "field": "contract_date",
+      "page": 1,
+      "source_text": "Contract Date: 2026-01-15",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit contract date."
+    },
+    {
+      "field": "issue_date",
+      "page": 1,
+      "source_text": "Invoice Date: 2026-02-01",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit invoice date."
+    },
+    {
+      "field": "shipment_date",
+      "page": 1,
+      "source_text": "Shipment Date: 2026-02-10",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit shipment date."
+    },
+    {
+      "field": "explicit_due_date",
+      "page": 1,
+      "source_text": "Due Date: 2026-03-03",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit due date."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}

@@ -1,0 +1,92 @@
+{
+  "extraction": {
+    "document_type": "PURCHASE_ORDER",
+    "document_number": "PO-SYN-013",
+    "seller_name": "Maple Test Packaging Inc.",
+    "seller_country": "CA",
+    "buyer_name": "Ulsan Demo Foods Ltd.",
+    "buyer_country": "KR",
+    "company_role": "BUYER",
+    "trade_type": "IMPORT",
+    "currency": "JPY",
+    "grand_total": "5000000",
+    "amount_due": "5000000",
+    "issue_date": "2026-07-10",
+    "contract_date": null,
+    "shipment_date": "2026-08-01",
+    "explicit_due_date": "2026-09-15",
+    "derived_due_date": null,
+    "payment_terms": null,
+    "incoterm": null,
+    "installments": [],
+    "evidence": [
+      {
+        "field": "document_notice",
+        "page": 1,
+        "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "The test-only notice is printed at the top."
+      },
+      {
+        "field": "seller_name",
+        "page": 1,
+        "source_text": "Seller: Maple Test Packaging Inc. (CA)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Seller label and country are explicit."
+      },
+      {
+        "field": "buyer_name",
+        "page": 1,
+        "source_text": "Buyer: Ulsan Demo Foods Ltd. (KR)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Buyer label and country are explicit."
+      },
+      {
+        "field": "currency",
+        "page": 1,
+        "source_text": "Currency: JPY",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit label."
+      },
+      {
+        "field": "amount_due",
+        "page": 1,
+        "source_text": "Order Total / Amount Due: JPY 5000000",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit order amount."
+      },
+      {
+        "field": "issue_date",
+        "page": 1,
+        "source_text": "PO Date: 2026-07-10",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "PO Date is used as issue date."
+      },
+      {
+        "field": "shipment_date",
+        "page": 1,
+        "source_text": "Shipment Date: 2026-08-01",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit shipment date."
+      },
+      {
+        "field": "explicit_due_date",
+        "page": 1,
+        "source_text": "Due Date: 2026-09-15",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit due date."
+      }
+    ],
+    "warnings": [],
+    "missing_required_fields": [],
+    "needs_human_review": true
+  },
+  "metadata": {
+    "mode": "fixture",
+    "latency_seconds": "0",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "estimated_api_cost": "0",
+    "prompt_version": "1.2.0"
+  }
+}

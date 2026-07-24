@@ -1,0 +1,75 @@
+{
+  "document_type": "COMMERCIAL_INVOICE",
+  "document_number": "INV-SYN-001",
+  "seller_name": "Aurora Test Components LLC",
+  "seller_country": "US",
+  "buyer_name": "Han River Demo Trading Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": "USD",
+  "grand_total": "12500.00",
+  "amount_due": "12500.00",
+  "issue_date": "2026-01-05",
+  "contract_date": null,
+  "shipment_date": null,
+  "explicit_due_date": "2026-02-04",
+  "derived_due_date": null,
+  "payment_terms": null,
+  "incoterm": "CIF Busan",
+  "installments": [],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The test-only notice is printed at the top."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Aurora Test Components LLC (US)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Seller label and country are explicit."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Han River Demo Trading Ltd. (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Buyer label and country are explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "Currency: USD",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit label."
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "AMOUNT DUE: USD 12500.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit Amount Due."
+    },
+    {
+      "field": "issue_date",
+      "page": 1,
+      "source_text": "Invoice Date: 2026-01-05",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit invoice date."
+    },
+    {
+      "field": "explicit_due_date",
+      "page": 1,
+      "source_text": "Due Date: 2026-02-04",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit due date."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}

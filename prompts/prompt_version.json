@@ -1,0 +1,12 @@
+{
+  "version": "1.2.0",
+  "updated_at": "2026-07-23",
+  "schema_version": "1.0.0",
+  "purpose": "country evidence, complex Net-term abstention, and deterministic validation boundary",
+  "files": [
+    "system_prompt.md",
+    "extraction_rules.md",
+    "few_shot_examples.json",
+    "adversarial_rules.md"
+  ]
+}

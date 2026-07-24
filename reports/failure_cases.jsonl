@@ -1,0 +1,3 @@
+{"case_id": "invoice_missing_due_008", "field": "__document_pass__", "expected": true, "actual": false, "cause": "source_missing_required_data", "suggestion": "정확한 abstention으로 기록하고 사용자 보완 입력을 요구한다.", "validation_critical_codes": []}
+{"case_id": "invoice_multi_currency_010", "field": "__document_pass__", "expected": true, "actual": false, "cause": "critical_validation_failure", "suggestion": "CRITICAL 검증 오류를 해소하기 전 자동 전달을 차단한다.", "validation_critical_codes": ["MULTIPLE_CURRENCIES"]}
+{"case_id": "invoice_due_conflict_016", "field": "__document_pass__", "expected": true, "actual": false, "cause": "critical_validation_failure", "suggestion": "CRITICAL 검증 오류를 해소하기 전 자동 전달을 차단한다.", "validation_critical_codes": ["EXPLICIT_DERIVED_DUE_DATE_CONFLICT"]}

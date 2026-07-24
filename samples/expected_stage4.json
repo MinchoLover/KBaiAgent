@@ -1,0 +1,219 @@
+{
+  "schema_version": "1.0",
+  "mode": "OFFLINE_KB",
+  "query": "FORWARD FX_RISK_INSURANCE_REVIEW 선물환 환변동보험 외화예금 수출입대출 정책자금 보증상품",
+  "candidates": [
+    {
+      "product_id": "kosmes_export_funding",
+      "name": "신시장진출지원자금 등 정책자금 확인",
+      "institution": "중소벤처기업진흥공단",
+      "category": "POLICY_FINANCE",
+      "trade_types": [
+        "IMPORT",
+        "EXPORT"
+      ],
+      "keywords": [
+        "정책자금",
+        "수출입대출",
+        "신시장진출",
+        "유동성",
+        "대출"
+      ],
+      "summary": "수출기업화·글로벌화와 관련된 정책자금 후보가 안내되어 있으나, 해당 연도 공고와 기업별 요건·한도·심사 결과를 별도로 확인해야 한다.",
+      "eligibility": "unknown",
+      "approval_status": "consultation_required",
+      "target_customers": [
+        "IMPORT 거래 기업"
+      ],
+      "key_conditions": [
+        "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+      ],
+      "required_documents": [
+        "필요 서류는 제공 기관의 최신 안내에서 확인"
+      ],
+      "limitations": [
+        "자격·승인·가격·한도는 확정되지 않은 후보"
+      ],
+      "source": {
+        "title": "중소벤처기업진흥공단 정책자금 안내",
+        "url": "https://kdoctor.kosmes.or.kr/support/policy.do",
+        "verified_at": "2026-07-23",
+        "evidence_summary": "정책자금과 신시장진출지원자금 개요를 제공하는 중진공 공식 페이지"
+      },
+      "relevance_score": "4",
+      "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+      "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+      "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+    },
+    {
+      "product_id": "ksure_fx_insurance_option",
+      "name": "옵션형 환변동보험 검토",
+      "institution": "한국무역보험공사",
+      "category": "FX_RISK_INSURANCE_OPTION",
+      "trade_types": [
+        "IMPORT",
+        "EXPORT"
+      ],
+      "keywords": [
+        "옵션형",
+        "환변동보험",
+        "FX_RISK_INSURANCE_REVIEW",
+        "tail risk"
+      ],
+      "summary": "옵션형 환변동보험의 대상통화·결제방식·보험료 구조는 유형별로 다르므로 거래 방향과 통화에 맞는지 상담이 필요한 후보다.",
+      "eligibility": "unknown",
+      "approval_status": "consultation_required",
+      "target_customers": [
+        "IMPORT 거래 기업"
+      ],
+      "key_conditions": [
+        "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+      ],
+      "required_documents": [
+        "필요 서류는 제공 기관의 최신 안내에서 확인"
+      ],
+      "limitations": [
+        "자격·승인·가격·한도는 확정되지 않은 후보"
+      ],
+      "source": {
+        "title": "옵션형 환변동보험 개요",
+        "url": "https://ksure.or.kr/rh-kr/cntnts/i-264/web.do",
+        "verified_at": "2026-07-23",
+        "evidence_summary": "옵션형 환변동보험 유형과 대상통화를 설명하는 한국무역보험공사 공식 페이지"
+      },
+      "relevance_score": "4",
+      "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+      "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+      "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+    },
+    {
+      "product_id": "kb_star_fx_forward",
+      "name": "은행 선물환·외환스왑 상담",
+      "institution": "KB국민은행",
+      "category": "FORWARD",
+      "trade_types": [
+        "IMPORT",
+        "EXPORT"
+      ],
+      "keywords": [
+        "선물환",
+        "FORWARD",
+        "외환스왑",
+        "환헤지",
+        "STAGED_CONVERSION"
+      ],
+      "summary": "기업 외환거래 서비스에서 선물환·외환스왑은 영업점 방문과 한도 심사가 필요한 것으로 안내된다. 가격·한도·적합성은 은행 상담으로 확인해야 한다.",
+      "eligibility": "unknown",
+      "approval_status": "consultation_required",
+      "target_customers": [
+        "IMPORT 거래 기업"
+      ],
+      "key_conditions": [
+        "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+      ],
+      "required_documents": [
+        "필요 서류는 제공 기관의 최신 안내에서 확인"
+      ],
+      "limitations": [
+        "자격·승인·가격·한도는 확정되지 않은 후보"
+      ],
+      "source": {
+        "title": "KB Star FX 서비스 안내",
+        "url": "https://fx.kbstar.com/quics?page=C110657",
+        "verified_at": "2026-07-23",
+        "evidence_summary": "선물환·외환스왑의 영업점 방문 및 한도 심사 필요성을 안내하는 공식 페이지"
+      },
+      "relevance_score": "4",
+      "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+      "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+      "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+    },
+    {
+      "product_id": "ksure_fx_insurance_general",
+      "name": "환변동보험 검토",
+      "institution": "한국무역보험공사",
+      "category": "FX_RISK_INSURANCE",
+      "trade_types": [
+        "IMPORT",
+        "EXPORT"
+      ],
+      "keywords": [
+        "환변동보험",
+        "환율",
+        "보험",
+        "FX_RISK_INSURANCE_REVIEW",
+        "수출",
+        "수입"
+      ],
+      "summary": "수출 또는 수입 과정의 환차손익을 관리하고 원화 기준 미래 현금흐름 확정을 돕는 환헤지 제도 후보다. 실제 외화 매매와 보험 차액정산은 구분되며 세부 이용요건은 기관 확인이 필요하다.",
+      "eligibility": "unknown",
+      "approval_status": "consultation_required",
+      "target_customers": [
+        "IMPORT 거래 기업"
+      ],
+      "key_conditions": [
+        "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+      ],
+      "required_documents": [
+        "필요 서류는 제공 기관의 최신 안내에서 확인"
+      ],
+      "limitations": [
+        "자격·승인·가격·한도는 확정되지 않은 후보"
+      ],
+      "source": {
+        "title": "환변동보험 개요",
+        "url": "https://www.ksure.or.kr/rh-fx/cntnts/i-513/web.do",
+        "verified_at": "2026-07-23",
+        "evidence_summary": "한국무역보험공사가 환변동보험의 목적과 차액정산 구조를 설명하는 공식 페이지"
+      },
+      "relevance_score": "4",
+      "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+      "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+      "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+    },
+    {
+      "product_id": "kb_fx_deposit",
+      "name": "수출입기업 외화예금 상담",
+      "institution": "KB국민은행",
+      "category": "FX_DEPOSIT",
+      "trade_types": [
+        "IMPORT",
+        "EXPORT"
+      ],
+      "keywords": [
+        "외화예금",
+        "FX_DEPOSIT",
+        "STAGED_CONVERSION",
+        "보유외화"
+      ],
+      "summary": "외화 입출금과 환전 시 환율변동 손익·수수료가 발생할 수 있는 외화예금 후보다. 현재 제공 조건과 수수료는 은행에서 다시 확인해야 한다.",
+      "eligibility": "unknown",
+      "approval_status": "consultation_required",
+      "target_customers": [
+        "IMPORT 거래 기업"
+      ],
+      "key_conditions": [
+        "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+      ],
+      "required_documents": [
+        "필요 서류는 제공 기관의 최신 안내에서 확인"
+      ],
+      "limitations": [
+        "자격·승인·가격·한도는 확정되지 않은 후보"
+      ],
+      "source": {
+        "title": "수출입기업 외화예금 안내",
+        "url": "https://img2.kbstar.com/obj/ocommon/kb20210405.pdf",
+        "verified_at": "2026-07-23",
+        "evidence_summary": "수출입기업 대상 외화예금과 환율변동 유의사항을 담은 은행 공식 PDF"
+      },
+      "relevance_score": "3",
+      "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+      "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+      "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+    }
+  ],
+  "warnings": [
+    "자격·승인·금리·한도는 확정하지 않았으며 기관 상담이 필요합니다."
+  ]
+}

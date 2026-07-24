@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "as_of_date": "2026-07-23",
+  "exposures": [
+    {
+      "sequence": 1,
+      "trade_type": "IMPORT",
+      "currency": "USD",
+      "foreign_amount": "100000.00",
+      "settlement_date": "2026-10-18",
+      "usable_fx_balance": "10000.00",
+      "same_currency_flows": [],
+      "existing_hedge": null
+    }
+  ],
+  "current_krw_cash": "200000000",
+  "minimum_cash_buffer": "50000000",
+  "credit_limit": "30000000",
+  "acceptable_fx_loss": "10000000",
+  "krw_cashflows": [
+    {
+      "date": "2026-08-31",
+      "amount": "30000000",
+      "direction": "INFLOW",
+      "category": "REVENUE",
+      "description": "예정 매출 입금"
+    },
+    {
+      "date": "2026-09-30",
+      "amount": "20000000",
+      "direction": "OUTFLOW",
+      "category": "COST",
+      "description": "예정 운영비"
+    }
+  ],
+  "bank_spread_bps": "15",
+  "bank_fee": "50000",
+  "composite_stress": {
+    "revenue_reduction_percent": "0",
+    "revenue_delay_days": 0,
+    "cost_increase_percent": "0"
+  }
+}

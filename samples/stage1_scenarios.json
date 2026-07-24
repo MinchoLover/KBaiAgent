@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "currency": "USD",
+  "quote_convention": "KRW_PER_1_FC",
+  "rate_unit_foreign_currency": "1",
+  "as_of": "2026-07-23T23:58:28.421029+09:00",
+  "target_date": "2026-10-18",
+  "kind": "STRESS",
+  "scenarios": [
+    {
+      "name": "STRESS_-10.00PCT",
+      "rate": "1260.00",
+      "is_base": false,
+      "probability": null
+    },
+    {
+      "name": "STRESS_-5.00PCT",
+      "rate": "1330.00",
+      "is_base": false,
+      "probability": null
+    },
+    {
+      "name": "STRESS_-3.00PCT",
+      "rate": "1358.00",
+      "is_base": false,
+      "probability": null
+    },
+    {
+      "name": "BASE",
+      "rate": "1400",
+      "is_base": true,
+      "probability": null
+    },
+    {
+      "name": "STRESS_+3.00PCT",
+      "rate": "1442.00",
+      "is_base": false,
+      "probability": null
+    },
+    {
+      "name": "STRESS_+5.00PCT",
+      "rate": "1470.00",
+      "is_base": false,
+      "probability": null
+    },
+    {
+      "name": "STRESS_+10.00PCT",
+      "rate": "1540.00",
+      "is_base": false,
+      "probability": null
+    }
+  ],
+  "probability_valid": false,
+  "application_rule": "Stage 1 target_date가 거래 settlement_date와 일치하여 직접 적용",
+  "warnings": []
+}

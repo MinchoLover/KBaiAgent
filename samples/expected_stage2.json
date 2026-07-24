@@ -1,0 +1,518 @@
+{
+  "schema_version": "1.0",
+  "status": "CALCULATION",
+  "trade_type": "IMPORT",
+  "currency": "USD",
+  "total_foreign_amount": "100000.00",
+  "natural_offset": "10000.00",
+  "held_fx_used": "10000.00",
+  "same_currency_offset": "0",
+  "hedged_amount": "0",
+  "open_exposure": "90000.00",
+  "base_required_or_proceeds_krw": "126239000.00",
+  "comparison_basis": "BASE scenario total KRW outflow",
+  "exposure_computations": [
+    {
+      "sequence": 1,
+      "trade_type": "IMPORT",
+      "foreign_amount": "100000.00",
+      "natural_offset": "10000.00",
+      "held_fx_used": "10000.00",
+      "same_currency_offset": "0",
+      "hedged_amount": "0",
+      "open_exposure": "90000.00",
+      "settlement_date": "2026-10-18"
+    }
+  ],
+  "scenario_results": [
+    {
+      "scenario_name": "STRESS_-10.00PCT",
+      "scenario_kind": "STRESS",
+      "probability": null,
+      "scenario_rate": "1260.00",
+      "applied_rate": "1261.890000",
+      "fx_krw_inflow": "0.00",
+      "fx_krw_outflow": "113620100.00",
+      "loss_vs_base": "-12618900.00",
+      "ending_cash": "96379900.00",
+      "minimum_cash": "96379900.00",
+      "first_buffer_shortfall_date": null,
+      "maximum_buffer_shortfall": "0.00",
+      "cash_deficit": "0.00",
+      "post_credit_shortfall": "0.00",
+      "acceptable_loss_exceeded": false,
+      "ledger": [
+        {
+          "date": "2026-08-31",
+          "scenario": "STRESS_-10.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 매출 입금"
+          ],
+          "krw_inflow": "30000000.00",
+          "krw_outflow": "0.00",
+          "balance": "230000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-09-30",
+          "scenario": "STRESS_-10.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 운영비"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "20000000.00",
+          "balance": "210000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-10-18",
+          "scenario": "STRESS_-10.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "수입 결제 #1 (unhedged+hedged+fee)"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "113620100.00",
+          "balance": "96379900.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        }
+      ]
+    },
+    {
+      "scenario_name": "STRESS_-5.00PCT",
+      "scenario_kind": "STRESS",
+      "probability": null,
+      "scenario_rate": "1330.00",
+      "applied_rate": "1331.995000",
+      "fx_krw_inflow": "0.00",
+      "fx_krw_outflow": "119929550.00",
+      "loss_vs_base": "-6309450.00",
+      "ending_cash": "90070450.00",
+      "minimum_cash": "90070450.00",
+      "first_buffer_shortfall_date": null,
+      "maximum_buffer_shortfall": "0.00",
+      "cash_deficit": "0.00",
+      "post_credit_shortfall": "0.00",
+      "acceptable_loss_exceeded": false,
+      "ledger": [
+        {
+          "date": "2026-08-31",
+          "scenario": "STRESS_-5.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 매출 입금"
+          ],
+          "krw_inflow": "30000000.00",
+          "krw_outflow": "0.00",
+          "balance": "230000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-09-30",
+          "scenario": "STRESS_-5.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 운영비"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "20000000.00",
+          "balance": "210000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-10-18",
+          "scenario": "STRESS_-5.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "수입 결제 #1 (unhedged+hedged+fee)"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "119929550.00",
+          "balance": "90070450.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        }
+      ]
+    },
+    {
+      "scenario_name": "STRESS_-3.00PCT",
+      "scenario_kind": "STRESS",
+      "probability": null,
+      "scenario_rate": "1358.00",
+      "applied_rate": "1360.037000",
+      "fx_krw_inflow": "0.00",
+      "fx_krw_outflow": "122453330.00",
+      "loss_vs_base": "-3785670.00",
+      "ending_cash": "87546670.00",
+      "minimum_cash": "87546670.00",
+      "first_buffer_shortfall_date": null,
+      "maximum_buffer_shortfall": "0.00",
+      "cash_deficit": "0.00",
+      "post_credit_shortfall": "0.00",
+      "acceptable_loss_exceeded": false,
+      "ledger": [
+        {
+          "date": "2026-08-31",
+          "scenario": "STRESS_-3.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 매출 입금"
+          ],
+          "krw_inflow": "30000000.00",
+          "krw_outflow": "0.00",
+          "balance": "230000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-09-30",
+          "scenario": "STRESS_-3.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 운영비"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "20000000.00",
+          "balance": "210000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-10-18",
+          "scenario": "STRESS_-3.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "수입 결제 #1 (unhedged+hedged+fee)"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "122453330.00",
+          "balance": "87546670.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        }
+      ]
+    },
+    {
+      "scenario_name": "BASE",
+      "scenario_kind": "STRESS",
+      "probability": null,
+      "scenario_rate": "1400",
+      "applied_rate": "1402.1000",
+      "fx_krw_inflow": "0.00",
+      "fx_krw_outflow": "126239000.00",
+      "loss_vs_base": "0.00",
+      "ending_cash": "83761000.00",
+      "minimum_cash": "83761000.00",
+      "first_buffer_shortfall_date": null,
+      "maximum_buffer_shortfall": "0.00",
+      "cash_deficit": "0.00",
+      "post_credit_shortfall": "0.00",
+      "acceptable_loss_exceeded": false,
+      "ledger": [
+        {
+          "date": "2026-08-31",
+          "scenario": "BASE",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 매출 입금"
+          ],
+          "krw_inflow": "30000000.00",
+          "krw_outflow": "0.00",
+          "balance": "230000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-09-30",
+          "scenario": "BASE",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 운영비"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "20000000.00",
+          "balance": "210000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-10-18",
+          "scenario": "BASE",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "수입 결제 #1 (unhedged+hedged+fee)"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "126239000.00",
+          "balance": "83761000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        }
+      ]
+    },
+    {
+      "scenario_name": "STRESS_+3.00PCT",
+      "scenario_kind": "STRESS",
+      "probability": null,
+      "scenario_rate": "1442.00",
+      "applied_rate": "1444.163000",
+      "fx_krw_inflow": "0.00",
+      "fx_krw_outflow": "130024670.00",
+      "loss_vs_base": "3785670.00",
+      "ending_cash": "79975330.00",
+      "minimum_cash": "79975330.00",
+      "first_buffer_shortfall_date": null,
+      "maximum_buffer_shortfall": "0.00",
+      "cash_deficit": "0.00",
+      "post_credit_shortfall": "0.00",
+      "acceptable_loss_exceeded": false,
+      "ledger": [
+        {
+          "date": "2026-08-31",
+          "scenario": "STRESS_+3.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 매출 입금"
+          ],
+          "krw_inflow": "30000000.00",
+          "krw_outflow": "0.00",
+          "balance": "230000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-09-30",
+          "scenario": "STRESS_+3.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 운영비"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "20000000.00",
+          "balance": "210000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-10-18",
+          "scenario": "STRESS_+3.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "수입 결제 #1 (unhedged+hedged+fee)"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "130024670.00",
+          "balance": "79975330.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        }
+      ]
+    },
+    {
+      "scenario_name": "STRESS_+5.00PCT",
+      "scenario_kind": "STRESS",
+      "probability": null,
+      "scenario_rate": "1470.00",
+      "applied_rate": "1472.205000",
+      "fx_krw_inflow": "0.00",
+      "fx_krw_outflow": "132548450.00",
+      "loss_vs_base": "6309450.00",
+      "ending_cash": "77451550.00",
+      "minimum_cash": "77451550.00",
+      "first_buffer_shortfall_date": null,
+      "maximum_buffer_shortfall": "0.00",
+      "cash_deficit": "0.00",
+      "post_credit_shortfall": "0.00",
+      "acceptable_loss_exceeded": false,
+      "ledger": [
+        {
+          "date": "2026-08-31",
+          "scenario": "STRESS_+5.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 매출 입금"
+          ],
+          "krw_inflow": "30000000.00",
+          "krw_outflow": "0.00",
+          "balance": "230000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-09-30",
+          "scenario": "STRESS_+5.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 운영비"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "20000000.00",
+          "balance": "210000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-10-18",
+          "scenario": "STRESS_+5.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "수입 결제 #1 (unhedged+hedged+fee)"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "132548450.00",
+          "balance": "77451550.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        }
+      ]
+    },
+    {
+      "scenario_name": "STRESS_+10.00PCT",
+      "scenario_kind": "STRESS",
+      "probability": null,
+      "scenario_rate": "1540.00",
+      "applied_rate": "1542.310000",
+      "fx_krw_inflow": "0.00",
+      "fx_krw_outflow": "138857900.00",
+      "loss_vs_base": "12618900.00",
+      "ending_cash": "71142100.00",
+      "minimum_cash": "71142100.00",
+      "first_buffer_shortfall_date": null,
+      "maximum_buffer_shortfall": "0.00",
+      "cash_deficit": "0.00",
+      "post_credit_shortfall": "0.00",
+      "acceptable_loss_exceeded": true,
+      "ledger": [
+        {
+          "date": "2026-08-31",
+          "scenario": "STRESS_+10.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 매출 입금"
+          ],
+          "krw_inflow": "30000000.00",
+          "krw_outflow": "0.00",
+          "balance": "230000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-09-30",
+          "scenario": "STRESS_+10.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "예정 운영비"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "20000000.00",
+          "balance": "210000000.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        },
+        {
+          "date": "2026-10-18",
+          "scenario": "STRESS_+10.00PCT",
+          "source_status": "CALCULATION",
+          "descriptions": [
+            "수입 결제 #1 (unhedged+hedged+fee)"
+          ],
+          "krw_inflow": "0.00",
+          "krw_outflow": "138857900.00",
+          "balance": "71142100.00",
+          "buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00"
+        }
+      ]
+    }
+  ],
+  "expected_adverse_loss": null,
+  "buffer_shortfall_probability": null,
+  "cash_deficit_probability": null,
+  "assumptions": [
+    "환율은 KRW_PER_1_FC 기준입니다.",
+    "수동 시나리오는 예측이 아니라 스트레스 가정입니다.",
+    "기존 헤지는 open exposure에서 제외하되 실제 KRW 현금흐름에는 포함했습니다.",
+    "원화 현금흐름은 날짜 단위로 합산한 뒤 잔고를 계산했습니다."
+  ],
+  "warnings": [],
+  "stage3_constraints": {
+    "open_exposure": "90000.00",
+    "held_fx_used": "10000.00",
+    "base_rate": "1400",
+    "acceptable_fx_loss": "10000000",
+    "minimum_cash_buffer": "50000000",
+    "probability_valid": false,
+    "scenarios": [
+      {
+        "name": "STRESS_-10.00PCT",
+        "loss_vs_base": "-12618900.00",
+        "maximum_buffer_shortfall": "0.00",
+        "probability": null
+      },
+      {
+        "name": "STRESS_-5.00PCT",
+        "loss_vs_base": "-6309450.00",
+        "maximum_buffer_shortfall": "0.00",
+        "probability": null
+      },
+      {
+        "name": "STRESS_-3.00PCT",
+        "loss_vs_base": "-3785670.00",
+        "maximum_buffer_shortfall": "0.00",
+        "probability": null
+      },
+      {
+        "name": "BASE",
+        "loss_vs_base": "0.00",
+        "maximum_buffer_shortfall": "0.00",
+        "probability": null
+      },
+      {
+        "name": "STRESS_+3.00PCT",
+        "loss_vs_base": "3785670.00",
+        "maximum_buffer_shortfall": "0.00",
+        "probability": null
+      },
+      {
+        "name": "STRESS_+5.00PCT",
+        "loss_vs_base": "6309450.00",
+        "maximum_buffer_shortfall": "0.00",
+        "probability": null
+      },
+      {
+        "name": "STRESS_+10.00PCT",
+        "loss_vs_base": "12618900.00",
+        "maximum_buffer_shortfall": "0.00",
+        "probability": null
+      }
+    ]
+  }
+}

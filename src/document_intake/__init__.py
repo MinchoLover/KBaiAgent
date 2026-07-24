@@ -1,0 +1,1 @@
+"""Multimodal document intake boundary."""

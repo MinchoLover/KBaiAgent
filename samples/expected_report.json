@@ -1,0 +1,1151 @@
+{
+  "schema_version": "1.0",
+  "status": "DETERMINISTIC_FALLBACK",
+  "markdown": "# 환율·현금흐름 리스크 검토 보고서\n\n## 1. 거래 요약\n\n- 거래 방향: IMPORT [source: stage2.trade_type]\n- 거래 통화: USD [source: stage2.currency]\n- 거래 외화금액: 100000.00 [source: stage2.total_foreign_amount]\n- 결제 확인값: 2026-10-18 [source: stage0.confirmation.confirmed_values.settlement_date]\n\n## 2. 데이터 출처와 사용자 확인 여부\n\n문서 파일 `sample_invoice.png`의 fingerprint를 기록했습니다. [source: stage0.confirmation.source_filename]\n통화·금액·결제일 확인과 확인시각이 기록되었습니다. [source: stage0.confirmation.checks]\n\n## 3. 환율 시나리오 성격\n\n수동 환율 값은 예측이 아니라 스트레스 가정입니다. 적용 규칙: Stage 1 target_date가 거래 settlement_date와 일치하여 직접 적용 [source: stage1.kind] [source: stage1.application_rule]\n\n## 4. 현금흐름 영향\n\n- BASE 필요/수취 원화: 126239000.00 [source: stage2.base_required_or_proceeds_krw]\n- 최악 손실 시나리오: STRESS_+10.00PCT [source: stage2.scenario_results]\n- BASE 대비 손실: 12618900.00 [source: stage2.scenario_results]\n- 결제 후 잔고: 71142100.00 [source: stage2.scenario_results]\n\n## 5. 위험 경보\n\n- 최초 최소운영자금 부족일: 없음 [source: stage2.scenario_results]\n- 최대 최소운영자금 부족액: 0.00 [source: stage2.scenario_results]\n- 대출한도 반영 후 부족액: 0.00 [source: stage2.scenario_results]\n\n## 6. 전략 후보\n\n- 후보 1: 선물환 1 · 분할환전 0 · 미헤지 0 · 최악손실 189000.00 · 비용가정 189000.00 · 제약 충족. 선물환 비중으로 최악 환율 손실을 제한; 입력된 손실·유동성 제약을 계산상 충족 [source: stage3.candidates.0]\n- 후보 2: 선물환 0.9 · 분할환전 0.1 · 미헤지 0 · 최악손실 807345.00 · 비용가정 176400.00 · 제약 충족. 선물환 비중으로 최악 환율 손실을 제한; 분할환전 비중으로 시점 집중을 완화; 입력된 손실·유동성 제약을 계산상 충족 [source: stage3.candidates.1]\n- 후보 3: 선물환 0.8 · 분할환전 0.2 · 미헤지 0 · 최악손실 1425690.00 · 비용가정 163800.00 · 제약 충족. 선물환 비중으로 최악 환율 손실을 제한; 분할환전 비중으로 시점 집중을 완화; 입력된 손실·유동성 제약을 계산상 충족 [source: stage3.candidates.2]\n\n위 후보는 확정 자문이 아니라 입력 가정 아래 계산된 검토안입니다.\n[source: stage3.status]\n\n## 7. 금융상품·제도 후보와 출처\n\n- 신시장진출지원자금 등 정책자금 확인 — 중소벤처기업진흥공단 ([공식 출처](https://kdoctor.kosmes.or.kr/support/policy.do)); 자격·승인 조건은 상담 필요 [source: stage4.candidates.0]\n- 옵션형 환변동보험 검토 — 한국무역보험공사 ([공식 출처](https://ksure.or.kr/rh-kr/cntnts/i-264/web.do)); 자격·승인 조건은 상담 필요 [source: stage4.candidates.1]\n- 은행 선물환·외환스왑 상담 — KB국민은행 ([공식 출처](https://fx.kbstar.com/quics?page=C110657)); 자격·승인 조건은 상담 필요 [source: stage4.candidates.2]\n- 환변동보험 검토 — 한국무역보험공사 ([공식 출처](https://www.ksure.or.kr/rh-fx/cntnts/i-513/web.do)); 자격·승인 조건은 상담 필요 [source: stage4.candidates.3]\n- 수출입기업 외화예금 상담 — KB국민은행 ([공식 출처](https://img2.kbstar.com/obj/ocommon/kb20210405.pdf)); 자격·승인 조건은 상담 필요 [source: stage4.candidates.4]\n\n## 8. 필요한 추가 정보\n\n- 실제 은행 스프레드·수수료와 선물환 견적\n- 기관별 최신 자격·한도·신청기간\n- 확정된 원화 입출금 일정과 기존 헤지 계약서\n\n## 9. 은행 상담 시 질문 목록\n\n- 결제일과 통화 기준으로 가능한 선물환 한도와 전체 비용은 무엇인가?\n- 중도 변경·조기결제·over-hedge 발생 시 조건은 무엇인가?\n- 외화예금 및 환변동보험과 조합할 때 중복 노출은 없는가?\n\n## 10. 가정·한계·면책\n\n본 결과는 제공된 입력의 결정론적 계산과 공식자료 후보 정리이며 금융자문·승인·보장을\n의미하지 않습니다. 실제 거래 전 은행·보험기관·전문가 확인이 필요합니다.",
+  "report_json": {
+    "stage0": {
+      "extraction": {
+        "document_type": "COMMERCIAL_INVOICE",
+        "document_number": "INV-DEMO-2026-001",
+        "seller_name": "Northstar Demo Components Inc.",
+        "seller_country": "US",
+        "buyer_name": "Han River Demo Imports Ltd.",
+        "buyer_country": "KR",
+        "company_role": "BUYER",
+        "trade_type": "IMPORT",
+        "currency": "USD",
+        "grand_total": "100000.00",
+        "amount_due": "100000.00",
+        "issue_date": "2026-07-20",
+        "contract_date": null,
+        "shipment_date": "2026-07-25",
+        "explicit_due_date": null,
+        "derived_due_date": "2026-10-18",
+        "payment_terms": "Net 90 Days",
+        "incoterm": "FOB Busan",
+        "installments": [],
+        "evidence": [
+          {
+            "field": "document_notice",
+            "page": 1,
+            "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+            "extraction_type": "EXPLICIT",
+            "confidence_reason": "The test-only notice is printed at the top."
+          },
+          {
+            "field": "seller_name",
+            "page": 1,
+            "source_text": "Seller: Northstar Demo Components Inc. (US)",
+            "extraction_type": "EXPLICIT",
+            "confidence_reason": "Seller label is explicit."
+          },
+          {
+            "field": "buyer_name",
+            "page": 1,
+            "source_text": "Buyer: Han River Demo Imports Ltd. (KR)",
+            "extraction_type": "EXPLICIT",
+            "confidence_reason": "Buyer label is explicit."
+          },
+          {
+            "field": "amount_due",
+            "page": 1,
+            "source_text": "BALANCE DUE: USD 100000.00",
+            "extraction_type": "EXPLICIT",
+            "confidence_reason": "Balance Due is explicitly labeled."
+          },
+          {
+            "field": "currency",
+            "page": 1,
+            "source_text": "Currency: USD",
+            "extraction_type": "EXPLICIT",
+            "confidence_reason": "Currency label is explicit."
+          },
+          {
+            "field": "issue_date",
+            "page": 1,
+            "source_text": "Invoice Date: 2026-07-20",
+            "extraction_type": "EXPLICIT",
+            "confidence_reason": "Invoice Date is explicit."
+          },
+          {
+            "field": "payment_terms",
+            "page": 1,
+            "source_text": "Payment Terms: Net 90 Days",
+            "extraction_type": "EXPLICIT",
+            "confidence_reason": "Net term is explicit."
+          }
+        ],
+        "warnings": [],
+        "missing_required_fields": [],
+        "needs_human_review": true
+      },
+      "confirmation": {
+        "source_filename": "sample_invoice.png",
+        "source_sha256": "842a8b5981026f6f426763065c97aa721661934db6fc0e758855d311a346860d",
+        "confirmed_at": "2026-07-23T09:00:00+09:00",
+        "company_role": "BUYER",
+        "original_values": {
+          "document_type": "COMMERCIAL_INVOICE",
+          "document_number": "INV-DEMO-2026-001",
+          "seller_name": "Northstar Demo Components Inc.",
+          "seller_country": "US",
+          "buyer_name": "Han River Demo Imports Ltd.",
+          "buyer_country": "KR",
+          "company_role": "BUYER",
+          "trade_type": "IMPORT",
+          "currency": "USD",
+          "grand_total": "100000.00",
+          "amount_due": "100000.00",
+          "issue_date": "2026-07-20",
+          "contract_date": null,
+          "shipment_date": "2026-07-25",
+          "explicit_due_date": null,
+          "derived_due_date": "2026-10-18",
+          "payment_terms": "Net 90 Days",
+          "incoterm": "FOB Busan",
+          "installments": [],
+          "evidence": [
+            {
+              "field": "document_notice",
+              "page": 1,
+              "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "The test-only notice is printed at the top."
+            },
+            {
+              "field": "seller_name",
+              "page": 1,
+              "source_text": "Seller: Northstar Demo Components Inc. (US)",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Seller label is explicit."
+            },
+            {
+              "field": "buyer_name",
+              "page": 1,
+              "source_text": "Buyer: Han River Demo Imports Ltd. (KR)",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Buyer label is explicit."
+            },
+            {
+              "field": "amount_due",
+              "page": 1,
+              "source_text": "BALANCE DUE: USD 100000.00",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Balance Due is explicitly labeled."
+            },
+            {
+              "field": "currency",
+              "page": 1,
+              "source_text": "Currency: USD",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Currency label is explicit."
+            },
+            {
+              "field": "issue_date",
+              "page": 1,
+              "source_text": "Invoice Date: 2026-07-20",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Invoice Date is explicit."
+            },
+            {
+              "field": "payment_terms",
+              "page": 1,
+              "source_text": "Payment Terms: Net 90 Days",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Net term is explicit."
+            }
+          ],
+          "warnings": [],
+          "missing_required_fields": [],
+          "needs_human_review": true,
+          "installment_due_dates": []
+        },
+        "confirmed_values": {
+          "document_type": "COMMERCIAL_INVOICE",
+          "document_number": "INV-DEMO-2026-001",
+          "seller_name": "Northstar Demo Components Inc.",
+          "seller_country": "US",
+          "buyer_name": "Han River Demo Imports Ltd.",
+          "buyer_country": "KR",
+          "company_role": "BUYER",
+          "trade_type": "IMPORT",
+          "currency": "USD",
+          "grand_total": "100000.00",
+          "amount_due": "100000.00",
+          "issue_date": "2026-07-20",
+          "contract_date": null,
+          "shipment_date": "2026-07-25",
+          "explicit_due_date": null,
+          "derived_due_date": "2026-10-18",
+          "payment_terms": "Net 90 Days",
+          "incoterm": "FOB Busan",
+          "installments": [],
+          "evidence": [
+            {
+              "field": "document_notice",
+              "page": 1,
+              "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "The test-only notice is printed at the top."
+            },
+            {
+              "field": "seller_name",
+              "page": 1,
+              "source_text": "Seller: Northstar Demo Components Inc. (US)",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Seller label is explicit."
+            },
+            {
+              "field": "buyer_name",
+              "page": 1,
+              "source_text": "Buyer: Han River Demo Imports Ltd. (KR)",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Buyer label is explicit."
+            },
+            {
+              "field": "amount_due",
+              "page": 1,
+              "source_text": "BALANCE DUE: USD 100000.00",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Balance Due is explicitly labeled."
+            },
+            {
+              "field": "currency",
+              "page": 1,
+              "source_text": "Currency: USD",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Currency label is explicit."
+            },
+            {
+              "field": "issue_date",
+              "page": 1,
+              "source_text": "Invoice Date: 2026-07-20",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Invoice Date is explicit."
+            },
+            {
+              "field": "payment_terms",
+              "page": 1,
+              "source_text": "Payment Terms: Net 90 Days",
+              "extraction_type": "EXPLICIT",
+              "confidence_reason": "Net term is explicit."
+            }
+          ],
+          "warnings": [],
+          "missing_required_fields": [],
+          "needs_human_review": true,
+          "settlement_date": "2026-10-18",
+          "installment_due_dates": []
+        },
+        "checks": {
+          "currency_confirmed": true,
+          "amount_due_confirmed": true,
+          "due_date_confirmed": true,
+          "confirmed_due_date": "2026-10-18",
+          "confirmed_by": "offline-demo",
+          "confirmed_at": "2026-07-23T09:00:00+09:00"
+        }
+      }
+    },
+    "stage1": {
+      "schema_version": "1.0",
+      "currency": "USD",
+      "quote_convention": "KRW_PER_1_FC",
+      "rate_unit_foreign_currency": "1",
+      "as_of": "2026-07-23T23:58:28.421029+09:00",
+      "target_date": "2026-10-18",
+      "kind": "STRESS",
+      "scenarios": [
+        {
+          "name": "STRESS_-10.00PCT",
+          "rate": "1260.00",
+          "is_base": false,
+          "probability": null
+        },
+        {
+          "name": "STRESS_-5.00PCT",
+          "rate": "1330.00",
+          "is_base": false,
+          "probability": null
+        },
+        {
+          "name": "STRESS_-3.00PCT",
+          "rate": "1358.00",
+          "is_base": false,
+          "probability": null
+        },
+        {
+          "name": "BASE",
+          "rate": "1400",
+          "is_base": true,
+          "probability": null
+        },
+        {
+          "name": "STRESS_+3.00PCT",
+          "rate": "1442.00",
+          "is_base": false,
+          "probability": null
+        },
+        {
+          "name": "STRESS_+5.00PCT",
+          "rate": "1470.00",
+          "is_base": false,
+          "probability": null
+        },
+        {
+          "name": "STRESS_+10.00PCT",
+          "rate": "1540.00",
+          "is_base": false,
+          "probability": null
+        }
+      ],
+      "probability_valid": false,
+      "application_rule": "Stage 1 target_date가 거래 settlement_date와 일치하여 직접 적용",
+      "warnings": []
+    },
+    "stage2": {
+      "schema_version": "1.0",
+      "status": "CALCULATION",
+      "trade_type": "IMPORT",
+      "currency": "USD",
+      "total_foreign_amount": "100000.00",
+      "natural_offset": "10000.00",
+      "held_fx_used": "10000.00",
+      "same_currency_offset": "0",
+      "hedged_amount": "0",
+      "open_exposure": "90000.00",
+      "base_required_or_proceeds_krw": "126239000.00",
+      "comparison_basis": "BASE scenario total KRW outflow",
+      "exposure_computations": [
+        {
+          "sequence": 1,
+          "trade_type": "IMPORT",
+          "foreign_amount": "100000.00",
+          "natural_offset": "10000.00",
+          "held_fx_used": "10000.00",
+          "same_currency_offset": "0",
+          "hedged_amount": "0",
+          "open_exposure": "90000.00",
+          "settlement_date": "2026-10-18"
+        }
+      ],
+      "scenario_results": [
+        {
+          "scenario_name": "STRESS_-10.00PCT",
+          "scenario_kind": "STRESS",
+          "probability": null,
+          "scenario_rate": "1260.00",
+          "applied_rate": "1261.890000",
+          "fx_krw_inflow": "0.00",
+          "fx_krw_outflow": "113620100.00",
+          "loss_vs_base": "-12618900.00",
+          "ending_cash": "96379900.00",
+          "minimum_cash": "96379900.00",
+          "first_buffer_shortfall_date": null,
+          "maximum_buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00",
+          "acceptable_loss_exceeded": false,
+          "ledger": [
+            {
+              "date": "2026-08-31",
+              "scenario": "STRESS_-10.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 매출 입금"
+              ],
+              "krw_inflow": "30000000.00",
+              "krw_outflow": "0.00",
+              "balance": "230000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-09-30",
+              "scenario": "STRESS_-10.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 운영비"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "20000000.00",
+              "balance": "210000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-10-18",
+              "scenario": "STRESS_-10.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "수입 결제 #1 (unhedged+hedged+fee)"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "113620100.00",
+              "balance": "96379900.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            }
+          ]
+        },
+        {
+          "scenario_name": "STRESS_-5.00PCT",
+          "scenario_kind": "STRESS",
+          "probability": null,
+          "scenario_rate": "1330.00",
+          "applied_rate": "1331.995000",
+          "fx_krw_inflow": "0.00",
+          "fx_krw_outflow": "119929550.00",
+          "loss_vs_base": "-6309450.00",
+          "ending_cash": "90070450.00",
+          "minimum_cash": "90070450.00",
+          "first_buffer_shortfall_date": null,
+          "maximum_buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00",
+          "acceptable_loss_exceeded": false,
+          "ledger": [
+            {
+              "date": "2026-08-31",
+              "scenario": "STRESS_-5.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 매출 입금"
+              ],
+              "krw_inflow": "30000000.00",
+              "krw_outflow": "0.00",
+              "balance": "230000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-09-30",
+              "scenario": "STRESS_-5.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 운영비"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "20000000.00",
+              "balance": "210000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-10-18",
+              "scenario": "STRESS_-5.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "수입 결제 #1 (unhedged+hedged+fee)"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "119929550.00",
+              "balance": "90070450.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            }
+          ]
+        },
+        {
+          "scenario_name": "STRESS_-3.00PCT",
+          "scenario_kind": "STRESS",
+          "probability": null,
+          "scenario_rate": "1358.00",
+          "applied_rate": "1360.037000",
+          "fx_krw_inflow": "0.00",
+          "fx_krw_outflow": "122453330.00",
+          "loss_vs_base": "-3785670.00",
+          "ending_cash": "87546670.00",
+          "minimum_cash": "87546670.00",
+          "first_buffer_shortfall_date": null,
+          "maximum_buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00",
+          "acceptable_loss_exceeded": false,
+          "ledger": [
+            {
+              "date": "2026-08-31",
+              "scenario": "STRESS_-3.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 매출 입금"
+              ],
+              "krw_inflow": "30000000.00",
+              "krw_outflow": "0.00",
+              "balance": "230000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-09-30",
+              "scenario": "STRESS_-3.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 운영비"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "20000000.00",
+              "balance": "210000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-10-18",
+              "scenario": "STRESS_-3.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "수입 결제 #1 (unhedged+hedged+fee)"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "122453330.00",
+              "balance": "87546670.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            }
+          ]
+        },
+        {
+          "scenario_name": "BASE",
+          "scenario_kind": "STRESS",
+          "probability": null,
+          "scenario_rate": "1400",
+          "applied_rate": "1402.1000",
+          "fx_krw_inflow": "0.00",
+          "fx_krw_outflow": "126239000.00",
+          "loss_vs_base": "0.00",
+          "ending_cash": "83761000.00",
+          "minimum_cash": "83761000.00",
+          "first_buffer_shortfall_date": null,
+          "maximum_buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00",
+          "acceptable_loss_exceeded": false,
+          "ledger": [
+            {
+              "date": "2026-08-31",
+              "scenario": "BASE",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 매출 입금"
+              ],
+              "krw_inflow": "30000000.00",
+              "krw_outflow": "0.00",
+              "balance": "230000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-09-30",
+              "scenario": "BASE",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 운영비"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "20000000.00",
+              "balance": "210000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-10-18",
+              "scenario": "BASE",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "수입 결제 #1 (unhedged+hedged+fee)"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "126239000.00",
+              "balance": "83761000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            }
+          ]
+        },
+        {
+          "scenario_name": "STRESS_+3.00PCT",
+          "scenario_kind": "STRESS",
+          "probability": null,
+          "scenario_rate": "1442.00",
+          "applied_rate": "1444.163000",
+          "fx_krw_inflow": "0.00",
+          "fx_krw_outflow": "130024670.00",
+          "loss_vs_base": "3785670.00",
+          "ending_cash": "79975330.00",
+          "minimum_cash": "79975330.00",
+          "first_buffer_shortfall_date": null,
+          "maximum_buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00",
+          "acceptable_loss_exceeded": false,
+          "ledger": [
+            {
+              "date": "2026-08-31",
+              "scenario": "STRESS_+3.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 매출 입금"
+              ],
+              "krw_inflow": "30000000.00",
+              "krw_outflow": "0.00",
+              "balance": "230000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-09-30",
+              "scenario": "STRESS_+3.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 운영비"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "20000000.00",
+              "balance": "210000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-10-18",
+              "scenario": "STRESS_+3.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "수입 결제 #1 (unhedged+hedged+fee)"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "130024670.00",
+              "balance": "79975330.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            }
+          ]
+        },
+        {
+          "scenario_name": "STRESS_+5.00PCT",
+          "scenario_kind": "STRESS",
+          "probability": null,
+          "scenario_rate": "1470.00",
+          "applied_rate": "1472.205000",
+          "fx_krw_inflow": "0.00",
+          "fx_krw_outflow": "132548450.00",
+          "loss_vs_base": "6309450.00",
+          "ending_cash": "77451550.00",
+          "minimum_cash": "77451550.00",
+          "first_buffer_shortfall_date": null,
+          "maximum_buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00",
+          "acceptable_loss_exceeded": false,
+          "ledger": [
+            {
+              "date": "2026-08-31",
+              "scenario": "STRESS_+5.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 매출 입금"
+              ],
+              "krw_inflow": "30000000.00",
+              "krw_outflow": "0.00",
+              "balance": "230000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-09-30",
+              "scenario": "STRESS_+5.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 운영비"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "20000000.00",
+              "balance": "210000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-10-18",
+              "scenario": "STRESS_+5.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "수입 결제 #1 (unhedged+hedged+fee)"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "132548450.00",
+              "balance": "77451550.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            }
+          ]
+        },
+        {
+          "scenario_name": "STRESS_+10.00PCT",
+          "scenario_kind": "STRESS",
+          "probability": null,
+          "scenario_rate": "1540.00",
+          "applied_rate": "1542.310000",
+          "fx_krw_inflow": "0.00",
+          "fx_krw_outflow": "138857900.00",
+          "loss_vs_base": "12618900.00",
+          "ending_cash": "71142100.00",
+          "minimum_cash": "71142100.00",
+          "first_buffer_shortfall_date": null,
+          "maximum_buffer_shortfall": "0.00",
+          "cash_deficit": "0.00",
+          "post_credit_shortfall": "0.00",
+          "acceptable_loss_exceeded": true,
+          "ledger": [
+            {
+              "date": "2026-08-31",
+              "scenario": "STRESS_+10.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 매출 입금"
+              ],
+              "krw_inflow": "30000000.00",
+              "krw_outflow": "0.00",
+              "balance": "230000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-09-30",
+              "scenario": "STRESS_+10.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "예정 운영비"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "20000000.00",
+              "balance": "210000000.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            },
+            {
+              "date": "2026-10-18",
+              "scenario": "STRESS_+10.00PCT",
+              "source_status": "CALCULATION",
+              "descriptions": [
+                "수입 결제 #1 (unhedged+hedged+fee)"
+              ],
+              "krw_inflow": "0.00",
+              "krw_outflow": "138857900.00",
+              "balance": "71142100.00",
+              "buffer_shortfall": "0.00",
+              "cash_deficit": "0.00",
+              "post_credit_shortfall": "0.00"
+            }
+          ]
+        }
+      ],
+      "expected_adverse_loss": null,
+      "buffer_shortfall_probability": null,
+      "cash_deficit_probability": null,
+      "assumptions": [
+        "환율은 KRW_PER_1_FC 기준입니다.",
+        "수동 시나리오는 예측이 아니라 스트레스 가정입니다.",
+        "기존 헤지는 open exposure에서 제외하되 실제 KRW 현금흐름에는 포함했습니다.",
+        "원화 현금흐름은 날짜 단위로 합산한 뒤 잔고를 계산했습니다."
+      ],
+      "warnings": [],
+      "stage3_constraints": {
+        "open_exposure": "90000.00",
+        "held_fx_used": "10000.00",
+        "base_rate": "1400",
+        "acceptable_fx_loss": "10000000",
+        "minimum_cash_buffer": "50000000",
+        "probability_valid": false,
+        "scenarios": [
+          {
+            "name": "STRESS_-10.00PCT",
+            "loss_vs_base": "-12618900.00",
+            "maximum_buffer_shortfall": "0.00",
+            "probability": null
+          },
+          {
+            "name": "STRESS_-5.00PCT",
+            "loss_vs_base": "-6309450.00",
+            "maximum_buffer_shortfall": "0.00",
+            "probability": null
+          },
+          {
+            "name": "STRESS_-3.00PCT",
+            "loss_vs_base": "-3785670.00",
+            "maximum_buffer_shortfall": "0.00",
+            "probability": null
+          },
+          {
+            "name": "BASE",
+            "loss_vs_base": "0.00",
+            "maximum_buffer_shortfall": "0.00",
+            "probability": null
+          },
+          {
+            "name": "STRESS_+3.00PCT",
+            "loss_vs_base": "3785670.00",
+            "maximum_buffer_shortfall": "0.00",
+            "probability": null
+          },
+          {
+            "name": "STRESS_+5.00PCT",
+            "loss_vs_base": "6309450.00",
+            "maximum_buffer_shortfall": "0.00",
+            "probability": null
+          },
+          {
+            "name": "STRESS_+10.00PCT",
+            "loss_vs_base": "12618900.00",
+            "maximum_buffer_shortfall": "0.00",
+            "probability": null
+          }
+        ]
+      }
+    },
+    "stage3": {
+      "schema_version": "1.0",
+      "status": "CANDIDATES_NOT_ADVICE",
+      "grid_step_percent": 10,
+      "objective_mode": "WORST_CASE_ROBUST",
+      "candidates": [
+        {
+          "rank": 1,
+          "forward_ratio": "1",
+          "staged_conversion_ratio": "0",
+          "unhedged_ratio": "0",
+          "held_fx_ratio": "0.1",
+          "worst_case_loss": "189000.00",
+          "expected_loss": null,
+          "assumed_hedge_cost": "189000.00",
+          "estimated_buffer_shortfall": "0.00",
+          "liquidity_impact": "0.00",
+          "constraints_satisfied": true,
+          "acceptable_loss_exceeded": false,
+          "rationale": "선물환 비중으로 최악 환율 손실을 제한; 입력된 손실·유동성 제약을 계산상 충족",
+          "limitations": [
+            "비용률과 분할환전 잔여 위험계수는 데모 가정입니다.",
+            "실제 가격·한도·회계 영향은 금융기관 확인이 필요합니다."
+          ],
+          "required_product_types": [
+            "FORWARD",
+            "FX_RISK_INSURANCE_REVIEW"
+          ]
+        },
+        {
+          "rank": 2,
+          "forward_ratio": "0.9",
+          "staged_conversion_ratio": "0.1",
+          "unhedged_ratio": "0",
+          "held_fx_ratio": "0.1",
+          "worst_case_loss": "807345.00",
+          "expected_loss": null,
+          "assumed_hedge_cost": "176400.00",
+          "estimated_buffer_shortfall": "0.00",
+          "liquidity_impact": "0.00",
+          "constraints_satisfied": true,
+          "acceptable_loss_exceeded": false,
+          "rationale": "선물환 비중으로 최악 환율 손실을 제한; 분할환전 비중으로 시점 집중을 완화; 입력된 손실·유동성 제약을 계산상 충족",
+          "limitations": [
+            "비용률과 분할환전 잔여 위험계수는 데모 가정입니다.",
+            "실제 가격·한도·회계 영향은 금융기관 확인이 필요합니다."
+          ],
+          "required_product_types": [
+            "FORWARD",
+            "STAGED_CONVERSION",
+            "FX_DEPOSIT",
+            "FX_RISK_INSURANCE_REVIEW"
+          ]
+        },
+        {
+          "rank": 3,
+          "forward_ratio": "0.8",
+          "staged_conversion_ratio": "0.2",
+          "unhedged_ratio": "0",
+          "held_fx_ratio": "0.1",
+          "worst_case_loss": "1425690.00",
+          "expected_loss": null,
+          "assumed_hedge_cost": "163800.00",
+          "estimated_buffer_shortfall": "0.00",
+          "liquidity_impact": "0.00",
+          "constraints_satisfied": true,
+          "acceptable_loss_exceeded": false,
+          "rationale": "선물환 비중으로 최악 환율 손실을 제한; 분할환전 비중으로 시점 집중을 완화; 입력된 손실·유동성 제약을 계산상 충족",
+          "limitations": [
+            "비용률과 분할환전 잔여 위험계수는 데모 가정입니다.",
+            "실제 가격·한도·회계 영향은 금융기관 확인이 필요합니다."
+          ],
+          "required_product_types": [
+            "FORWARD",
+            "STAGED_CONVERSION",
+            "FX_DEPOSIT",
+            "FX_RISK_INSURANCE_REVIEW"
+          ]
+        }
+      ],
+      "assumptions": [
+        "후보는 자문이 아니라 입력 가정 아래 grid 탐색한 검토안입니다.",
+        "선물환 비용률 0.15%, 분할환전 비용률 0.05%를 데모 가정으로 사용했습니다.",
+        "신규 헤지 비용은 기존 헤지·자연상계 제외 후 open exposure에만 적용했습니다.",
+        "분할환전 잔여 위험은 미헤지의 50%로 근사했습니다."
+      ],
+      "warnings": [
+        "실제 가격, 신용한도, 세무·회계 영향은 금융기관과 확인해야 합니다."
+      ]
+    },
+    "stage4": {
+      "schema_version": "1.0",
+      "mode": "OFFLINE_KB",
+      "query": "FORWARD FX_RISK_INSURANCE_REVIEW 선물환 환변동보험 외화예금 수출입대출 정책자금 보증상품",
+      "candidates": [
+        {
+          "product_id": "kosmes_export_funding",
+          "name": "신시장진출지원자금 등 정책자금 확인",
+          "institution": "중소벤처기업진흥공단",
+          "category": "POLICY_FINANCE",
+          "trade_types": [
+            "IMPORT",
+            "EXPORT"
+          ],
+          "keywords": [
+            "정책자금",
+            "수출입대출",
+            "신시장진출",
+            "유동성",
+            "대출"
+          ],
+          "summary": "수출기업화·글로벌화와 관련된 정책자금 후보가 안내되어 있으나, 해당 연도 공고와 기업별 요건·한도·심사 결과를 별도로 확인해야 한다.",
+          "eligibility": "unknown",
+          "approval_status": "consultation_required",
+          "target_customers": [
+            "IMPORT 거래 기업"
+          ],
+          "key_conditions": [
+            "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+          ],
+          "required_documents": [
+            "필요 서류는 제공 기관의 최신 안내에서 확인"
+          ],
+          "limitations": [
+            "자격·승인·가격·한도는 확정되지 않은 후보"
+          ],
+          "source": {
+            "title": "중소벤처기업진흥공단 정책자금 안내",
+            "url": "https://kdoctor.kosmes.or.kr/support/policy.do",
+            "verified_at": "2026-07-23",
+            "evidence_summary": "정책자금과 신시장진출지원자금 개요를 제공하는 중진공 공식 페이지"
+          },
+          "relevance_score": "4",
+          "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+          "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+          "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+        },
+        {
+          "product_id": "ksure_fx_insurance_option",
+          "name": "옵션형 환변동보험 검토",
+          "institution": "한국무역보험공사",
+          "category": "FX_RISK_INSURANCE_OPTION",
+          "trade_types": [
+            "IMPORT",
+            "EXPORT"
+          ],
+          "keywords": [
+            "옵션형",
+            "환변동보험",
+            "FX_RISK_INSURANCE_REVIEW",
+            "tail risk"
+          ],
+          "summary": "옵션형 환변동보험의 대상통화·결제방식·보험료 구조는 유형별로 다르므로 거래 방향과 통화에 맞는지 상담이 필요한 후보다.",
+          "eligibility": "unknown",
+          "approval_status": "consultation_required",
+          "target_customers": [
+            "IMPORT 거래 기업"
+          ],
+          "key_conditions": [
+            "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+          ],
+          "required_documents": [
+            "필요 서류는 제공 기관의 최신 안내에서 확인"
+          ],
+          "limitations": [
+            "자격·승인·가격·한도는 확정되지 않은 후보"
+          ],
+          "source": {
+            "title": "옵션형 환변동보험 개요",
+            "url": "https://ksure.or.kr/rh-kr/cntnts/i-264/web.do",
+            "verified_at": "2026-07-23",
+            "evidence_summary": "옵션형 환변동보험 유형과 대상통화를 설명하는 한국무역보험공사 공식 페이지"
+          },
+          "relevance_score": "4",
+          "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+          "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+          "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+        },
+        {
+          "product_id": "kb_star_fx_forward",
+          "name": "은행 선물환·외환스왑 상담",
+          "institution": "KB국민은행",
+          "category": "FORWARD",
+          "trade_types": [
+            "IMPORT",
+            "EXPORT"
+          ],
+          "keywords": [
+            "선물환",
+            "FORWARD",
+            "외환스왑",
+            "환헤지",
+            "STAGED_CONVERSION"
+          ],
+          "summary": "기업 외환거래 서비스에서 선물환·외환스왑은 영업점 방문과 한도 심사가 필요한 것으로 안내된다. 가격·한도·적합성은 은행 상담으로 확인해야 한다.",
+          "eligibility": "unknown",
+          "approval_status": "consultation_required",
+          "target_customers": [
+            "IMPORT 거래 기업"
+          ],
+          "key_conditions": [
+            "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+          ],
+          "required_documents": [
+            "필요 서류는 제공 기관의 최신 안내에서 확인"
+          ],
+          "limitations": [
+            "자격·승인·가격·한도는 확정되지 않은 후보"
+          ],
+          "source": {
+            "title": "KB Star FX 서비스 안내",
+            "url": "https://fx.kbstar.com/quics?page=C110657",
+            "verified_at": "2026-07-23",
+            "evidence_summary": "선물환·외환스왑의 영업점 방문 및 한도 심사 필요성을 안내하는 공식 페이지"
+          },
+          "relevance_score": "4",
+          "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+          "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+          "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+        },
+        {
+          "product_id": "ksure_fx_insurance_general",
+          "name": "환변동보험 검토",
+          "institution": "한국무역보험공사",
+          "category": "FX_RISK_INSURANCE",
+          "trade_types": [
+            "IMPORT",
+            "EXPORT"
+          ],
+          "keywords": [
+            "환변동보험",
+            "환율",
+            "보험",
+            "FX_RISK_INSURANCE_REVIEW",
+            "수출",
+            "수입"
+          ],
+          "summary": "수출 또는 수입 과정의 환차손익을 관리하고 원화 기준 미래 현금흐름 확정을 돕는 환헤지 제도 후보다. 실제 외화 매매와 보험 차액정산은 구분되며 세부 이용요건은 기관 확인이 필요하다.",
+          "eligibility": "unknown",
+          "approval_status": "consultation_required",
+          "target_customers": [
+            "IMPORT 거래 기업"
+          ],
+          "key_conditions": [
+            "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+          ],
+          "required_documents": [
+            "필요 서류는 제공 기관의 최신 안내에서 확인"
+          ],
+          "limitations": [
+            "자격·승인·가격·한도는 확정되지 않은 후보"
+          ],
+          "source": {
+            "title": "환변동보험 개요",
+            "url": "https://www.ksure.or.kr/rh-fx/cntnts/i-513/web.do",
+            "verified_at": "2026-07-23",
+            "evidence_summary": "한국무역보험공사가 환변동보험의 목적과 차액정산 구조를 설명하는 공식 페이지"
+          },
+          "relevance_score": "4",
+          "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+          "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+          "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+        },
+        {
+          "product_id": "kb_fx_deposit",
+          "name": "수출입기업 외화예금 상담",
+          "institution": "KB국민은행",
+          "category": "FX_DEPOSIT",
+          "trade_types": [
+            "IMPORT",
+            "EXPORT"
+          ],
+          "keywords": [
+            "외화예금",
+            "FX_DEPOSIT",
+            "STAGED_CONVERSION",
+            "보유외화"
+          ],
+          "summary": "외화 입출금과 환전 시 환율변동 손익·수수료가 발생할 수 있는 외화예금 후보다. 현재 제공 조건과 수수료는 은행에서 다시 확인해야 한다.",
+          "eligibility": "unknown",
+          "approval_status": "consultation_required",
+          "target_customers": [
+            "IMPORT 거래 기업"
+          ],
+          "key_conditions": [
+            "자격·한도·가격은 제공 기관의 최신 기준 확인 필요"
+          ],
+          "required_documents": [
+            "필요 서류는 제공 기관의 최신 안내에서 확인"
+          ],
+          "limitations": [
+            "자격·승인·가격·한도는 확정되지 않은 후보"
+          ],
+          "source": {
+            "title": "수출입기업 외화예금 안내",
+            "url": "https://img2.kbstar.com/obj/ocommon/kb20210405.pdf",
+            "verified_at": "2026-07-23",
+            "evidence_summary": "수출입기업 대상 외화예금과 환율변동 유의사항을 담은 은행 공식 PDF"
+          },
+          "relevance_score": "3",
+          "strategy_connection_reason": "검색어와 공식 상품 분류가 일치해 전략 검토 후보로 연결",
+          "verification_status": "OFFICIAL_SOURCE_VERIFIED",
+          "candidate_status": "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+        }
+      ],
+      "warnings": [
+        "자격·승인·금리·한도는 확정하지 않았으며 기관 상담이 필요합니다."
+      ]
+    }
+  },
+  "critique": {
+    "passed": true,
+    "score": 100,
+    "numeric_consistency": true,
+    "evidence_quality": true,
+    "recommendation_consistency": true,
+    "prohibited_claims": [],
+    "missing_sections": [],
+    "revision_instructions": [],
+    "issues": []
+  },
+  "warnings": [
+    "LLM 없이 계산 JSON을 그대로 인용한 결정론 보고서입니다."
+  ],
+  "generation_provider": "DETERMINISTIC_TEMPLATE",
+  "revision_count": 0,
+  "fallback_reason": "NO_API_KEY"
+}

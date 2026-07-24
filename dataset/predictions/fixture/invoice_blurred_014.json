@@ -1,0 +1,87 @@
+{
+  "extraction": {
+    "document_type": "COMMERCIAL_INVOICE",
+    "document_number": "INV-SYN-014",
+    "seller_name": "Nimbus Mock Chemicals Pty Ltd.",
+    "seller_country": "AU",
+    "buyer_name": "Gwangju Example Materials Ltd.",
+    "buyer_country": "KR",
+    "company_role": "BUYER",
+    "trade_type": "IMPORT",
+    "currency": "AUD",
+    "grand_total": "18000.00",
+    "amount_due": "18000.00",
+    "issue_date": "2026-07-15",
+    "contract_date": null,
+    "shipment_date": null,
+    "explicit_due_date": "2026-08-20",
+    "derived_due_date": null,
+    "payment_terms": null,
+    "incoterm": null,
+    "installments": [],
+    "evidence": [
+      {
+        "field": "document_notice",
+        "page": 1,
+        "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "The test-only notice is printed at the top."
+      },
+      {
+        "field": "seller_name",
+        "page": 1,
+        "source_text": "Seller: Nimbus Mock Chemicals Pty Ltd. (AU)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Seller label and country are explicit."
+      },
+      {
+        "field": "buyer_name",
+        "page": 1,
+        "source_text": "Buyer: Gwangju Example Materials Ltd. (KR)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Buyer label and country are explicit."
+      },
+      {
+        "field": "currency",
+        "page": 1,
+        "source_text": "Currency: AUD",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Visible despite blur."
+      },
+      {
+        "field": "amount_due",
+        "page": 1,
+        "source_text": "Amount Due: AUD 18000.00",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Visible despite blur."
+      },
+      {
+        "field": "issue_date",
+        "page": 1,
+        "source_text": "Invoice Date: 2026-07-15",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Visible despite blur."
+      },
+      {
+        "field": "explicit_due_date",
+        "page": 1,
+        "source_text": "Due Date: 2026-08-20",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Visible despite blur."
+      }
+    ],
+    "warnings": [
+      "저화질 대체 fixture이므로 원문 대조가 필요합니다."
+    ],
+    "missing_required_fields": [],
+    "needs_human_review": true
+  },
+  "metadata": {
+    "mode": "fixture",
+    "latency_seconds": "0",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "estimated_api_cost": "0",
+    "prompt_version": "1.2.0"
+  }
+}

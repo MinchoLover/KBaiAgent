@@ -1,0 +1,67 @@
+{
+  "document_type": "COMMERCIAL_INVOICE",
+  "document_number": "INV-SYN-010",
+  "seller_name": "Juniper Synthetic Commerce BV",
+  "seller_country": "NL",
+  "buyer_name": "Korea Example Wholesale Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": null,
+  "grand_total": null,
+  "amount_due": null,
+  "issue_date": "2026-06-15",
+  "contract_date": null,
+  "shipment_date": null,
+  "explicit_due_date": null,
+  "derived_due_date": null,
+  "payment_terms": null,
+  "incoterm": null,
+  "installments": [],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The test-only notice is printed at the top."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Juniper Synthetic Commerce BV (NL)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Seller label and country are explicit."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Korea Example Wholesale Ltd. (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Buyer label and country are explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "Option A Total: USD 10000.00 | Option B Settlement Alternative: EUR 9200.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "USD and EUR conflict; no final currency is selected."
+    },
+    {
+      "field": "issue_date",
+      "page": 1,
+      "source_text": "Invoice Date: 2026-06-15",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Explicit invoice date."
+    }
+  ],
+  "warnings": [
+    "USD와 EUR 중 최종 거래 통화를 결정할 수 없습니다."
+  ],
+  "missing_required_fields": [
+    "currency",
+    "amount_due",
+    "due_date"
+  ],
+  "needs_human_review": true
+}

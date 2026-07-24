@@ -1,0 +1,85 @@
+{
+  "extraction": {
+    "document_type": "COMMERCIAL_INVOICE",
+    "document_number": "INV-SYN-006",
+    "seller_name": "Fjord Test Equipment AS",
+    "seller_country": "NO",
+    "buyer_name": "Korea Demo Labs Ltd.",
+    "buyer_country": "KR",
+    "company_role": "BUYER",
+    "trade_type": "IMPORT",
+    "currency": "NOK",
+    "grand_total": "450000.00",
+    "amount_due": "450000.00",
+    "issue_date": "2026-04-10",
+    "contract_date": null,
+    "shipment_date": null,
+    "explicit_due_date": "2026-04-25",
+    "derived_due_date": null,
+    "payment_terms": null,
+    "incoterm": null,
+    "installments": [],
+    "evidence": [
+      {
+        "field": "document_notice",
+        "page": 1,
+        "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "The test-only notice is printed at the top."
+      },
+      {
+        "field": "seller_name",
+        "page": 1,
+        "source_text": "Seller: Fjord Test Equipment AS (NO)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Seller label and country are explicit."
+      },
+      {
+        "field": "buyer_name",
+        "page": 1,
+        "source_text": "Buyer: Korea Demo Labs Ltd. (KR)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Buyer label and country are explicit."
+      },
+      {
+        "field": "currency",
+        "page": 1,
+        "source_text": "Currency: NOK",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit label."
+      },
+      {
+        "field": "amount_due",
+        "page": 1,
+        "source_text": "Amount Due: NOK 450000.00",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit amount due."
+      },
+      {
+        "field": "issue_date",
+        "page": 1,
+        "source_text": "Invoice Date: 2026-04-10",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Explicit invoice date."
+      },
+      {
+        "field": "explicit_due_date",
+        "page": 1,
+        "source_text": "PAY BY: 2026-04-25",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "PAY BY is an explicit due date."
+      }
+    ],
+    "warnings": [],
+    "missing_required_fields": [],
+    "needs_human_review": true
+  },
+  "metadata": {
+    "mode": "fixture",
+    "latency_seconds": "0",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "estimated_api_cost": "0",
+    "prompt_version": "1.2.0"
+  }
+}
