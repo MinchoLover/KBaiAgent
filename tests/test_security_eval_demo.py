@@ -16,7 +16,13 @@ from scripts.export_finetuning_candidates import export_candidates
 from scripts.run_regression import compare_metrics
 from src.demo import run_offline_demo
 from src.security.redaction import redact_text, safe_event_log
-from src.ui.components import optional_positive_integer
+from src.ui.components import (
+    format_decimal_display,
+    format_foreign,
+    format_krw,
+    format_ratio,
+    optional_positive_integer,
+)
 from src.ui.state import input_signature, sync_input_signature
 
 
@@ -92,6 +98,18 @@ class SecurityTests(unittest.TestCase):
             optional_positive_integer("2", "sequence"),
             2,
         )
+
+    def test_financial_display_formatters_are_readable(self):
+        self.assertEqual(
+            format_decimal_display("1234567.5", decimal_places=2),
+            "1,234,567.50",
+        )
+        self.assertEqual(format_krw("-2500.4"), "-2,500원")
+        self.assertEqual(
+            format_foreign("100000", "USD"),
+            "100,000.00 USD",
+        )
+        self.assertEqual(format_ratio("0.725"), "72.5%")
 
     def test_filename_is_part_of_document_state_signature(self):
         first = input_signature(
@@ -338,7 +356,7 @@ class EndToEndTests(unittest.TestCase):
         role_widget = next(
             radio
             for radio in app.radio
-            if radio.label == "우리 회사의 문서상 역할"
+            if radio.label == "이 거래에서 우리 회사의 역할"
         )
         role_widget.set_value("판매자 · SELLER").run()
         self.assertEqual(len(app.exception), 0)
@@ -349,12 +367,22 @@ class EndToEndTests(unittest.TestCase):
         )
         full_demo.click().run()
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(len(app.tabs), 6)
+        self.assertEqual(
+            [tab.label for tab in app.tabs],
+            [
+                "1  거래 확인",
+                "2  환율 가정",
+                "3  현금 영향",
+                "4  대응 전략",
+                "5  상담 상품",
+                "6  상담 리포트",
+            ],
+        )
         self.assertEqual(
             next(
                 radio.value
                 for radio in app.radio
-                if radio.label == "우리 회사의 문서상 역할"
+                if radio.label == "이 거래에서 우리 회사의 역할"
             ),
             "구매자 · BUYER",
         )
@@ -366,7 +394,7 @@ class EndToEndTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                item.label == "Workflow 실행 추적"
+                item.label == "고급 · 실행 기록 및 감사 추적"
                 for item in app.expander
             )
         )

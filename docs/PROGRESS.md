@@ -17,8 +17,11 @@
 - [x] 공식 web cache timezone timestamp, request binding, TTL freshness
 - [x] Streamlit Stage 0~5 UI and downloads
 - [x] Streamlit workflow trace view
+- [x] 기업 재무 담당자 중심 업무 언어, 현금 리스크 요약, 대응전략·상담상품 카드 UI
+- [x] JSON, validator, provider/fallback, workflow trace의 고급 영역 분리
+- [x] 다크 테마와 820px 반응형 지표 레이아웃
 - [x] macOS/Windows launcher and env template
-- [x] 174 API-free tests
+- [x] 175 API-free tests
 - [x] offline evaluation and regression baseline
 - [ ] live OpenAI smoke test — API key required
 - [ ] production auth/malware scanning/CI — follow-up scope

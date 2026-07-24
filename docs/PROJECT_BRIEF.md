@@ -25,6 +25,10 @@ A user can:
 
 - 기존 Streamlit 버튼 흐름과 전체 오프라인 데모를 그대로 사용할 수 있다.
 - 확인 전 계산이 차단되고, 외부 Stage/API 실패 시 표시된 fallback 결과를 받을 수 있다.
+- 기업 재무 담당자 관점의 업무 용어로 거래 확인, 환율 가정, 현금 영향, 대응 전략,
+  상담 후보와 리포트 흐름을 이해할 수 있다.
+- JSON, validator code, provider와 workflow trace는 필요할 때만 고급 영역에서 확인할
+  수 있다.
 - 각 Stage 상태, provider, fallback, 경고, critic 및 재작성 횟수를 trace에서 확인할 수 있다.
 
 The team can verify:

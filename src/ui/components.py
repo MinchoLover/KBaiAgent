@@ -22,22 +22,65 @@ def status_badge(status: str) -> str:
     return "`{}` · {}".format(status, STATUS_HELP.get(status, "상태"))
 
 
+def format_decimal_display(
+    value: Any,
+    decimal_places: int = 0,
+) -> str:
+    try:
+        parsed = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        return str(value)
+    if not parsed.is_finite():
+        return str(value)
+    return format(parsed, ",.{}f".format(decimal_places))
+
+
+def format_krw(value: Any) -> str:
+    return "{}원".format(format_decimal_display(value))
+
+
+def format_foreign(value: Any, currency: str) -> str:
+    return "{} {}".format(
+        format_decimal_display(value, decimal_places=2),
+        currency,
+    )
+
+
+def format_ratio(value: Any) -> str:
+    try:
+        percentage = Decimal(str(value)) * Decimal("100")
+    except (InvalidOperation, ValueError):
+        return str(value)
+    if not percentage.is_finite():
+        return str(value)
+    places = 0 if percentage == percentage.to_integral_value() else 1
+    return "{}%".format(
+        format(percentage, ",.{}f".format(places))
+    )
+
+
 def render_stepper(completed_stage: int) -> None:
     labels = [
-        "0 문서",
-        "확인",
-        "1 시나리오",
-        "2 계산",
-        "3 전략",
-        "4 상품",
-        "5 보고서",
+        "거래 확인",
+        "값 확정",
+        "환율 가정",
+        "현금 영향",
+        "대응 전략",
+        "상담 상품",
+        "상담 리포트",
     ]
     cells = st.columns(len(labels))
     for index, (cell, label) in enumerate(zip(cells, labels)):
-        icon = "✅" if index <= completed_stage else "○"
+        state_class = "done" if index <= completed_stage else "todo"
+        icon = "✓" if index <= completed_stage else str(index + 1)
         cell.markdown(
-            "<div style='text-align:center;font-size:0.84rem'>"
-            "{}<br>{}</div>".format(icon, label),
+            "<div class='journey-step {}'>"
+            "<span class='journey-dot'>{}</span>"
+            "<span>{}</span></div>".format(
+                state_class,
+                icon,
+                label,
+            ),
             unsafe_allow_html=True,
         )
 
@@ -169,7 +212,7 @@ def json_download(
 
 
 def render_workflow_trace(state: WorkflowState) -> None:
-    with st.expander("Workflow 실행 추적", expanded=False):
+    with st.expander("고급 · 실행 기록 및 감사 추적", expanded=False):
         st.caption(
             "case_id={} · mode={} · final={} · user_confirmed={}".format(
                 state.case_id,

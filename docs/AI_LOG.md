@@ -57,3 +57,20 @@ Codex가 사용자 확인 뒤 거래금액·통화·결제일이 바뀌어도 �
 수정했고, 배분하지 못한 값은 고정 warning code로 공개합니다. 금액·날짜 입력 계약,
 과도한 spread, 과거 현금흐름, 회차 sequence를 엄격히 검증하고 작은 aggregate hedge
 fee의 비례 반올림이 음수가 되지 않도록 보강했습니다.
+
+## 2026-07-24 Company finance UX redesign
+
+Codex가 P0 사용자를 수출입 중소기업 재무·자금 담당자로 명확히 고정하고 Streamlit
+표시 계층을 재설계했습니다. Stage 번호 중심 탭을 거래 확인, 환율 가정, 현금 영향,
+대응 전략, 상담 상품, 상담 리포트의 업무 언어로 바꾸고, 현금 방어선 판정·최대
+추가부담·최저 잔고·자금 부족을 결과 상단에 배치했습니다.
+
+기존 계산, 확인 gate, Stage 1 adapter와 Stage 2/3 결과 계약은 변경하지 않았습니다.
+JSON 다운로드, validator 상세, provider/fallback, critic과 workflow trace는 삭제하지
+않고 접힌 고급 영역으로 이동했습니다. 헤지 조합은 금융 자문이 아닌 검토 순위로,
+공식 상품은 자격·승인 미확정 상담 후보로 계속 표시합니다.
+
+Streamlit AppTest의 전체 오프라인 데모와 금융 표시 formatter 테스트를 추가했습니다.
+실제 Chrome headless 렌더링에서 1600px 전략 카드·현금 결과 화면과 820px 지표
+재배치를 확인했으며, 폼 primary button의 최종 계산 스타일도 브라우저 computed
+style로 확인했습니다.

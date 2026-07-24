@@ -58,3 +58,27 @@ timezone 포함 `cached_at`, schema version, query·거래방향 binding을 가�
 저장하고 기본 24시간 TTL을 적용합니다. timestamp가 없거나 미래·만료 상태면 live
 검색을 다시 시도하고, 실패하면 기존 orchestrator의 offline 공식 KB fallback을
 사용합니다.
+
+## 11. Company finance user first, advisor report second
+
+Context: 기존 화면은 Stage 번호, JSON, provider, grid, validator와 workflow trace를
+업무 입력과 같은 위계에 노출해 기업 담당자용 화면인지 상담자·운영자용 화면인지
+불명확했습니다.
+
+Alternatives considered: 은행·보험기관 상담자용 case management UI로 전환하거나,
+기업 담당자와 상담자 화면을 동시에 제공하는 방안을 검토했습니다.
+
+Decision: P0 사용자는 수출입 중소기업의 재무·자금 담당자로 고정합니다. 앱은 거래문서
+확인에서 현금 영향과 대응 후보 비교까지의 self-service 흐름을 제공하고, 상담자는
+Stage 5 리포트를 전달받는 downstream 이해관계자로 둡니다. JSON, validator,
+provider/fallback과 trace는 접힌 고급 영역에 유지합니다.
+
+Rationale: 현재 입력 모델은 회사 현금, 운영자금, 대출한도, 보유외화처럼 기업 내부
+정보를 중심으로 하며, 인증·고객목록·상담 메모·quote workflow 같은 상담자용 제품
+요건은 MVP에 없습니다.
+
+Trade-off: 운영·심사 데모에서 기술 상태를 한눈에 보기는 어려워졌지만, 모든 감사
+데이터는 제거하지 않고 고급 영역에서 계속 확인할 수 있습니다.
+
+Revisit condition: 거래은행용 다중 고객 case management, 역할별 권한과 상담 이력
+요구가 P0가 될 때 별도 advisor view를 설계합니다.
