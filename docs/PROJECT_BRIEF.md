@@ -80,4 +80,5 @@ The team can verify:
 
 - 외부 시장 데이터가 없으면 수동 스트레스는 예측이 아닌 fallback 시나리오다.
 - Stage 3 비용률·위험계수와 offline KB는 데모 가정/snapshot이며 실제 견적이 아니다.
-- 현재 디렉터리에는 `.git` 메타데이터가 없어 commit/push는 이번 작업의 검증 대상이 아니다.
+- 계산 검증과 Git commit/push는 분리하며, 원격 반영은 명시적으로 요청된 범위에서만
+  수행한다.

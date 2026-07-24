@@ -9,6 +9,7 @@ from src.domain.stage2_models import (
     LedgerEntry,
 )
 from src.stage2.metrics import (
+    date_value,
     decimal_percent,
     decimal_value,
     money_string,
@@ -35,7 +36,7 @@ def apply_composite_stress(
     )
     transformed: List[KrwCashflowEvent] = []
     for event in events:
-        event_date = date.fromisoformat(event.date)
+        event_date = date_value(event.date, "krw_cashflow.date")
         amount = decimal_value(
             event.amount,
             "krw_cashflow.amount",

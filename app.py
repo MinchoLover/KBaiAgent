@@ -797,6 +797,7 @@ with stage0_tab:
                     due_date_confirmed=due_ok,
                     source_filename=metadata["filename"],
                     source_sha256=metadata["sha256"],
+                    company_country=company_country,
                     confirmed_by="streamlit-user",
                 )
                 confirmed_validation = validate_confirmation(

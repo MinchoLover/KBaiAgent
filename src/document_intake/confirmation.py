@@ -18,6 +18,7 @@ class ConfirmationRecord(StrictModel):
     source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     confirmed_at: str
     company_role: Literal["BUYER", "SELLER"]
+    company_country: str = Field(pattern=r"^[A-Z]{2}$")
     original_values: Dict[str, Any] = Field(default_factory=dict)
     confirmed_values: Dict[str, Any] = Field(default_factory=dict)
     checks: ConfirmationState
@@ -46,6 +47,7 @@ def create_confirmation_record(
     due_date_confirmed: bool,
     source_filename: str,
     source_sha256: str,
+    company_country: str,
     confirmed_by: Optional[str] = None,
     confirmed_at: Optional[str] = None,
 ) -> ConfirmationRecord:
@@ -83,6 +85,7 @@ def create_confirmation_record(
         source_sha256=source_sha256.lower(),
         confirmed_at=timestamp,
         company_role=confirmed.company_role,
+        company_country=company_country.strip().upper(),
         original_values=original_values,
         confirmed_values=confirmed_values,
         checks=checks,
@@ -95,10 +98,15 @@ def validate_confirmation(
     record: ConfirmationRecord,
     company_country: str,
 ) -> ValidationResult:
+    normalized_company_country = company_country.strip().upper()
+    if normalized_company_country != record.company_country:
+        raise ValueError(
+            "확인 기록의 회사 국가가 현재 회사 국가와 일치하지 않습니다."
+        )
     _, validation = apply_deterministic_review_state(
         extraction,
         company_role=record.company_role,
-        company_country=company_country,
+        company_country=normalized_company_country,
         confirmations=record.checks,
     )
     return validation

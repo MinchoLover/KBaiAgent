@@ -45,3 +45,15 @@ userinfo·fragment·redirect 금지, DNS/IP 범위 검사와 선택적 exact hos
 binding과 기본 24시간 TTL을 추가했습니다. fresh cache hit, stale refresh, private
 endpoint 차단, 로컬 opt-in을 API-free 테스트로 검증했습니다. 실제 외부 endpoint나
 OpenAI web search 호출은 수행하지 않았습니다.
+
+## 2026-07-24 Stage 2 completion hardening
+
+Codex가 사용자 확인 뒤 거래금액·통화·결제일이 바뀌어도 기존 gate 상태만으로 계산이
+실행될 수 있던 경계를 보강했습니다. 문서 SHA, 회사 국가, 거래 방향·통화와 회차별
+금액·결제일을 canonical fingerprint로 묶고 오케스트레이터가 확인 기록을 결정론적으로
+재검증한 뒤 Stage 2 입력의 fingerprint와 실제 필드를 모두 대조합니다.
+
+분할결제 수입에서 보유외화 배분 뒤 남은 회차별 금액에만 동일통화 흐름을 배분하도록
+수정했고, 배분하지 못한 값은 고정 warning code로 공개합니다. 금액·날짜 입력 계약,
+과도한 spread, 과거 현금흐름, 회차 sequence를 엄격히 검증하고 작은 aggregate hedge
+fee의 비례 반올림이 음수가 되지 않도록 보강했습니다.

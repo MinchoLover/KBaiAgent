@@ -1,4 +1,6 @@
+import copy
 import unittest
+from decimal import Decimal
 
 from src.application.stage2_input_service import (
     Stage2FormInput,
@@ -9,9 +11,19 @@ from src.application.stage2_input_service import (
 class Stage2InputServiceTests(unittest.TestCase):
     def setUp(self):
         self.document_input = {
+            "source": {
+                "sha256": "a" * 64,
+                "user_confirmed": True,
+                "confirmed_fields": [
+                    "currency",
+                    "amount_due",
+                    "due_date",
+                ],
+            },
             "trade": {
                 "trade_type": "IMPORT",
                 "currency": "USD",
+                "foreign_amount": "100000.00",
                 "cashflow_events": [
                     {
                         "sequence": 1,
@@ -68,9 +80,23 @@ class Stage2InputServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(result.current_krw_cash, "200000000")
+        self.assertIsNotNone(result.confirmed_trade_sha256)
         self.assertEqual(
             [item.usable_fx_balance for item in result.exposures],
             ["60000.00", "10000.00"],
+        )
+        self.assertEqual(
+            [
+                sum(
+                    (
+                        Decimal(flow.amount)
+                        for flow in item.same_currency_flows
+                    ),
+                    Decimal("0"),
+                )
+                for item in result.exposures
+            ],
+            [Decimal("0"), Decimal("10000")],
         )
         self.assertEqual(
             [
@@ -91,6 +117,7 @@ class Stage2InputServiceTests(unittest.TestCase):
             ["100000", None],
         )
         self.assertEqual(len(result.krw_cashflows), 1)
+        self.assertEqual(result.preprocessing_warnings, [])
 
     def test_rejects_hedge_larger_than_trade(self):
         with self.assertRaises(ValueError):
@@ -98,6 +125,41 @@ class Stage2InputServiceTests(unittest.TestCase):
                 document_input=self.document_input,
                 form=self._form(existing_hedge_amount="100001"),
             )
+
+    def test_rejects_document_input_without_confirmation_binding(self):
+        document_input = copy.deepcopy(self.document_input)
+        document_input["source"]["user_confirmed"] = False
+
+        with self.assertRaises(ValueError):
+            build_stage2_input_from_form(
+                document_input=document_input,
+                form=self._form(),
+            )
+
+    def test_rejects_document_total_different_from_event_sum(self):
+        document_input = copy.deepcopy(self.document_input)
+        document_input["trade"]["foreign_amount"] = "99999.00"
+
+        with self.assertRaises(ValueError):
+            build_stage2_input_from_form(
+                document_input=document_input,
+                form=self._form(),
+            )
+
+    def test_discloses_same_currency_flow_that_cannot_be_allocated(self):
+        result = build_stage2_input_from_form(
+            document_input=self.document_input,
+            form=self._form(
+                usable_fx_balance="100000",
+                same_currency_flow_date="2026-12-01",
+            ),
+        )
+
+        self.assertTrue(result.preprocessing_warnings)
+        self.assertTrue(
+            "INELIGIBLE_SAME_CURRENCY_FLOW_IGNORED"
+            in result.preprocessing_warnings
+        )
 
 
 if __name__ == "__main__":

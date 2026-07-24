@@ -84,6 +84,7 @@
         "source_sha256": "842a8b5981026f6f426763065c97aa721661934db6fc0e758855d311a346860d",
         "confirmed_at": "2026-07-23T09:00:00+09:00",
         "company_role": "BUYER",
+        "company_country": "KR",
         "original_values": {
           "document_type": "COMMERCIAL_INVOICE",
           "document_number": "INV-DEMO-2026-001",
@@ -306,6 +307,7 @@
     "stage2": {
       "schema_version": "1.0",
       "status": "CALCULATION",
+      "confirmed_trade_sha256": "0f6a2e87d597a25cb33c0c8a4ba561ba8523609d7d705fd10c67b1fbb1922d8f",
       "trade_type": "IMPORT",
       "currency": "USD",
       "total_foreign_amount": "100000.00",

@@ -48,6 +48,10 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertEqual(state.final_status, StageStatus.SUCCEEDED)
         self.assertIsNotNone(state.cashflow.data)
+        self.assertEqual(
+            state.cashflow.data.confirmed_trade_sha256,
+            self.demo["stage2_input"].confirmed_trade_sha256,
+        )
         self.assertEqual(len(state.hedge.data.candidates), 3)
         self.assertTrue(state.product_search.data.candidates)
         self.assertEqual(
@@ -95,6 +99,121 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(state.final_status, StageStatus.WAITING_FOR_USER)
         cashflow_runner.assert_not_called()
+
+    def test_cashflow_rejects_trade_amount_changed_after_confirmation(self):
+        cashflow_runner = Mock()
+        orchestrator = WorkflowOrchestrator(
+            settings=Settings(),
+            cashflow_runner=cashflow_runner,
+        )
+        original = self.demo["stage2_input"]
+        changed_exposure = original.exposures[0].model_copy(
+            update={"foreign_amount": "1"},
+        )
+        changed = original.model_copy(
+            update={"exposures": [changed_exposure]},
+        )
+
+        state = orchestrator.run_cashflow(
+            self._confirmed_state(orchestrator),
+            changed,
+        )
+
+        self.assertEqual(state.cashflow.status, StageStatus.FAILED)
+        self.assertEqual(
+            state.cashflow.provider,
+            "confirmed_trade_binding",
+        )
+        self.assertIn("거래금액", state.cashflow.errors[0])
+        self.assertIsNone(state.stage2_input)
+        cashflow_runner.assert_not_called()
+
+    def test_cashflow_rejects_settlement_changed_after_confirmation(self):
+        cashflow_runner = Mock()
+        orchestrator = WorkflowOrchestrator(
+            settings=Settings(),
+            cashflow_runner=cashflow_runner,
+        )
+        original = self.demo["stage2_input"]
+        changed_exposure = original.exposures[0].model_copy(
+            update={"settlement_date": "2026-10-19"},
+        )
+        changed = original.model_copy(
+            update={"exposures": [changed_exposure]},
+        )
+
+        state = orchestrator.run_cashflow(
+            self._confirmed_state(orchestrator),
+            changed,
+        )
+
+        self.assertEqual(state.cashflow.status, StageStatus.FAILED)
+        self.assertIn("결제일", state.cashflow.errors[0])
+        self.assertIsNone(state.stage2_input)
+        cashflow_runner.assert_not_called()
+
+    def test_cashflow_requires_matching_trade_fingerprint(self):
+        cashflow_runner = Mock()
+        orchestrator = WorkflowOrchestrator(
+            settings=Settings(),
+            cashflow_runner=cashflow_runner,
+        )
+        changed = self.demo["stage2_input"].model_copy(
+            update={"confirmed_trade_sha256": "b" * 64},
+        )
+
+        state = orchestrator.run_cashflow(
+            self._confirmed_state(orchestrator),
+            changed,
+        )
+
+        self.assertEqual(state.cashflow.status, StageStatus.FAILED)
+        self.assertIn("fingerprint", state.cashflow.errors[0])
+        self.assertIsNone(state.stage2_input)
+        cashflow_runner.assert_not_called()
+
+    def test_cashflow_rejects_tampered_confirmation_values(self):
+        cashflow_runner = Mock()
+        orchestrator = WorkflowOrchestrator(
+            settings=Settings(),
+            cashflow_runner=cashflow_runner,
+        )
+        state = self._confirmed_state(orchestrator)
+        confirmed_values = dict(state.confirmation.confirmed_values)
+        confirmed_values["amount_due"] = "1"
+        state.confirmation = state.confirmation.model_copy(
+            update={"confirmed_values": confirmed_values},
+        )
+
+        state = orchestrator.run_cashflow(
+            state,
+            self.demo["stage2_input"],
+        )
+
+        self.assertEqual(state.cashflow.status, StageStatus.FAILED)
+        self.assertIn("확인 기록의 거래값", state.cashflow.errors[0])
+        cashflow_runner.assert_not_called()
+
+    def test_locked_confirmation_clears_previous_stage2_and_later_results(self):
+        orchestrator = WorkflowOrchestrator(settings=Settings())
+        state = orchestrator.run(
+            self._confirmed_state(orchestrator),
+            self._request(),
+        )
+        self.assertIsNotNone(state.cashflow)
+        state.confirmation = None
+
+        state = orchestrator.run(state, self._request())
+
+        self.assertEqual(state.final_status, StageStatus.WAITING_FOR_USER)
+        self.assertEqual(
+            state.market_risk.status,
+            StageStatus.WAITING_FOR_USER,
+        )
+        self.assertIsNone(state.stage2_input)
+        self.assertIsNone(state.cashflow)
+        self.assertIsNone(state.hedge)
+        self.assertIsNone(state.final_report)
 
     def test_missing_required_field_waits_for_user(self):
         extraction = sample_extraction("BUYER").model_copy(

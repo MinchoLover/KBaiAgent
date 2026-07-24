@@ -20,7 +20,7 @@ flowchart LR
     waiting([WAITING_FOR_USER])
     market["Stage 1 Market risk adapter"]
     manual["Manual stress fallback"]
-    cashflow["Stage 2 Decimal cashflow"]
+    cashflow["Stage 2 confirmed binding + Decimal cashflow"]
     hedge["Stage 3 Hedge candidates"]
     product["Stage 4 Official retrieval"]
     offline["Offline official KB"]
@@ -65,7 +65,7 @@ case ID, 상태, 시간, provider, retry, fallback, 근거 참조 경로, 경고
 | 0 Intake | `src/document_intake/extractor.py::extract_trade_document_with_metadata`, `confirmation.py::create_confirmation_record`, `validators.py::apply_deterministic_review_state` | 업로드 bytes 또는 demo fixture, 회사 역할·국가 | `TradeDocumentExtraction`, `ValidationResult`, `ConfirmationRecord` |
 | Gate | `src/workflow/gates.py::confirmation_gate` | 추출, 확인 기록, 결정론 검증 | 허용 여부와 안전한 차단 사유 |
 | 1 Market Risk | `WorkflowOrchestrator.run_market_risk` → `src/stage1/adapter.py::load_stage1` | 통화, target date, 기준 환율, 선택적 JSON/REST | `Stage1LoadResult`, `NormalizedScenarioSet` |
-| 2 Cashflow | `WorkflowOrchestrator.run_cashflow` → `src/stage2/engine.py::run_stage2` | 확인된 거래, Stage 1 시나리오, 기업 현금흐름 | `Stage2Result` |
+| 2 Cashflow | `WorkflowOrchestrator.run_cashflow` → `src/stage2/binding.py` → `src/stage2/engine.py::run_stage2` | 확인 거래 fingerprint, Stage 1 시나리오, 기업 현금흐름 | fingerprint를 포함한 `Stage2Result` |
 | 3 Hedge | `WorkflowOrchestrator.run_hedge` → `src/stage3/optimizer.py::generate_strategy_candidates` | Stage 2 결과와 제약 | 상위 3개 `StrategyCandidate` |
 | 4 Product | `WorkflowOrchestrator.run_product_search` → `search_offline_kb` 또는 `search_official_web` | 거래 방향, 전략 상품 유형 | 공식 출처가 있는 `Stage4Result` |
 | 5 Report | `WorkflowOrchestrator.run_report` → `generate_report` → `critique_report` | Stage 0~4 구조화 결과 | `ReportResult`, `ReportCritique` |
@@ -100,6 +100,7 @@ case ID, 상태, 시간, provider, retry, fallback, 근거 참조 경로, 경고
 
 - Stage 0~5 실행 순서와 선행 조건
 - 사용자 확인 gate
+- Stage 0 확인 거래와 Stage 2 결제 이벤트의 fingerprint·필드 재대조
 - Stage 1 수동 stress 및 공식 상품 offline KB fallback
 - 보고서 재작성 상한 1회 전달과 결정론 report fallback
 - downstream 상태 무효화, 종료 상태, 안전한 trace
@@ -134,8 +135,12 @@ Cashflow 실행에는 다음이 모두 필요하다.
 2. 통화·금액·결제일 확인 기록이 존재한다.
 3. 필수 evidence와 결정론 검증이 `stage2_allowed=True`다.
 4. 확인 checkbox와 단일 결제일 또는 확인된 분할 일정이 완전하다.
+5. 문서 SHA·거래 방향·통화·회차별 금액·결제일로 다시 계산한 fingerprint와
+   Stage 2 입력이 일치한다.
 
-하나라도 없으면 Cashflow runner를 호출하지 않고 `WAITING_FOR_USER`를 반환한다.
+확인 자체가 부족하면 Cashflow runner를 호출하지 않고 `WAITING_FOR_USER`를
+반환합니다. 확인 뒤 입력이 변조되거나 오래된 입력이면 `FAILED`로 종료하고 역시
+runner를 호출하지 않습니다.
 
 ## Offline, online, fallback
 
@@ -159,6 +164,7 @@ UI에 표시하고 사용자가 다시 시도하거나 demo 모드를 명시적�
 
 - `app.py`: Streamlit 입력·호출·렌더링
 - `src/application/stage2_input_service.py`: UI 원시 입력을 `Stage2Input`으로 변환
+- `src/stage2/binding.py`: 확인 거래 canonicalization, fingerprint, 필드 재대조
 - `src/application/demo_service.py`: offline fixture 준비와 공통 workflow 실행
 - `src/workflow/`: state, result, gate, trace, orchestrator
 - `src/domain/`: 기존 Stage JSON 계약

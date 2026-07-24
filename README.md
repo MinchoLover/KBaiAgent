@@ -66,7 +66,8 @@ python scripts/live_smoke_test.py samples/sample_invoice.png
 `src/workflow/orchestrator.py`가 순서, 확인 gate, 실패·fallback, 보고서 재작성 상한,
 종료 상태를 관리합니다. `app.py`는 입력 수집과 결과 표시를 담당하고 금융 계산은
 `src/stage2/`, 헤지 탐색은 `src/stage3/`에서 수행합니다. offline demo도 같은
-orchestrator를 사용합니다.
+orchestrator를 사용합니다. Stage 2 직전에는 문서 SHA, 거래 방향·통화와 회차별
+금액·결제일로 확정 거래 fingerprint를 다시 계산해 입력과 대조합니다.
 
 - 상세 구조와 Mermaid: [ARCHITECTURE.md](ARCHITECTURE.md)
 - 감사·변경·잔여 위험: [REFACTORING_REPORT.md](REFACTORING_REPORT.md)
@@ -162,9 +163,11 @@ python scripts/run_regression.py
 python scripts/verify.py
 ```
 
-현재 suite는 API 키 없이 158개 테스트를 실행합니다. 확인 전 Cashflow 차단, Stage 1
+현재 suite는 API 키 없이 174개 테스트를 실행합니다. 확인 전 Cashflow 차단,
+확정 거래와 Stage 2 입력의 변조 방지, Decimal·날짜 계약, 분할결제 배분, Stage 1
 fallback, 상품 empty-state, critic 1회 재작성, report fallback, trace privacy,
-Streamlit 없는 orchestrator 실행, REST SSRF 경계와 cache TTL을 포함합니다. 검증 근거와 실제 결과는
+Streamlit 없는 orchestrator 실행, REST SSRF 경계와 cache TTL을 포함합니다.
+검증 근거와 실제 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md), 알려진 한계는
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md)에 있습니다.
 

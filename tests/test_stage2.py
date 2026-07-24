@@ -98,6 +98,20 @@ class AllocationTests(unittest.TestCase):
             Decimal("100"),
         )
 
+    def test_small_hedge_fee_allocation_never_turns_negative(self):
+        allocations = allocate_fee_proportionally(
+            "0.02",
+            ["1", "1", "1", "1"],
+        )
+
+        self.assertTrue(
+            all(Decimal(item) >= 0 for item in allocations)
+        )
+        self.assertEqual(
+            sum((Decimal(item) for item in allocations), Decimal("0")),
+            Decimal("0.02"),
+        )
+
 
 class ExposureTests(unittest.TestCase):
     def test_import_natural_hedge_only_before_settlement(self):
@@ -222,6 +236,28 @@ class ExposureTests(unittest.TestCase):
         computation, warnings = compute_exposure(exposure)
         self.assertEqual(computation.natural_offset, "0")
         self.assertTrue(any("자연상계 방향" in item for item in warnings))
+
+    def test_flow_after_settlement_is_disclosed(self):
+        exposure = ExposureInput(
+            sequence=1,
+            trade_type="IMPORT",
+            currency="USD",
+            foreign_amount="100",
+            settlement_date="2026-10-21",
+            same_currency_flows=[
+                SameCurrencyFlow(
+                    date="2026-10-22",
+                    amount="20",
+                    currency="USD",
+                    direction="INFLOW",
+                )
+            ],
+        )
+
+        computation, warnings = compute_exposure(exposure)
+
+        self.assertEqual(computation.natural_offset, "0")
+        self.assertTrue(any("결제일 이후" in item for item in warnings))
 
 
 class Stage2EngineTests(unittest.TestCase):
@@ -451,6 +487,20 @@ class Stage2EngineTests(unittest.TestCase):
             any("대체 적용" in warning for warning in result.warnings)
         )
 
+    def test_preprocessing_warning_is_preserved_in_result(self):
+        warning_code = "INELIGIBLE_SAME_CURRENCY_FLOW_IGNORED"
+        warning_message = (
+            "결제일과 잔여 노출 조건에 맞지 않는 동일통화 흐름은 "
+            "자연상계에 사용하지 않았습니다."
+        )
+        result = run_stage2(
+            stage2_input(preprocessing_warnings=[warning_code]),
+            stress_scenarios(),
+        )
+
+        self.assertIn(warning_message, result.warnings)
+        self.assertNotIn(warning_code, result.warnings)
+
     def test_past_settlement_rejected(self):
         exposure = ExposureInput(
             sequence=1,
@@ -501,6 +551,48 @@ class Stage2EngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_stage2(
                 stage2_input(current_krw_cash="NaN"),
+                stress_scenarios(),
+            )
+
+    def test_scientific_notation_financial_input_rejected(self):
+        with self.assertRaises(ValueError):
+            run_stage2(
+                stage2_input(current_krw_cash="2e5"),
+                stress_scenarios(),
+            )
+
+    def test_exposure_sequence_must_be_contiguous(self):
+        first = ExposureInput(
+            sequence=1,
+            trade_type="IMPORT",
+            currency="USD",
+            foreign_amount="50",
+            settlement_date="2026-10-21",
+        )
+        second = ExposureInput(
+            sequence=1,
+            trade_type="IMPORT",
+            currency="USD",
+            foreign_amount="50",
+            settlement_date="2026-10-21",
+        )
+        with self.assertRaises(ValueError):
+            run_stage2(
+                stage2_input(exposures=[first, second]),
+                stress_scenarios(),
+            )
+
+    def test_bank_spread_below_one_hundred_percent(self):
+        with self.assertRaises(ValueError):
+            run_stage2(
+                stage2_input(bank_spread_bps="10000"),
+                stress_scenarios(),
+            )
+
+    def test_dates_require_extended_iso_format(self):
+        with self.assertRaises(ValueError):
+            run_stage2(
+                stage2_input(as_of_date="20260723"),
                 stress_scenarios(),
             )
 

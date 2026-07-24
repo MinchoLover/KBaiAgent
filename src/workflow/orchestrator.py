@@ -16,6 +16,10 @@ from src.domain.stage3_models import Stage3Result
 from src.stage1.adapter import load_stage1
 from src.stage1.manual_scenarios import build_manual_stress_scenarios
 from src.stage1.normalizer import normalize_stage1_scenarios
+from src.stage2.binding import (
+    confirmed_trade_from_confirmation,
+    validate_stage2_trade_binding,
+)
 from src.stage2.engine import run_stage2
 from src.stage3.optimizer import generate_strategy_candidates
 from src.stage4.local_kb import search_offline_kb
@@ -279,6 +283,7 @@ class WorkflowOrchestrator:
             state.final_report = None
             state.rewrite_count = 0
         elif stage == "cashflow":
+            state.stage2_input = None
             state.hedge = None
             state.selected_strategy = None
             state.product_search = None
@@ -307,6 +312,7 @@ class WorkflowOrchestrator:
         state: WorkflowState,
         stage: str,
     ) -> WorkflowState:
+        self._clear_after(state, stage)
         decision = confirmation_gate(state)
         started_at, started_ns = self._started()
         result = StageResult[Any](
@@ -339,6 +345,32 @@ class WorkflowOrchestrator:
         self._clear_after(state, "market_risk")
         started_at, started_ns = self._started()
         if stage2_input is not None:
+            try:
+                expected_trade = confirmed_trade_from_confirmation(
+                    extraction=state.extracted_trade,
+                    validation=state.confirmation_validation,
+                    confirmation=state.confirmation,
+                )
+                validate_stage2_trade_binding(
+                    expected=expected_trade,
+                    stage2_input=stage2_input,
+                )
+            except (TypeError, ValueError) as exc:
+                result = StageResult[Stage1LoadResult](
+                    status=StageStatus.FAILED,
+                    errors=[
+                        "확인된 거래와 Stage 2 입력을 결속하지 못했습니다: "
+                        "{}".format(str(exc))
+                    ],
+                    started_at=started_at,
+                    finished_at=datetime.now(timezone.utc),
+                    duration_ms=self._duration_ms(started_ns),
+                    provider="confirmed_trade_binding",
+                )
+                state.market_risk = result
+                state.final_status = StageStatus.FAILED
+                self._record(state, "market_risk", result)
+                return state
             first_exposure = stage2_input.exposures[0]
             currency = first_exposure.currency
             target_date = first_exposure.settlement_date
@@ -434,6 +466,32 @@ class WorkflowOrchestrator:
             return self._wait_for_confirmation(state, "cashflow")
         self._clear_after(state, "cashflow")
         started_at, started_ns = self._started()
+        try:
+            expected_trade = confirmed_trade_from_confirmation(
+                extraction=state.extracted_trade,
+                validation=state.confirmation_validation,
+                confirmation=state.confirmation,
+            )
+            validate_stage2_trade_binding(
+                expected=expected_trade,
+                stage2_input=stage2_input,
+            )
+        except (TypeError, ValueError) as exc:
+            result = StageResult[Stage2Result](
+                status=StageStatus.FAILED,
+                errors=[
+                    "확인된 거래와 Stage 2 입력을 결속하지 못했습니다: "
+                    "{}".format(str(exc))
+                ],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider="confirmed_trade_binding",
+            )
+            state.cashflow = result
+            state.final_status = StageStatus.FAILED
+            self._record(state, "cashflow", result)
+            return state
         if state.market_risk is None or state.market_risk.data is None:
             result = StageResult[Stage2Result](
                 status=StageStatus.FAILED,
@@ -457,6 +515,7 @@ class WorkflowOrchestrator:
                 data=calculated,
                 warnings=calculated.warnings,
                 evidence=[
+                    "stage2.confirmed_trade_sha256",
                     "stage2.base_required_or_proceeds_krw",
                     "stage2.scenario_results",
                     "stage2.stage3_constraints",
@@ -789,8 +848,7 @@ class WorkflowOrchestrator:
         request: WorkflowRequest,
     ) -> WorkflowState:
         if not confirmation_gate(state).allowed:
-            state.final_status = StageStatus.WAITING_FOR_USER
-            return state
+            return self._wait_for_confirmation(state, "market_risk")
         state = self.run_market_risk(
             state,
             stage2_input=request.stage2_input,

@@ -38,6 +38,7 @@ def run_offline_demo() -> Dict[str, Any]:
         due_date_confirmed=True,
         source_filename="sample_invoice.png",
         source_sha256=hashlib.sha256(sample_path.read_bytes()).hexdigest(),
+        company_country="KR",
         confirmed_by="offline-demo",
         confirmed_at="2026-07-23T09:00:00+09:00",
     )

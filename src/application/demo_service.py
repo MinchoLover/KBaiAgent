@@ -14,6 +14,7 @@ from src.domain.stage2_models import (
     KrwCashflowEvent,
     Stage2Input,
 )
+from src.stage2.binding import confirmed_trade_from_confirmation
 from src.workflow.orchestrator import (
     WorkflowOrchestrator,
     WorkflowRequest,
@@ -21,8 +22,9 @@ from src.workflow.orchestrator import (
 from src.workflow.state import WorkflowState
 
 
-def _offline_stage2_input() -> Stage2Input:
+def _offline_stage2_input(confirmed_trade_sha256: str) -> Stage2Input:
     return Stage2Input(
+        confirmed_trade_sha256=confirmed_trade_sha256,
         as_of_date="2026-07-23",
         exposures=[
             ExposureInput(
@@ -92,6 +94,7 @@ def run_offline_demo(
         due_date_confirmed=True,
         source_filename="sample_invoice.png",
         source_sha256=hashlib.sha256(sample_path.read_bytes()).hexdigest(),
+        company_country="KR",
         confirmed_by="offline-demo",
         confirmed_at="2026-07-23T09:00:00+09:00",
     )
@@ -103,7 +106,12 @@ def run_offline_demo(
     if not validation.stage2_allowed:
         raise RuntimeError("offline demo confirmation gate failed")
 
-    stage2_input = _offline_stage2_input()
+    confirmed_trade = confirmed_trade_from_confirmation(
+        extraction=extraction,
+        validation=validation,
+        confirmation=record,
+    )
+    stage2_input = _offline_stage2_input(confirmed_trade.trade_sha256)
     workflow = orchestrator or WorkflowOrchestrator(settings=Settings())
     state = workflow.initialize(
         mode="OFFLINE",

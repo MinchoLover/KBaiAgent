@@ -31,7 +31,7 @@
 | Stage 1 팀 계약이 없음 | 단위·통화·날짜 오류 | JSON/REST adapter와 정규화, fallback 추가 |
 | 상품 출처 정책 없음 | 비공식 광고/환각 후보 | 공식 KB, URL allowlist, optional web search 추가 |
 | 보고서가 계산값을 바꿀 수 있음 | 숫자 환각 | critic, 1회 revision, deterministic fallback 추가 |
-| 테스트 3개만 존재하고 새 schema와 불일치 | 핵심 위험 회귀 미탐지 | 133개 기준선과 후속 보강 후 158개 API-free 테스트 |
+| 테스트 3개만 존재하고 새 schema와 불일치 | 핵심 위험 회귀 미탐지 | 133개 기준선과 후속 보강 후 174개 API-free 테스트 |
 | 보고서 숫자가 존재하는 임의 JSON path만 인용해도 통과 가능 | 잘못된 근거 연결 | 각 숫자가 같은 줄의 실제 JSON path 값에 포함되는지 critic이 검증 |
 | REST/web 응답 크기·cache 정책이 느슨함 | 과대 응답·오래된 allowlist 결과 재사용 | Stage 1 1MB 제한, cache key에 모델·도메인 포함, cache hit 재검증 |
 
@@ -42,7 +42,7 @@
 | README가 WEBP/10MB/Commercial Invoice 중심이라고 기재했으나 목표와 불일치 | 실행·데모 혼선 | 실제 PDF/PNG/JPEG, 15MB/20페이지, Stage 0~5 명령으로 갱신 |
 | 모델 기본값이 여러 곳에 노출 | 설정 drift | `src/config.py` 단일 환경변수 source로 통합 |
 | 의존성이 넓은 range | 재현성 저하 | 검증 환경 버전으로 requirements pin |
-| Git 저장소가 아님 | branch/commit 이력 생성 불가 | 파일 변경 목록과 validation report로 인계; Git 파괴 작업 없음 |
+| 초기 전달본에 Git metadata가 없었음 | 당시 branch/commit 이력 생성 불가 | 현재 저장소에서는 계산 검증과 Git 반영을 별도 단계로 관리 |
 
 ## 잔여 감사 항목
 

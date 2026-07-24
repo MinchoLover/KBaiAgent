@@ -1,0 +1,339 @@
+import hashlib
+import json
+import re
+from typing import Any, Dict, List, Literal
+
+from pydantic import Field
+
+from schemas import StrictModel, TradeDocumentExtraction, ValidationResult
+from src.document_intake.confirmation import (
+    ConfirmationRecord,
+    validate_confirmation,
+)
+from src.domain.stage2_models import Stage2Input
+from src.stage2.metrics import date_value, decimal_string, decimal_value
+
+
+SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+
+
+class ConfirmedTradeEvent(StrictModel):
+    sequence: int = Field(ge=1)
+    trade_type: Literal["IMPORT", "EXPORT"]
+    currency: str
+    foreign_amount: str
+    settlement_date: str
+
+
+class ConfirmedTradeBinding(StrictModel):
+    source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    trade_type: Literal["IMPORT", "EXPORT"]
+    currency: str
+    events: List[ConfirmedTradeEvent] = Field(min_length=1)
+    trade_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+def _normalized_currency(value: Any, field: str) -> str:
+    currency = str(value or "").strip()
+    if (
+        len(currency) != 3
+        or not currency.isalpha()
+        or currency != currency.upper()
+    ):
+        raise ValueError(
+            "{}는 대문자 ISO 통화 코드 3글자여야 합니다.".format(field)
+        )
+    return currency
+
+
+def _normalized_amount(value: Any, field: str) -> str:
+    parsed = decimal_value(
+        str(value),
+        field,
+        allow_zero=False,
+    )
+    return decimal_string(parsed)
+
+
+def _canonical_amount(value: str) -> str:
+    parsed = decimal_value(
+        value,
+        "confirmed trade amount",
+        allow_zero=False,
+    )
+    return decimal_string(parsed.normalize())
+
+
+def _normalized_source_sha256(value: Any) -> str:
+    source_sha256 = str(value or "").strip().lower()
+    if not SHA256_RE.fullmatch(source_sha256):
+        raise ValueError("확인된 문서의 SHA-256 fingerprint가 필요합니다.")
+    return source_sha256
+
+
+def _normalized_event(
+    *,
+    sequence: Any,
+    trade_type: Any,
+    currency: Any,
+    foreign_amount: Any,
+    settlement_date: Any,
+) -> ConfirmedTradeEvent:
+    if trade_type not in {"IMPORT", "EXPORT"}:
+        raise ValueError("확인된 거래 방향은 IMPORT 또는 EXPORT여야 합니다.")
+    try:
+        normalized_sequence = int(sequence)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("확인된 거래 sequence는 정수여야 합니다.") from exc
+    if str(sequence).strip() != str(normalized_sequence):
+        raise ValueError("확인된 거래 sequence는 정수여야 합니다.")
+    return ConfirmedTradeEvent(
+        sequence=normalized_sequence,
+        trade_type=trade_type,
+        currency=_normalized_currency(currency, "confirmed trade currency"),
+        foreign_amount=_normalized_amount(
+            foreign_amount,
+            "confirmed trade foreign_amount",
+        ),
+        settlement_date=date_value(
+            str(settlement_date),
+            "confirmed trade settlement_date",
+        ).isoformat(),
+    )
+
+
+def _build_binding(
+    *,
+    source_sha256: Any,
+    trade_type: Any,
+    currency: Any,
+    events: List[ConfirmedTradeEvent],
+) -> ConfirmedTradeBinding:
+    normalized_source = _normalized_source_sha256(source_sha256)
+    if trade_type not in {"IMPORT", "EXPORT"}:
+        raise ValueError("확인된 거래 방향은 IMPORT 또는 EXPORT여야 합니다.")
+    normalized_currency = _normalized_currency(
+        currency,
+        "confirmed trade currency",
+    )
+    if not events:
+        raise ValueError("확인된 결제 이벤트가 필요합니다.")
+    sequences = [item.sequence for item in events]
+    if sequences != list(range(1, len(events) + 1)):
+        raise ValueError("확인된 거래 sequence는 1부터 연속이어야 합니다.")
+    if any(item.trade_type != trade_type for item in events):
+        raise ValueError("확인된 거래 방향이 결제 이벤트와 일치하지 않습니다.")
+    if any(item.currency != normalized_currency for item in events):
+        raise ValueError("확인된 거래 통화가 결제 이벤트와 일치하지 않습니다.")
+
+    canonical: Dict[str, Any] = {
+        "source_sha256": normalized_source,
+        "trade_type": trade_type,
+        "currency": normalized_currency,
+        "events": [
+            {
+                "sequence": item.sequence,
+                "trade_type": item.trade_type,
+                "currency": item.currency,
+                "foreign_amount": _canonical_amount(item.foreign_amount),
+                "settlement_date": item.settlement_date,
+            }
+            for item in events
+        ],
+    }
+    serialized = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    trade_sha256 = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return ConfirmedTradeBinding(
+        source_sha256=normalized_source,
+        trade_type=trade_type,
+        currency=normalized_currency,
+        events=events,
+        trade_sha256=trade_sha256,
+    )
+
+
+def _confirmed_values_match_extraction(
+    extraction: TradeDocumentExtraction,
+    confirmation: ConfirmationRecord,
+) -> bool:
+    extraction_payload = extraction.model_dump()
+    confirmed_payload = confirmation.confirmed_values
+    fields = (
+        "company_role",
+        "trade_type",
+        "currency",
+        "amount_due",
+        "issue_date",
+        "contract_date",
+        "explicit_due_date",
+        "derived_due_date",
+        "payment_terms",
+        "installments",
+    )
+    return all(
+        confirmed_payload.get(field) == extraction_payload.get(field)
+        for field in fields
+    )
+
+
+def confirmed_trade_from_confirmation(
+    *,
+    extraction: TradeDocumentExtraction,
+    validation: ValidationResult,
+    confirmation: ConfirmationRecord,
+) -> ConfirmedTradeBinding:
+    if confirmation.company_role != extraction.company_role:
+        raise ValueError("확인 기록의 회사 역할이 현재 거래와 일치하지 않습니다.")
+    if not _confirmed_values_match_extraction(extraction, confirmation):
+        raise ValueError("확인 기록의 거래값이 현재 추출값과 일치하지 않습니다.")
+
+    recomputed = validate_confirmation(
+        extraction=extraction,
+        record=confirmation,
+        company_country=confirmation.company_country,
+    )
+    if not recomputed.stage2_allowed:
+        raise ValueError("확인된 거래가 Stage 2 결정론 검증을 통과하지 못했습니다.")
+    if validation.model_dump() != recomputed.model_dump():
+        raise ValueError("Stage 2 검증 상태가 결정론 재검증 결과와 다릅니다.")
+
+    trade_type = recomputed.derived_trade_type
+    currency = recomputed.normalized_currency
+    if trade_type not in {"IMPORT", "EXPORT"} or currency is None:
+        raise ValueError("확인된 거래 방향과 통화를 결정할 수 없습니다.")
+
+    events: List[ConfirmedTradeEvent] = []
+    if extraction.installments:
+        for installment in extraction.installments:
+            events.append(
+                _normalized_event(
+                    sequence=installment.sequence,
+                    trade_type=trade_type,
+                    currency=installment.currency or currency,
+                    foreign_amount=installment.amount,
+                    settlement_date=installment.due_date,
+                )
+            )
+    else:
+        settlement_date = (
+            confirmation.checks.confirmed_due_date
+            or recomputed.resolved_due_date
+        )
+        events.append(
+            _normalized_event(
+                sequence=1,
+                trade_type=trade_type,
+                currency=currency,
+                foreign_amount=extraction.amount_due,
+                settlement_date=settlement_date,
+            )
+        )
+
+    return _build_binding(
+        source_sha256=confirmation.source_sha256,
+        trade_type=trade_type,
+        currency=currency,
+        events=events,
+    )
+
+
+def confirmed_trade_from_document_input(
+    document_input: Dict[str, Any],
+) -> ConfirmedTradeBinding:
+    source = document_input.get("source")
+    trade = document_input.get("trade")
+    if not isinstance(source, dict) or not isinstance(trade, dict):
+        raise ValueError("확인된 Stage 0 문서 입력이 필요합니다.")
+    if source.get("user_confirmed") is not True:
+        raise ValueError("사용자 확인된 Stage 0 문서 입력이 필요합니다.")
+    confirmed_fields = source.get("confirmed_fields")
+    if not isinstance(confirmed_fields, list) or not {
+        "currency",
+        "amount_due",
+        "due_date",
+    }.issubset(set(confirmed_fields)):
+        raise ValueError("통화·금액·결제일 확인 기록이 필요합니다.")
+
+    trade_type = trade.get("trade_type")
+    currency = trade.get("currency")
+    cashflow_events = trade.get("cashflow_events")
+    if not isinstance(cashflow_events, list) or not cashflow_events:
+        raise ValueError("확인된 결제 현금흐름이 필요합니다.")
+
+    events: List[ConfirmedTradeEvent] = []
+    for item in cashflow_events:
+        if not isinstance(item, dict):
+            raise ValueError("확인된 결제 현금흐름 형식이 올바르지 않습니다.")
+        events.append(
+            _normalized_event(
+                sequence=item.get("sequence"),
+                trade_type=trade_type,
+                currency=item.get("currency"),
+                foreign_amount=item.get("foreign_amount"),
+                settlement_date=item.get("settlement_date"),
+            )
+        )
+
+    declared_total = _normalized_amount(
+        trade.get("foreign_amount"),
+        "confirmed trade foreign_amount",
+    )
+    event_total = sum(
+        (
+            decimal_value(item.foreign_amount, "confirmed event amount")
+            for item in events
+        ),
+        decimal_value("0", "confirmed event total"),
+    )
+    if decimal_value(declared_total, "confirmed trade total") != event_total:
+        raise ValueError("확인된 거래금액과 결제 이벤트 합계가 다릅니다.")
+
+    return _build_binding(
+        source_sha256=source.get("sha256"),
+        trade_type=trade_type,
+        currency=currency,
+        events=events,
+    )
+
+
+def validate_stage2_trade_binding(
+    *,
+    expected: ConfirmedTradeBinding,
+    stage2_input: Stage2Input,
+) -> None:
+    if stage2_input.confirmed_trade_sha256 is None:
+        raise ValueError("Stage 2 입력에 확인된 거래 fingerprint가 없습니다.")
+    if stage2_input.confirmed_trade_sha256 != expected.trade_sha256:
+        raise ValueError("Stage 2 입력의 거래 fingerprint가 확인 기록과 다릅니다.")
+    if len(stage2_input.exposures) != len(expected.events):
+        raise ValueError("Stage 2 결제 이벤트 개수가 확인 기록과 다릅니다.")
+
+    for expected_event, actual in zip(
+        expected.events,
+        stage2_input.exposures,
+    ):
+        if actual.sequence != expected_event.sequence:
+            raise ValueError("Stage 2 거래 sequence가 확인 기록과 다릅니다.")
+        if actual.trade_type != expected_event.trade_type:
+            raise ValueError("Stage 2 거래 방향이 확인 기록과 다릅니다.")
+        if actual.currency != expected_event.currency:
+            raise ValueError("Stage 2 거래 통화가 확인 기록과 다릅니다.")
+        if (
+            decimal_value(actual.foreign_amount, "Stage 2 foreign_amount")
+            != decimal_value(
+                expected_event.foreign_amount,
+                "confirmed trade foreign_amount",
+            )
+        ):
+            raise ValueError("Stage 2 거래금액이 확인 기록과 다릅니다.")
+        actual_settlement = date_value(
+            actual.settlement_date,
+            "Stage 2 settlement_date",
+        ).isoformat()
+        if actual_settlement != expected_event.settlement_date:
+            raise ValueError("Stage 2 결제일이 확인 기록과 다릅니다.")

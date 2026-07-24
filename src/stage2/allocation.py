@@ -1,8 +1,7 @@
-from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List
 
-from src.stage2.metrics import decimal_value
+from src.stage2.metrics import date_value, decimal_value
 
 
 def allocate_capped(
@@ -27,13 +26,11 @@ def allocate_capped_by_date(
 ) -> List[str]:
     if len(cap_texts) != len(settlement_dates):
         raise ValueError("allocation cap과 settlement date 개수가 다릅니다.")
-    try:
-        available = date.fromisoformat(available_date)
-        settlements = [
-            date.fromisoformat(value) for value in settlement_dates
-        ]
-    except ValueError as exc:
-        raise ValueError("allocation 날짜는 YYYY-MM-DD여야 합니다.") from exc
+    available = date_value(available_date, "allocation available_date")
+    settlements = [
+        date_value(value, "allocation settlement_date")
+        for value in settlement_dates
+    ]
 
     remaining = decimal_value(total_text, "dated allocation total")
     allocations: List[str] = []
@@ -72,9 +69,13 @@ def allocate_fee_proportionally(
         elif index == last_positive:
             allocation = total_fee - allocated_total
         else:
-            allocation = (
+            proportional = (
                 total_fee * weight / weight_total
             ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            allocation = min(
+                proportional,
+                total_fee - allocated_total,
+            )
             allocated_total += allocation
         allocations.append(allocation)
     return [format(value, "f") for value in allocations]

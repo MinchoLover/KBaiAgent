@@ -1,4 +1,3 @@
-from datetime import date
 from decimal import Decimal
 from typing import List, Tuple
 
@@ -6,23 +5,13 @@ from src.domain.stage2_models import (
     ExposureComputation,
     ExposureInput,
 )
-from src.stage2.metrics import decimal_string, decimal_value
-
-
-def _iso_date(value: str, field: str) -> date:
-    try:
-        parsed = date.fromisoformat(value)
-    except ValueError as exc:
-        raise ValueError("{}는 YYYY-MM-DD여야 합니다.".format(field)) from exc
-    if parsed.isoformat() != value:
-        raise ValueError("{}는 YYYY-MM-DD여야 합니다.".format(field))
-    return parsed
+from src.stage2.metrics import date_value, decimal_string, decimal_value
 
 
 def compute_exposure(
     exposure: ExposureInput,
 ) -> Tuple[ExposureComputation, List[str]]:
-    settlement = _iso_date(exposure.settlement_date, "settlement_date")
+    settlement = date_value(exposure.settlement_date, "settlement_date")
     trade_amount = decimal_value(
         exposure.foreign_amount,
         "foreign_amount",
@@ -47,7 +36,7 @@ def compute_exposure(
             )
 
     for flow in exposure.same_currency_flows:
-        flow_date = _iso_date(flow.date, "same_currency_flow.date")
+        flow_date = date_value(flow.date, "same_currency_flow.date")
         amount = decimal_value(
             flow.amount,
             "same_currency_flow.amount",
@@ -71,6 +60,10 @@ def compute_exposure(
             continue
         if flow_date <= settlement:
             eligible_flow_amount += amount
+        else:
+            warnings.append(
+                "결제일 이후의 동일통화 흐름을 자연상계에서 제외했습니다."
+            )
 
     held_fx_used = min(trade_amount, available_offset)
     remaining_after_held_fx = trade_amount - held_fx_used

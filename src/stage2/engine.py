@@ -1,6 +1,5 @@
-from datetime import date
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from src.domain.stage1_models import NormalizedScenarioSet, ScenarioPoint
 from src.domain.stage2_models import (
@@ -17,6 +16,8 @@ from src.stage2.cashflow import (
 )
 from src.stage2.exposure import compute_exposure
 from src.stage2.metrics import (
+    date_value,
+    decimal_percent,
     decimal_string,
     decimal_value,
     money_string,
@@ -25,6 +26,127 @@ from src.stage2.scenarios import (
     adverse_loss_vs_base,
     applied_customer_rate,
 )
+
+
+PREPROCESSING_WARNING_MESSAGES: Dict[str, str] = {
+    "EXCESS_USABLE_FX_IGNORED": (
+        "거래금액을 초과한 보유외화 잔액은 이번 계산에 사용하지 않았습니다."
+    ),
+    "INELIGIBLE_SAME_CURRENCY_FLOW_IGNORED": (
+        "결제일과 잔여 노출 조건에 맞지 않는 동일통화 흐름은 "
+        "자연상계에 사용하지 않았습니다."
+    ),
+}
+
+
+def _valid_currency(value: str) -> bool:
+    return (
+        len(value) == 3
+        and value.isalpha()
+        and value == value.upper()
+    )
+
+
+def _validate_stage2_contract(
+    stage2_input: Stage2Input,
+) -> Set[str]:
+    as_of = date_value(stage2_input.as_of_date, "as_of_date")
+    sequences = [item.sequence for item in stage2_input.exposures]
+    if sequences != list(range(1, len(stage2_input.exposures) + 1)):
+        raise ValueError("Stage 2 exposure sequence는 1부터 연속이어야 합니다.")
+
+    trade_types = {item.trade_type for item in stage2_input.exposures}
+    currencies = {item.currency for item in stage2_input.exposures}
+    if len(trade_types) != 1 or len(currencies) != 1:
+        raise ValueError("한 계산 실행의 거래 방향과 통화는 같아야 합니다.")
+    for currency in currencies:
+        if not _valid_currency(currency):
+            raise ValueError(
+                "Stage 2 currency는 대문자 ISO 형태 3글자여야 합니다."
+            )
+
+    decimal_value(
+        stage2_input.current_krw_cash,
+        "current_krw_cash",
+        allow_negative=True,
+    )
+    decimal_value(stage2_input.minimum_cash_buffer, "minimum_cash_buffer")
+    decimal_value(stage2_input.credit_limit, "credit_limit")
+    decimal_value(stage2_input.acceptable_fx_loss, "acceptable_fx_loss")
+    spread_bps = decimal_value(
+        stage2_input.bank_spread_bps,
+        "bank_spread_bps",
+    )
+    if spread_bps >= Decimal("10000"):
+        raise ValueError("bank_spread_bps는 10000 미만이어야 합니다.")
+    decimal_value(stage2_input.bank_fee, "bank_fee")
+    decimal_percent(
+        stage2_input.composite_stress.revenue_reduction_percent,
+        "revenue_reduction_percent",
+    )
+    decimal_percent(
+        stage2_input.composite_stress.cost_increase_percent,
+        "cost_increase_percent",
+    )
+
+    for event in stage2_input.krw_cashflows:
+        event_date = date_value(event.date, "krw_cashflow.date")
+        if event_date < as_of:
+            raise ValueError(
+                "as_of_date 이전의 KRW cashflow는 current cash와 "
+                "중복될 수 있습니다."
+            )
+        decimal_value(
+            event.amount,
+            "krw_cashflow.amount",
+            allow_zero=False,
+        )
+
+    for exposure in stage2_input.exposures:
+        settlement = date_value(
+            exposure.settlement_date,
+            "settlement_date",
+        )
+        if settlement < as_of:
+            raise ValueError("settlement_date는 as_of_date보다 빠를 수 없습니다.")
+        decimal_value(
+            exposure.foreign_amount,
+            "foreign_amount",
+            allow_zero=False,
+        )
+        decimal_value(exposure.usable_fx_balance, "usable_fx_balance")
+        if exposure.existing_hedge is not None:
+            decimal_value(
+                exposure.existing_hedge.amount,
+                "existing_hedge.amount",
+            )
+            decimal_value(
+                exposure.existing_hedge.locked_rate,
+                "existing_hedge.locked_rate",
+                allow_zero=False,
+            )
+            decimal_value(
+                exposure.existing_hedge.fee,
+                "existing_hedge.fee",
+            )
+        for flow in exposure.same_currency_flows:
+            if not _valid_currency(flow.currency):
+                raise ValueError(
+                    "same_currency_flow.currency는 대문자 ISO 형태 "
+                    "3글자여야 합니다."
+                )
+            flow_date = date_value(flow.date, "same_currency_flow.date")
+            if flow_date < as_of:
+                raise ValueError(
+                    "as_of_date 이전의 동일통화 흐름은 현재 보유외화와 "
+                    "중복될 수 있습니다."
+                )
+            decimal_value(
+                flow.amount,
+                "same_currency_flow.amount",
+                allow_zero=False,
+            )
+    return currencies
 
 
 def _base_scenario(scenarios: NormalizedScenarioSet) -> ScenarioPoint:
@@ -104,7 +226,7 @@ def _build_scenario_result(
     base_fx_inflow: Decimal,
     base_fx_outflow: Decimal,
 ) -> ScenarioResult:
-    as_of = date.fromisoformat(stage2_input.as_of_date)
+    as_of = date_value(stage2_input.as_of_date, "as_of_date")
     initial_cash = decimal_value(
         stage2_input.current_krw_cash,
         "current_krw_cash",
@@ -134,7 +256,7 @@ def _build_scenario_result(
         )
         add_daily_event(
             event_map,
-            event_date=date.fromisoformat(item.date),
+            event_date=date_value(item.date, "krw_cashflow.date"),
             inflow=amount if item.direction == "INFLOW" else Decimal("0"),
             outflow=amount if item.direction == "OUTFLOW" else Decimal("0"),
             description=item.description or item.category,
@@ -189,7 +311,10 @@ def _build_scenario_result(
                 "hedge_fee",
             )
         unhedged_flow = open_amount * customer_rate
-        settlement = date.fromisoformat(computation.settlement_date)
+        settlement = date_value(
+            computation.settlement_date,
+            "settlement_date",
+        )
         if computation.trade_type == "IMPORT":
             add_daily_event(
                 event_map,
@@ -287,35 +412,16 @@ def run_stage2(
     stage2_input: Stage2Input,
     scenarios: NormalizedScenarioSet,
 ) -> Stage2Result:
-    as_of = date.fromisoformat(stage2_input.as_of_date)
-    for exposure in stage2_input.exposures:
-        if (
-            len(exposure.currency) != 3
-            or not exposure.currency.isalpha()
-            or exposure.currency != exposure.currency.upper()
-        ):
-            raise ValueError(
-                "Stage 2 currency는 대문자 ISO 형태 3글자여야 합니다."
-            )
-    if scenarios.currency != stage2_input.exposures[0].currency.upper():
+    currencies = _validate_stage2_contract(stage2_input)
+    if scenarios.currency != next(iter(currencies)):
         raise ValueError("Stage 1/2 통화가 일치하지 않습니다.")
-
-    trade_types = {item.trade_type for item in stage2_input.exposures}
-    currencies = {item.currency.upper() for item in stage2_input.exposures}
-    if len(trade_types) != 1 or len(currencies) != 1:
-        raise ValueError("한 계산 실행의 거래 방향과 통화는 같아야 합니다.")
-    for exposure in stage2_input.exposures:
-        if date.fromisoformat(exposure.settlement_date) < as_of:
-            raise ValueError("settlement_date는 as_of_date보다 빠를 수 없습니다.")
-        for flow in exposure.same_currency_flows:
-            if date.fromisoformat(flow.date) < as_of:
-                raise ValueError(
-                    "as_of_date 이전의 동일통화 흐름은 현재 보유외화와 "
-                    "중복될 수 있습니다."
-                )
 
     computations: List[ExposureComputation] = []
     warnings: List[str] = list(scenarios.warnings)
+    warnings.extend(
+        PREPROCESSING_WARNING_MESSAGES[code]
+        for code in stage2_input.preprocessing_warnings
+    )
     for exposure in stage2_input.exposures:
         if exposure.settlement_date != scenarios.target_date:
             warnings.append(
@@ -426,6 +532,7 @@ def run_stage2(
         for item in results
     ]
     return Stage2Result(
+        confirmed_trade_sha256=stage2_input.confirmed_trade_sha256,
         trade_type=trade_type,
         currency=next(iter(currencies)),
         total_foreign_amount=decimal_string(total_amount),

@@ -14,7 +14,10 @@ from schemas import (
     PaymentInstallment,
     TradeDocumentExtraction,
 )
-from src.document_intake.confirmation import create_confirmation_record
+from src.document_intake.confirmation import (
+    create_confirmation_record,
+    validate_confirmation,
+)
 from validators import (
     apply_deterministic_review_state,
     build_stage0_output,
@@ -263,6 +266,7 @@ class ValidationTests(unittest.TestCase):
                 due_date_confirmed=True,
                 source_filename="invoice.png",
                 source_sha256="a" * 64,
+                company_country="KR",
             )
 
     def test_confirmation_record_validates_audit_metadata(self):
@@ -276,6 +280,7 @@ class ValidationTests(unittest.TestCase):
                 due_date_confirmed=True,
                 source_filename="../invoice.png",
                 source_sha256="not-a-fingerprint",
+                company_country="KR",
             )
         with self.assertRaises(ValidationError):
             create_confirmation_record(
@@ -287,7 +292,28 @@ class ValidationTests(unittest.TestCase):
                 due_date_confirmed=True,
                 source_filename="../invoice.png",
                 source_sha256="a" * 64,
+                company_country="KR",
                 confirmed_at="2026-07-23T09:00:00",
+            )
+
+    def test_confirmation_record_is_bound_to_company_country(self):
+        record = create_confirmation_record(
+            original=sample_extraction(),
+            confirmed=sample_extraction(),
+            confirmed_due_date="2026-10-18",
+            currency_confirmed=True,
+            amount_due_confirmed=True,
+            due_date_confirmed=True,
+            source_filename="invoice.png",
+            source_sha256="a" * 64,
+            company_country="KR",
+        )
+
+        with self.assertRaises(ValueError):
+            validate_confirmation(
+                extraction=sample_extraction(),
+                record=record,
+                company_country="JP",
             )
 
     def test_invalid_currency_is_critical(self):
@@ -511,6 +537,7 @@ class ValidationTests(unittest.TestCase):
             due_date_confirmed=True,
             source_filename="invoice.pdf",
             source_sha256="a" * 64,
+            company_country="KR",
             confirmed_at="2026-07-23T09:00:00+09:00",
         )
         extraction, validation = apply_deterministic_review_state(

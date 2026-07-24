@@ -5,7 +5,8 @@
 - [x] 16 synthetic documents, labels, fixture predictions, manifest
 - [x] offline/live evaluator, baseline regression, fine-tuning candidate exporter
 - [x] Stage 1 manual/external adapter
-- [x] Stage 2 Decimal exposure, scenario, ledger, composite stress
+- [x] Stage 2 confirmed-trade binding, Decimal exposure, scenario, ledger,
+  composite stress
 - [x] Stage 3 top-3 candidate grid
 - [x] Stage 4 official offline KB and optional allowlist web search
 - [x] Stage 5 explainer policy, critic, deterministic fallback
@@ -17,7 +18,7 @@
 - [x] Streamlit Stage 0~5 UI and downloads
 - [x] Streamlit workflow trace view
 - [x] macOS/Windows launcher and env template
-- [x] 158 API-free tests
+- [x] 174 API-free tests
 - [x] offline evaluation and regression baseline
 - [ ] live OpenAI smoke test — API key required
 - [ ] production auth/malware scanning/CI — follow-up scope

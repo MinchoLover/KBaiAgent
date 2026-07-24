@@ -1,5 +1,6 @@
 {
   "schema_version": "1.0",
+  "confirmed_trade_sha256": "0f6a2e87d597a25cb33c0c8a4ba561ba8523609d7d705fd10c67b1fbb1922d8f",
   "as_of_date": "2026-07-23",
   "exposures": [
     {
@@ -39,5 +40,6 @@
     "revenue_reduction_percent": "0",
     "revenue_delay_days": 0,
     "cost_increase_percent": "0"
-  }
+  },
+  "preprocessing_warnings": []
 }

@@ -5,6 +5,12 @@ from pydantic import Field
 from schemas import StrictModel
 
 
+PreprocessingWarningCode = Literal[
+    "EXCESS_USABLE_FX_IGNORED",
+    "INELIGIBLE_SAME_CURRENCY_FLOW_IGNORED",
+]
+
+
 class SameCurrencyFlow(StrictModel):
     date: str
     amount: str
@@ -48,6 +54,10 @@ class CompositeStress(StrictModel):
 
 class Stage2Input(StrictModel):
     schema_version: str = "1.0"
+    confirmed_trade_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
     as_of_date: str
     exposures: List[ExposureInput] = Field(min_length=1)
     current_krw_cash: str
@@ -59,6 +69,9 @@ class Stage2Input(StrictModel):
     bank_fee: str = "0"
     composite_stress: CompositeStress = Field(
         default_factory=CompositeStress
+    )
+    preprocessing_warnings: List[PreprocessingWarningCode] = Field(
+        default_factory=list
     )
 
 
@@ -109,6 +122,10 @@ class ScenarioResult(StrictModel):
 class Stage2Result(StrictModel):
     schema_version: str = "1.0"
     status: Literal["CALCULATION"] = "CALCULATION"
+    confirmed_trade_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
     trade_type: Literal["IMPORT", "EXPORT"]
     currency: str
     total_foreign_amount: str

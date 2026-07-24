@@ -8,7 +8,7 @@ pandas 2.3.3, OpenAI SDK 2.47.0, Pydantic 2.13.4.
 
 - Python 3.9 compile: PASS
 - dependency check: PASS
-- offline unit/integration tests: 158/158 PASS
+- offline unit/integration tests: 174/174 PASS
 - offline end-to-end Stage 0~5: PASS
 - standalone WorkflowOrchestrator, confirmation gate, fallback, safe trace: PASS
 - Streamlit AppTest: PASS
@@ -71,7 +71,10 @@ offline end-to-end를 포함합니다. 추가로 UI 없는 orchestrator, 확인 
 미호출, Stage 1·상품 검색 fallback, RAG empty 상품 생성 차단, critic 정확히 1회
 재작성, report API fallback, trace payload 비포함을 고정합니다. 분할결제에서는
 동일 통화 자연상계 잔여량과 기존
-헤지 수수료가 여러 회차에 중복 적용되지 않는 것도 고정합니다. Stage 1 REST의
+헤지 수수료가 여러 회차에 중복 적용되지 않고 작은 수수료의 반올림 잔여도 음수가
+되지 않는 것을 고정합니다. 문서 SHA·회사 국가·거래 방향·통화·회차별 금액·결제일
+fingerprint를 재검증해 확인 뒤 바뀐 Stage 2 입력이 계산 runner에 도달하지 않는
+경계도 포함합니다. Stage 1 REST의
 private/loopback/metadata IP 차단, exact host allowlist, 명시적 로컬 opt-in과 공식
 검색 cache의 fresh hit·stale refresh도 포함합니다.
 
@@ -102,13 +105,13 @@ vision/Structured Outputs 모델로 바꿉니다.
 - MEDIUM: prompt version/few-shot, 정답셋·평가·회귀, 공식 출처 정책, 보고서 숫자
   추적성이 없거나 약했습니다.
 - LOW: README와 지원 형식·제한이 달랐고 의존성 재현성이 부족했습니다.
-- 저장소에 `.git` 디렉터리가 없어 branch/commit은 만들지 않았습니다.
 
 ### 2. 실제 구현 범위
 
 Stage 0 strict extraction/검증/사람 확인, typed workflow orchestrator와 trace,
 Stage 1 manual·JSON·REST adapter, Stage 2
-Decimal exposure·ledger·복합 stress, Stage 3 top-3 후보, Stage 4 official KB와 선택적
+확정 거래 binding·Decimal exposure·ledger·복합 stress, Stage 3 top-3 후보,
+Stage 4 official KB와 선택적
 allowlist web search, Stage 5 critic·fallback, 단일 Streamlit UI, 다운로드, dataset,
 offline/live evaluator, regression과 fine-tuning export gate를 구현했습니다.
 
@@ -136,7 +139,7 @@ API 키가 없으면 앱의 데모 모드와 전체 오프라인 데모를 사�
 
 ### 5. 테스트
 
-Python 3.9 compile, dependency check, 158/158 API-free unit/integration tests,
+Python 3.9 compile, dependency check, 174/174 API-free unit/integration tests,
 `scripts/verify.py`, Streamlit AppTest가 모두 PASS했습니다. 또한
 `127.0.0.1:8765`에서 headless Streamlit 서버를 기동해 `/_stcore/health`의 HTTP 200과
 `ok` 응답을 확인한 뒤 정상 종료했습니다.

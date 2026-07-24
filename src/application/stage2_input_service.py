@@ -9,6 +9,7 @@ from src.domain.stage2_models import (
     ExistingHedge,
     ExposureInput,
     KrwCashflowEvent,
+    PreprocessingWarningCode,
     SameCurrencyFlow,
     Stage2Input,
 )
@@ -17,6 +18,7 @@ from src.stage2.allocation import (
     allocate_capped_by_date,
     allocate_fee_proportionally,
 )
+from src.stage2.binding import confirmed_trade_from_document_input
 from src.stage2.metrics import decimal_value
 
 
@@ -104,18 +106,16 @@ def build_stage2_input_from_form(
     document_input: Dict[str, Any],
     form: Stage2FormInput,
 ) -> Stage2Input:
-    trade = document_input.get("trade")
-    if not isinstance(trade, dict):
-        raise ValueError("확인된 Stage 0 거래 입력이 필요합니다.")
-    cash_events = trade.get("cashflow_events")
-    if not isinstance(cash_events, list) or not cash_events:
-        raise ValueError("확인된 결제 현금흐름이 필요합니다.")
-
+    confirmed_trade = confirmed_trade_from_document_input(document_input)
+    cash_events = confirmed_trade.events
     event_amounts = [
-        str(item["foreign_amount"]) for item in cash_events
+        item.foreign_amount for item in cash_events
     ]
     total_trade_amount = sum(
-        (Decimal(item) for item in event_amounts),
+        (
+            decimal_value(item, "confirmed trade event amount")
+            for item in event_amounts
+        ),
         Decimal("0"),
     )
     usable_total = _decimal_text(
@@ -133,6 +133,19 @@ def build_stage2_input_from_form(
         usable_total,
         event_amounts,
     )
+    natural_flow_caps = list(event_amounts)
+    if confirmed_trade.trade_type == "IMPORT":
+        natural_flow_caps = [
+            format(
+                decimal_value(amount, "confirmed trade event amount")
+                - decimal_value(allocation, "usable FX allocation"),
+                "f",
+            )
+            for amount, allocation in zip(
+                event_amounts,
+                usable_allocations,
+            )
+        ]
     hedge_allocations = allocate_capped(
         hedge_total,
         event_amounts,
@@ -143,10 +156,29 @@ def build_stage2_input_from_form(
     )
     flow_allocations = allocate_capped_by_date(
         flow_amount,
-        event_amounts,
-        [str(item["settlement_date"]) for item in cash_events],
+        natural_flow_caps,
+        [item.settlement_date for item in cash_events],
         form.same_currency_flow_date,
     )
+    preprocessing_warnings: List[PreprocessingWarningCode] = []
+    if decimal_value(usable_total, "usable FX balance") > sum(
+        (
+            decimal_value(item, "usable FX allocation")
+            for item in usable_allocations
+        ),
+        Decimal("0"),
+    ):
+        preprocessing_warnings.append("EXCESS_USABLE_FX_IGNORED")
+    if decimal_value(flow_amount, "same currency flow") > sum(
+        (
+            decimal_value(item, "same currency flow allocation")
+            for item in flow_allocations
+        ),
+        Decimal("0"),
+    ):
+        preprocessing_warnings.append(
+            "INELIGIBLE_SAME_CURRENCY_FLOW_IGNORED"
+        )
     hedge_fee_total = _decimal_text(
         form.existing_hedge_fee,
         "헤지 수수료",
@@ -166,7 +198,7 @@ def build_stage2_input_from_form(
                 SameCurrencyFlow(
                     date=form.same_currency_flow_date,
                     amount=flow_allocations[index],
-                    currency=str(trade["currency"]),
+                    currency=confirmed_trade.currency,
                     direction=form.same_currency_flow_direction,
                     description="사용자 입력 자연헤지 후보",
                 )
@@ -184,11 +216,11 @@ def build_stage2_input_from_form(
             )
         exposures.append(
             ExposureInput(
-                sequence=int(event["sequence"]),
-                trade_type=str(trade["trade_type"]),
-                currency=str(event["currency"]),
-                foreign_amount=str(event["foreign_amount"]),
-                settlement_date=str(event["settlement_date"]),
+                sequence=event.sequence,
+                trade_type=event.trade_type,
+                currency=event.currency,
+                foreign_amount=event.foreign_amount,
+                settlement_date=event.settlement_date,
                 usable_fx_balance=usable_allocations[index],
                 same_currency_flows=flows,
                 existing_hedge=hedge,
@@ -196,6 +228,7 @@ def build_stage2_input_from_form(
         )
 
     return Stage2Input(
+        confirmed_trade_sha256=confirmed_trade.trade_sha256,
         as_of_date=form.as_of_date,
         exposures=exposures,
         current_krw_cash=_decimal_text(
@@ -232,4 +265,5 @@ def build_stage2_input_from_form(
                 "비용 증가율",
             ),
         ),
+        preprocessing_warnings=preprocessing_warnings,
     )
