@@ -160,3 +160,22 @@ trade type을 판정합니다.
 남깁니다. 자동판정과 사용자 지정의 출처를 confirmation record에 보존해 이후
 Stage 2 재검증도 같은 결과를 재현합니다. 확인되지 않은 국가 별칭이나 원문 없는
 currency evidence는 추정하지 않습니다.
+
+## 20. Exact evidence repair stays deterministic
+
+Context: 이미지형 합성 계약서에서 당사자 값과 원문 인용이 이미 반환됐는데도
+`buyer_country=CA`가 `MISSING_CORE_EVIDENCE`로 차단됐습니다. 처음에는 누락 field만
+다시 읽는 두 번째 LLM 호출도 검토했습니다.
+
+Decision: 각 핵심값에는 정확히 같은 field의 비추론 evidence를 요구하고, 이름·국가가
+한 줄에 있으면 현재 값과 당사자 방향을 일반 코드로 대조해 evidence를 연결합니다.
+지원 데이터의 국가 별칭과 대문자 ISO 독립 토큰을 판정하되, 일반 단어와 충돌할 수
+있는 소문자 2글자 매칭은 하지 않습니다. 검증 실패를 감추기 위한 두 번째 LLM 호출은
+추가하지 않습니다.
+
+Rationale: 이번 실패는 모델 누락이 아니라 validator의 캐나다 코드 판정 누락이었고,
+결정론 규칙 수정만으로 동일 live 문서가 PASS했습니다. 추가 호출 없이 비용과 새로운
+환각 표면을 줄이고, 실제 evidence가 없을 때는 계속 fail closed 상태를 유지합니다.
+
+Revisit condition: 허가된 live baseline에서 실제 원문 인용 누락이 반복되고, 독립 OCR
+대조를 포함한 evidence-only 보정의 이득이 측정될 때 별도 설계합니다.

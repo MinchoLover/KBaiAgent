@@ -1,5 +1,22 @@
 # AI Use Log
 
+## 2026-07-27 Stage 0 exact evidence integrity
+
+Codex와 병렬 에이전트가 공유된 실패 화면의 `MISSING_CORE_EVIDENCE`를 추적했습니다.
+프롬프트와 few-shot은 값이 있는 당사자·통화·금액·날짜·지급조건마다 정확한 field의
+실제 원문 evidence를 요구하도록 맞췄고, `INFERRED`는 coverage에서 제외했습니다.
+텍스트 PDF는 메모리 안에서 페이지 원문을 대조해 안전하게 당사자 evidence를 연결하며,
+이미지형 PDF에서 누락이 남으면 `OCR_REQUIRED`를 표시합니다. 사용자가 값을 수정하면
+이전 값의 evidence를 폐기하고 전체 검증을 다시 실행합니다.
+
+실제 합성 `demo_net90_contract.pdf` 호출에서 값과 `(CA)` 인용이 존재하는데도
+캐나다 코드 매칭표 누락 때문에 `buyer_country`만 차단되는 결정론 버그를 확인했습니다.
+지원 국가 별칭과 대문자 ISO 토큰 판정을 보강한 뒤 같은 문서를 한 번 재호출해
+`SALES_CONTRACT`, `validation_pass=true`를 확인했습니다. 문서 원문·업로드 bytes·
+비밀값은 로그나 dataset에 저장하지 않았고, 별도 evidence 재추출 LLM 호출도
+추가하지 않았습니다. 최종 API-free 전체 264개 테스트와 release gate가
+통과했습니다.
+
 ## 2026-07-27 Stage 0 normalization and confirmation hardening
 
 Codex가 문서 추출값을 계산 전에 정규화하는 경계를 추가했습니다. 자연어 국가 별칭은
@@ -11,7 +28,7 @@ Codex가 문서 추출값을 계산 전에 정규화하는 경계를 추가했�
 연결합니다. 날짜 placeholder는 null로 정리하고 Contract/Invoice Date 기준
 calendar/business Net N 산술은 Python이 수행합니다. Streamlit 수정 후 전체 검증을
 다시 실행하고 다섯 핵심값을 확인하기 전 Stage 2를 차단합니다. API-free 매매계약
-fixture를 포함한 전체 240개 테스트가 통과했습니다.
+fixture를 포함한 당시 전체 240개 테스트가 통과했습니다.
 
 ## 2026-07-27 Stage 1 integration and decision-flow hardening
 

@@ -9,9 +9,10 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 240/240 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 264/264 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
+| Stage 0 live 합성 PDF | `scripts/live_smoke_test.py samples/demo_net90_contract.pdf --company-role SELLER` | PASS, `SALES_CONTRACT`, 10.14초 |
 | regression | `python scripts/run_regression.py` | PASS |
 | Streamlit AppTest | 전체 unittest 내 실행 | PASS |
 | Streamlit 실제 health | `curl ...:8502/_stcore/health` | HTTP 200, `ok` |
@@ -37,8 +38,21 @@ currency evidence: amount_due 실제 원문 "USD 100,000.00"에서 연결
 
 기존 `COMPANY_COUNTRY_ROLE_MISMATCH`, `INVALID_PARTY_COUNTRY`,
 `MISSING_REQUIRED_FIELD trade_type`, `MISSING_CORE_EVIDENCE currency`는 이
-fixture에서 재현되지 않습니다. 실제 PDF live 분석은 외부 호출 없이 실행하지
-않았고, 해당 이름의 PDF 원본은 저장소에서 미확인입니다.
+fixture에서 재현되지 않습니다.
+
+저장소의 이미지형 합성 `samples/demo_net90_contract.pdf`를 실제 문서 추출 API로
+검증했습니다. 첫 재현에서 모델은 `buyer_country=CA`와 `(CA)` 원문을 반환했지만
+validator의 국가 evidence 별칭표에 캐나다가 없어
+`MISSING_CORE_EVIDENCE:buyer_country`로 오판했습니다. 지원 국가 별칭과 대문자 ISO
+독립 토큰 판정을 보강한 뒤 같은 문서가 다음처럼 통과했습니다.
+
+```text
+PASS document_type=SALES_CONTRACT validation_pass=True
+latency_seconds=10.1423285
+```
+
+이는 합성 문서 한 건의 smoke test이며 실제 고객 문서군의 OCR·추출 정확도
+benchmark를 뜻하지 않습니다.
 
 ## Stage 1 검증
 
@@ -160,7 +174,8 @@ USD 100,000 수취 거래에서 기준 수취액 140,000,000원, -5% 스트레�
 
 ## 미실행
 
-- 실제 OpenAI 문서 추출·LLM 보고서: 자격증명과 비용 승인 없음
+- 허가된 실제 고객 문서군 OpenAI 추출 benchmark
+- 실제 OpenAI LLM 보고서 생성
 - 한국수출입은행 live 호출: 자격증명 없음
 - 공식 web 상품 검색 live: 기본 비활성, 자격증명 없음
 - Windows launcher: 현재 macOS 환경에서 미검증

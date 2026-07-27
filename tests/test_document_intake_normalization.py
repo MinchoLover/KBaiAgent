@@ -9,8 +9,13 @@ from src.document_intake.confirmation import (
 )
 from src.document_intake.normalization import (
     augment_currency_evidence,
+    country_alias_matches_text,
     normalize_country_name,
     normalize_date_text,
+)
+from src.document_intake.source_evidence import (
+    augment_party_evidence,
+    extract_pdf_page_texts,
 )
 from validators import (
     ISO_4217_CODES,
@@ -76,6 +81,39 @@ class CountryNormalizationTests(unittest.TestCase):
         )
         self.assertEqual(normalized, "Atlantis")
         self.assertEqual(audit.status, "UNKNOWN_ALIAS")
+
+    def test_dataset_country_aliases_normalize_to_iso_alpha_2(self):
+        aliases = {
+            "Australia": "AU",
+            "Canada": "CA",
+            "France": "FR",
+            "The Netherlands": "NL",
+            "Norway": "NO",
+            "Taiwan": "TW",
+        }
+        for source, expected in aliases.items():
+            with self.subTest(source=source):
+                normalized, unused_audit = normalize_country_name(
+                    source,
+                    "country",
+                )
+                self.assertEqual(normalized, expected)
+
+    def test_country_evidence_matches_uppercase_code_without_common_word_false_positive(
+        self,
+    ):
+        self.assertTrue(
+            country_alias_matches_text(
+                "Buyer: Evergreen Mock Distribution Inc. (CA)",
+                "CA",
+            )
+        )
+        self.assertFalse(
+            country_alias_matches_text(
+                "Contract No: SC-SYN-005",
+                "NO",
+            )
+        )
 
 
 class TradeTypeDerivationTests(unittest.TestCase):
@@ -285,6 +323,352 @@ class EvidenceNormalizationTests(unittest.TestCase):
                 for item in confirmed.issues
             )
         )
+
+
+class PartyEvidenceAugmentationTests(unittest.TestCase):
+    PARTY_FIELDS = {
+        "seller_name",
+        "seller_country",
+        "buyer_name",
+        "buyer_country",
+    }
+
+    def without_party_evidence(self) -> TradeDocumentExtraction:
+        raw = raw_contract()
+        return raw.model_copy(
+            update={
+                "evidence": [
+                    item
+                    for item in raw.evidence
+                    if item.field not in self.PARTY_FIELDS
+                ]
+            }
+        )
+
+    def test_text_pdf_party_blocks_backfill_exact_evidence(self):
+        raw = self.without_party_evidence()
+        page_text = """SELLER BUYER
+Legal Name: BlueWave Components Inc.
+Country: United States
+Address: 1200 Harbor Avenue, Seattle, WA 98101, USA
+Legal Name: Hanseong Precision Co., Ltd.
+Country: Republic of Korea
+Address: 77 Techno Valley-ro, Pohang-si
+"""
+        extraction, validation = apply_deterministic_review_state(
+            raw,
+            company_role="BUYER",
+            company_country="KR",
+            source_page_texts=[page_text],
+        )
+        party_evidence = {
+            item.field: item
+            for item in extraction.evidence
+            if item.field in self.PARTY_FIELDS
+            and item.extraction_type == "EXPLICIT"
+        }
+        self.assertEqual(set(party_evidence), self.PARTY_FIELDS)
+        self.assertEqual(
+            party_evidence["seller_name"].source_text,
+            "Legal Name: BlueWave Components Inc.",
+        )
+        self.assertEqual(
+            party_evidence["seller_country"].source_text,
+            "Country: United States",
+        )
+        self.assertEqual(
+            party_evidence["buyer_name"].source_text,
+            "Legal Name: Hanseong Precision Co., Ltd.",
+        )
+        self.assertEqual(
+            party_evidence["buyer_country"].source_text,
+            "Country: Republic of Korea",
+        )
+        self.assertFalse(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field in self.PARTY_FIELDS
+                for item in validation.issues
+            )
+        )
+
+    def test_canada_code_in_party_quote_backfills_exact_country_evidence(self):
+        raw = self.without_party_evidence().model_copy(
+            update={
+                "seller_name": "Busan Synthetic Machines Ltd.",
+                "seller_country": "KR",
+                "buyer_name": "Evergreen Mock Distribution Inc.",
+                "buyer_country": "CA",
+                "company_role": "SELLER",
+                "evidence": [
+                    item
+                    for item in self.without_party_evidence().evidence
+                ]
+                + [
+                    FieldEvidence(
+                        field="seller_name",
+                        page=1,
+                        source_text=(
+                            "Seller: Busan Synthetic Machines Ltd. (KR)"
+                        ),
+                        extraction_type="EXPLICIT",
+                        confidence_reason="판매자와 국가 코드가 명시됨",
+                    ),
+                    FieldEvidence(
+                        field="buyer_name",
+                        page=1,
+                        source_text=(
+                            "Buyer: Evergreen Mock Distribution Inc. (CA)"
+                        ),
+                        extraction_type="EXPLICIT",
+                        confidence_reason="구매자와 국가 코드가 명시됨",
+                    ),
+                ],
+            }
+        )
+        extraction, validation = apply_deterministic_review_state(
+            raw,
+            company_role="SELLER",
+            company_country="KR",
+        )
+        buyer_country_evidence = [
+            item
+            for item in extraction.evidence
+            if item.field == "buyer_country"
+        ]
+        self.assertEqual(len(buyer_country_evidence), 1)
+        self.assertEqual(
+            buyer_country_evidence[0].source_text,
+            "Buyer: Evergreen Mock Distribution Inc. (CA)",
+        )
+        self.assertFalse(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field == "buyer_country"
+                for item in validation.issues
+            )
+        )
+
+    def test_text_pdf_backfill_rejects_model_quote_not_in_page_text(self):
+        raw = self.without_party_evidence()
+        page_text = """Legal Name: BlueWave Components Inc.
+Country: United States
+Legal Name: Hanseong Precision Co., Ltd.
+Country: Republic of Korea
+"""
+        stale_model_quote = FieldEvidence(
+            field="seller_name",
+            page=1,
+            source_text="Seller: BlueWave Components Inc.",
+            extraction_type="EXPLICIT",
+            confidence_reason="모델 인용문",
+        )
+        extraction, unused_validation = apply_deterministic_review_state(
+            raw.model_copy(
+                update={"evidence": list(raw.evidence) + [stale_model_quote]}
+            ),
+            company_role="BUYER",
+            company_country="KR",
+            source_page_texts=[page_text],
+        )
+        seller_evidence = [
+            item
+            for item in extraction.evidence
+            if item.field == "seller_name"
+            and item.extraction_type == "EXPLICIT"
+        ]
+        self.assertIn(
+            "Legal Name: BlueWave Components Inc.",
+            [item.source_text for item in seller_evidence],
+        )
+
+    def test_blank_pdf_text_layer_reports_ocr_required_without_weakening_gaps(self):
+        extraction, validation = apply_deterministic_review_state(
+            self.without_party_evidence(),
+            company_role="BUYER",
+            company_country="KR",
+            source_page_texts=[""],
+        )
+        del extraction
+        issues = {item.code: item for item in validation.issues}
+        self.assertIn("OCR_REQUIRED", issues)
+        self.assertEqual(issues["OCR_REQUIRED"].severity, "MEDIUM")
+        self.assertTrue(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.severity == "HIGH"
+                for item in validation.issues
+            )
+        )
+
+    def test_missing_image_text_context_does_not_report_pdf_ocr_required(self):
+        extraction, validation = apply_deterministic_review_state(
+            self.without_party_evidence(),
+            company_role="BUYER",
+            company_country="KR",
+            source_page_texts=None,
+        )
+        del extraction
+        self.assertFalse(
+            any(
+                item.code == "OCR_REQUIRED"
+                for item in validation.issues
+            )
+        )
+
+    def test_missing_source_text_is_never_invented(self):
+        raw = self.without_party_evidence()
+        extraction, audit = augment_party_evidence(
+            raw,
+            source_page_texts=["Contract No. KBFX-2026-001"],
+        )
+        self.assertFalse(
+            any(
+                item.field in self.PARTY_FIELDS
+                for item in extraction.evidence
+            )
+        )
+        self.assertEqual(audit, [])
+
+    def test_unrelated_iso_code_quote_is_not_promoted_to_party_country(self):
+        raw = self.without_party_evidence()
+        extraction, unused_audit = augment_party_evidence(
+            raw.model_copy(
+                update={
+                    "evidence": list(raw.evidence)
+                    + [
+                        FieldEvidence(
+                            field="document_number",
+                            page=1,
+                            source_text="Reference: US-2026-001",
+                            extraction_type="EXPLICIT",
+                            confidence_reason="문서번호 원문",
+                        )
+                    ]
+                }
+            )
+        )
+        self.assertFalse(
+            any(
+                item.field == "seller_country"
+                for item in extraction.evidence
+            )
+        )
+
+    def test_country_evidence_stays_with_its_named_party_block(self):
+        raw = self.without_party_evidence()
+        page_text = """Legal Name: BlueWave Components Inc.
+Country: United States
+Legal Name: Hanseong Precision Co., Ltd.
+Country: Republic of Korea
+Port of Destination: Seattle, United States
+"""
+        extraction, unused_audit = augment_party_evidence(
+            raw.model_copy(
+                update={
+                    "seller_country": "US",
+                    "buyer_country": "KR",
+                }
+            ),
+            source_page_texts=[page_text],
+        )
+        by_field = {
+            item.field: item.source_text
+            for item in extraction.evidence
+            if item.field in self.PARTY_FIELDS
+        }
+        self.assertEqual(by_field["seller_country"], "Country: United States")
+        self.assertEqual(
+            by_field["buyer_country"],
+            "Country: Republic of Korea",
+        )
+
+    def test_combined_model_evidence_can_be_safely_promoted(self):
+        raw = self.without_party_evidence()
+        combined = [
+            FieldEvidence(
+                field="seller",
+                page=1,
+                source_text=(
+                    "Seller Legal Name: BlueWave Components Inc.; "
+                    "Country: United States"
+                ),
+                extraction_type="EXPLICIT",
+                confidence_reason="판매자 블록 원문",
+            ),
+            FieldEvidence(
+                field="buyer",
+                page=1,
+                source_text=(
+                    "Buyer Legal Name: Hanseong Precision Co., Ltd.; "
+                    "Country: Republic of Korea"
+                ),
+                extraction_type="EXPLICIT",
+                confidence_reason="구매자 블록 원문",
+            ),
+        ]
+        extraction, audit = augment_party_evidence(
+            raw.model_copy(
+                update={"evidence": list(raw.evidence) + combined}
+            )
+        )
+        generated_fields = {
+            item.field
+            for item in extraction.evidence
+            if item.field in self.PARTY_FIELDS
+        }
+        self.assertEqual(generated_fields, self.PARTY_FIELDS)
+        self.assertEqual(
+            {item.field for item in audit},
+            self.PARTY_FIELDS,
+        )
+
+    def test_inferred_party_evidence_does_not_satisfy_core_gate(self):
+        raw = self.without_party_evidence()
+        inferred = FieldEvidence(
+            field="seller_name",
+            page=1,
+            source_text="BlueWave Components Inc.",
+            extraction_type="INFERRED",
+            confidence_reason="문맥 추론",
+        )
+        unused_extraction, validation = apply_deterministic_review_state(
+            raw.model_copy(
+                update={"evidence": list(raw.evidence) + [inferred]}
+            ),
+            company_role="BUYER",
+            company_country="KR",
+        )
+        self.assertTrue(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field == "seller_name"
+                for item in validation.issues
+            )
+        )
+
+    def test_stale_party_evidence_after_name_change_is_a_gap(self):
+        raw = raw_contract().model_copy(
+            update={"seller_name": "Replacement Components Inc."}
+        )
+        unused_extraction, validation = apply_deterministic_review_state(
+            raw,
+            company_role="BUYER",
+            company_country="KR",
+        )
+        self.assertTrue(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field == "seller_name"
+                for item in validation.issues
+            )
+        )
+
+    def test_pdf_text_reader_handles_image_only_pdf_without_inventing_text(self):
+        source = ROOT / "samples" / "demo_net90_contract.pdf"
+        pages = extract_pdf_page_texts(source.read_bytes())
+        self.assertEqual(len(pages), 1)
+        self.assertIsInstance(pages[0], str)
 
 
 class DateNormalizationTests(unittest.TestCase):

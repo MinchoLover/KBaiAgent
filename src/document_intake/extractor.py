@@ -10,6 +10,7 @@ from src.document_intake.openai_adapter import (
     OpenAIDocumentAdapter,
 )
 from src.document_intake.normalization import normalize_country_name
+from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.security.upload_guard import (
     UploadMetadata,
     UploadValidationError,
@@ -71,10 +72,16 @@ def extract_trade_document_with_metadata(
             company_role=company_role,
             company_country=normalized_company_country,
         )
+        source_page_texts = (
+            extract_pdf_page_texts(file_bytes)
+            if upload.mime_type == "application/pdf"
+            else None
+        )
         extraction, validation = apply_deterministic_review_state(
             adapter_result.extraction,
             company_role=company_role,
             company_country=company_country,
+            source_page_texts=source_page_texts,
         )
         return ExtractionRun(
             raw_extraction=adapter_result.extraction,

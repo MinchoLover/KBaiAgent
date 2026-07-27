@@ -35,6 +35,20 @@ confidence_reason을 가집니다.
 통화 코드가 명시되어 있으면 그 원문과 페이지를 그대로 재사용해 currency evidence를
 연결합니다. 값만 보고 source text를 만들지는 않습니다.
 
+판매자·구매자의 이름과 국가는 `seller_name`, `seller_country`, `buyer_name`,
+`buyer_country` 각각의 정확한 field evidence가 필요합니다. 모델이 당사자 한 줄에
+이름과 국가를 함께 반환한 경우에도 실제 인용문 안에서 현재 값이 확인될 때만 정확한
+field로 연결합니다. 상대 당사자 이름·라벨이 섞인 인용문은 국가 evidence로 인정하지
+않습니다. `CA`처럼 ISO 코드가 직접 적힌 경우에는 대문자 독립 토큰으로 확인하고,
+`Canada` 같은 확인된 별칭도 같은 ISO 코드로 정규화합니다. `No` 같은 일반 단어가
+노르웨이 코드 `NO`로 오인되지 않도록 대소문자를 잃은 2글자 토큰은 사용하지 않습니다.
+
+텍스트 레이어가 있는 PDF는 `pypdf`로 메모리 안에서 페이지 텍스트만 읽어 모델 인용과
+실제 페이지를 대조하고, 당사자 block에서 확인된 짧은 원문만 evidence로 보완합니다.
+파일이나 원문은 저장·로그하지 않습니다. 이미지형 PDF는 로컬 텍스트가 비어 있으므로
+누락 evidence가 남아 있으면 `OCR_REQUIRED`를 함께 표시하되 HIGH
+`MISSING_CORE_EVIDENCE`를 약화하지 않습니다.
+
 ## Responses API
 
 `src/document_intake/openai_adapter.py`만 SDK 세부를 압니다. 이미지는 `input_image`,
@@ -61,6 +75,10 @@ fallback 모델을 한 번 시도합니다.
 
 CRITICAL/HIGH가 있거나 핵심값이 없으면 `validation_pass=false`입니다. 모델의
 `needs_human_review`를 믿지 않고 위 규칙으로 다시 계산합니다.
+
+사용자가 추출값을 고치면 이전 값에 붙어 있던 모델 evidence를 제거한 뒤 전체
+결정론 검증을 다시 실행합니다. 새 값에 과거 인용을 재사용하지 않으며, 사용자가
+원문을 직접 대조한 경우에만 confirmation override로 별도 기록합니다.
 
 ## 확인 gate
 

@@ -1,8 +1,8 @@
 {
-  "version": "1.3.0",
+  "version": "1.6.0",
   "updated_at": "2026-07-27",
   "schema_version": "1.0.0",
-  "purpose": "required core evidence, country normalization, and deterministic validation boundary",
+  "purpose": "exact non-inferred party, amount, date, payment-term, and installment evidence with source-text backfill and deterministic validation",
   "files": [
     "system_prompt.md",
     "extraction_rules.md",

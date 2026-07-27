@@ -26,6 +26,7 @@ from src.demo import run_decision_support_demo
 from src.document_intake.confirmation import (
     ConfirmationRecord,
     create_confirmation_record,
+    discard_stale_evidence_after_review,
     validate_confirmation,
 )
 from src.document_intake.extractor import (
@@ -1527,6 +1528,18 @@ with stage0_tab:
                 )
                 edited = TradeDocumentExtraction.model_validate(
                     edited.model_dump()
+                )
+                review_context_updates = {
+                    "company_role": reviewed_company_role,
+                }
+                if selected_trade_type in {"IMPORT", "EXPORT"}:
+                    review_context_updates["trade_type"] = (
+                        selected_trade_type
+                    )
+                edited = edited.model_copy(update=review_context_updates)
+                edited = discard_stale_evidence_after_review(
+                    extraction,
+                    edited,
                 )
                 edited, validation = apply_deterministic_review_state(
                     edited,

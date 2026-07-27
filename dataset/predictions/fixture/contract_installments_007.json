@@ -50,11 +50,25 @@
         "confidence_reason": "Seller label and country are explicit."
       },
       {
+        "field": "seller_country",
+        "page": 1,
+        "source_text": "Seller: Garnet Fictional Robotics Ltd. (JP)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Seller country is explicit in the seller block."
+      },
+      {
         "field": "buyer_name",
         "page": 1,
         "source_text": "Buyer: Mirae Sample Manufacturing Ltd. (KR)",
         "extraction_type": "EXPLICIT",
         "confidence_reason": "Buyer label and country are explicit."
+      },
+      {
+        "field": "buyer_country",
+        "page": 1,
+        "source_text": "Buyer: Mirae Sample Manufacturing Ltd. (KR)",
+        "extraction_type": "EXPLICIT",
+        "confidence_reason": "Buyer country is explicit in the buyer block."
       },
       {
         "field": "currency",
@@ -95,6 +109,6 @@
     "input_tokens": 0,
     "output_tokens": 0,
     "estimated_api_cost": "0",
-    "prompt_version": "1.2.0"
+    "prompt_version": "1.6.0"
   }
 }

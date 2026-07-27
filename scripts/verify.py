@@ -77,6 +77,7 @@ REQUIRED_FILES = (
     "src/integration_assets/stage1/JSON_README.md",
     "src/integration_assets/stage1/team_model_report_3page.docx",
     "src/document_intake/normalization.py",
+    "src/document_intake/source_evidence.py",
     "tests/fixtures/kbfx_sales_contract_extraction.json",
     "reports/baseline_metrics.json",
     "reports/eval_summary.json",

@@ -51,11 +51,30 @@ COUNTRY_ALIASES: Dict[str, str] = {
     "japan": "JP",
     "de": "DE",
     "germany": "DE",
+    "fr": "FR",
+    "france": "FR",
+    "french republic": "FR",
+    "nl": "NL",
+    "netherlands": "NL",
+    "the netherlands": "NL",
+    "kingdom of the netherlands": "NL",
+    "no": "NO",
+    "norway": "NO",
+    "kingdom of norway": "NO",
     "vn": "VN",
     "viet nam": "VN",
     "vietnam": "VN",
     "sg": "SG",
     "singapore": "SG",
+    "ca": "CA",
+    "canada": "CA",
+    "au": "AU",
+    "australia": "AU",
+    "commonwealth of australia": "AU",
+    "tw": "TW",
+    "taiwan": "TW",
+    "taiwan roc": "TW",
+    "republic of china": "TW",
 }
 
 
@@ -158,11 +177,18 @@ def normalize_country_name(
 
 def country_alias_matches_text(text: str, country_code: str) -> bool:
     normalized_code = country_code.strip().upper()
+    if re.search(
+        r"(?<![A-Za-z]){}(?![A-Za-z])".format(
+            re.escape(normalized_code)
+        ),
+        text,
+    ):
+        return True
     normalized_text = " {} ".format(_alias_key(text))
     aliases = [
         alias
         for alias, code in COUNTRY_ALIASES.items()
-        if code == normalized_code
+        if code == normalized_code and len(alias) > 2
     ]
     return any(
         " {} ".format(alias) in normalized_text

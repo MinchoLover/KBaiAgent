@@ -227,6 +227,7 @@ def clear_confirmation_and_later(state: object) -> None:
             "stage3_result",
             "stage4_result",
             "report_result",
+            "workflow_state",
         )
         + DOWNSTREAM_WIDGET_KEYS,
     )

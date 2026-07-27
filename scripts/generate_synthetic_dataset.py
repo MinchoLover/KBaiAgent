@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import shutil
 import sys
@@ -98,16 +99,34 @@ def party_evidence(
     buyer_name: str,
     buyer_country: str,
 ) -> List[Dict[str, Any]]:
+    seller_source = "Seller: {} ({})".format(
+        seller_name,
+        seller_country,
+    )
+    buyer_source = "Buyer: {} ({})".format(
+        buyer_name,
+        buyer_country,
+    )
     return [
         evidence(
             "seller_name",
-            "Seller: {} ({})".format(seller_name, seller_country),
+            seller_source,
             "Seller label and country are explicit.",
         ),
         evidence(
+            "seller_country",
+            seller_source,
+            "Seller country is explicit in the seller block.",
+        ),
+        evidence(
             "buyer_name",
-            "Buyer: {} ({})".format(buyer_name, buyer_country),
+            buyer_source,
             "Buyer label and country are explicit.",
+        ),
+        evidence(
+            "buyer_country",
+            buyer_source,
+            "Buyer country is explicit in the buyer block.",
         ),
     ]
 
@@ -1131,7 +1150,7 @@ def _write_json(path: Path, data: Any) -> None:
         handle.write("\n")
 
 
-def generate() -> None:
+def generate(render_documents: bool = True) -> None:
     LABELS.mkdir(parents=True, exist_ok=True)
     FIXTURE_PREDICTIONS.mkdir(parents=True, exist_ok=True)
     (DATASET / "documents").mkdir(parents=True, exist_ok=True)
@@ -1145,12 +1164,13 @@ def generate() -> None:
             / spec["category"]
             / "{}{}".format(spec["case_id"], spec["extension"])
         )
-        _render_document(
-            output_path=document_path,
-            title=spec["title"],
-            lines=spec["lines"],
-            blurred=bool(spec["blurred"]),
-        )
+        if render_documents:
+            _render_document(
+                output_path=document_path,
+                title=spec["title"],
+                lines=spec["lines"],
+                blurred=bool(spec["blurred"]),
+            )
         raw = TradeDocumentExtraction.model_validate(spec["label"])
         label, unused_validation = apply_deterministic_review_state(
             raw,
@@ -1192,23 +1212,24 @@ def generate() -> None:
     # Keep the repository's original sample path as the manifest reference.
     sample = sample_extraction("BUYER")
     sample_document = ROOT / "samples" / "sample_invoice.png"
-    _render_document(
-        output_path=sample_document,
-        title="COMMERCIAL INVOICE",
-        lines=[
-            "Invoice No: INV-DEMO-2026-001",
-            "Seller: Northstar Demo Components Inc. (US)",
-            "Buyer: Han River Demo Imports Ltd. (KR)",
-            "Invoice Date: 2026-07-20",
-            "Shipment Date: 2026-07-25",
-            "Payment Terms: Net 90 Days",
-            "Currency: USD",
-            "GRAND TOTAL: USD 100000.00",
-            "BALANCE DUE: USD 100000.00",
-            "Incoterm: FOB Busan",
-        ],
-        blurred=False,
-    )
+    if render_documents:
+        _render_document(
+            output_path=sample_document,
+            title="COMMERCIAL INVOICE",
+            lines=[
+                "Invoice No: INV-DEMO-2026-001",
+                "Seller: Northstar Demo Components Inc. (US)",
+                "Buyer: Han River Demo Imports Ltd. (KR)",
+                "Invoice Date: 2026-07-20",
+                "Shipment Date: 2026-07-25",
+                "Payment Terms: Net 90 Days",
+                "Currency: USD",
+                "GRAND TOTAL: USD 100000.00",
+                "BALANCE DUE: USD 100000.00",
+                "Incoterm: FOB Busan",
+            ],
+            blurred=False,
+        )
     sample_label_path = LABELS / "sample_existing_demo.json"
     _write_json(sample_label_path, sample.model_dump())
     _write_json(
@@ -1271,11 +1292,19 @@ def generate() -> None:
             / "contract_installments_007.pdf"
         ),
     }
-    for alias, source in sample_aliases.items():
-        target = ROOT / "samples" / alias
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+    if render_documents:
+        for alias, source in sample_aliases.items():
+            target = ROOT / "samples" / alias
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
 
 
 if __name__ == "__main__":
-    generate()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--json-only",
+        action="store_true",
+        help="문서 이미지는 유지하고 label/prediction/manifest만 갱신",
+    )
+    arguments = parser.parse_args()
+    generate(render_documents=not arguments.json_only)

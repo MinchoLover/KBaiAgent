@@ -9,9 +9,20 @@ from unittest.mock import patch
 from PIL import Image
 from pypdf import PdfReader
 
-from prompt import build_system_prompt
+from prompt import (
+    REQUIRED_EVIDENCE_FIELDS,
+    audit_few_shot_evidence,
+    build_system_prompt,
+    build_user_prompt,
+    load_few_shot_examples,
+)
+from sample_data import sample_extraction
 from schemas import TradeDocumentExtraction
-from scripts.evaluate_extraction import evaluate, evaluate_records
+from scripts.evaluate_extraction import (
+    _evidence_covered,
+    evaluate,
+    evaluate_records,
+)
 from scripts.export_finetuning_candidates import export_candidates
 from scripts.run_regression import compare_metrics
 from src.demo import run_offline_demo
@@ -57,6 +68,68 @@ class SecurityTests(unittest.TestCase):
         prompt = build_system_prompt().lower()
         self.assertIn("데이터", prompt)
         self.assertIn("prompt injection", prompt)
+
+    def test_prompt_requires_exact_party_evidence_fields(self):
+        prompt = "{}\n{}".format(
+            build_system_prompt(),
+            build_user_prompt("BUYER", "KR"),
+        )
+        for field in (
+            "seller_name",
+            "seller_country",
+            "buyer_name",
+            "buyer_country",
+        ):
+            self.assertIn(field, prompt)
+        self.assertIn("동일한 field 이름", prompt)
+
+    def test_few_shots_have_verifiable_required_evidence(self):
+        examples = load_few_shot_examples()
+        self.assertEqual(audit_few_shot_evidence(examples), [])
+        for example in examples:
+            output = example["expected_output"]
+            evidence = output["evidence"]
+            for field in REQUIRED_EVIDENCE_FIELDS:
+                value = output.get(field)
+                if value is None or (
+                    field == "installments" and not value
+                ):
+                    continue
+                self.assertTrue(
+                    any(
+                        item["field"] == field
+                        and item["extraction_type"] != "INFERRED"
+                        and item["source_text"] in example["document_excerpt"]
+                        for item in evidence
+                    ),
+                    msg="{}: {}".format(example["case_id"], field),
+                )
+
+    def test_evaluator_excludes_inferred_and_inexact_party_evidence(self):
+        extraction = sample_extraction()
+        inferred_currency = extraction.model_copy(
+            update={
+                "evidence": [
+                    item.model_copy(
+                        update={"extraction_type": "INFERRED"}
+                    )
+                    if item.field == "currency"
+                    else item
+                    for item in extraction.evidence
+                ]
+            }
+        )
+        self.assertFalse(_evidence_covered(inferred_currency, "currency"))
+        missing_party_countries = extraction.model_copy(
+            update={
+                "evidence": [
+                    item
+                    for item in extraction.evidence
+                    if item.field not in {"seller_country", "buyer_country"}
+                ]
+            }
+        )
+        self.assertFalse(_evidence_covered(missing_party_countries, "trade_type"))
 
     def test_session_state_invalidates_on_input_change(self):
         state = {
@@ -221,6 +294,7 @@ class DatasetAndEvaluationTests(unittest.TestCase):
             self.assertEqual(summary["cases_evaluated"], 17)
             self.assertEqual(summary["currency_accuracy"], 1.0)
             self.assertEqual(summary["hallucination_rate"], 0.0)
+            self.assertEqual(summary["evidence_coverage"], 1.0)
             self.assertTrue((Path(directory) / "eval_report.md").is_file())
 
     def test_missing_prediction_penalizes_all_metrics(self):

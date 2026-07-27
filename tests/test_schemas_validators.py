@@ -524,6 +524,82 @@ class ValidationTests(unittest.TestCase):
             {"seller_country", "buyer_country"}.issubset(missing_fields)
         )
 
+    def test_party_name_evidence_must_contain_current_name(self):
+        extraction = sample_extraction().model_copy(
+            update={"seller_name": "Replacement Seller Ltd."}
+        )
+        validation = validate_extraction(
+            extraction,
+            company_role="BUYER",
+            company_country="KR",
+        )
+        self.assertTrue(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field == "seller_name"
+                for item in validation.issues
+            )
+        )
+
+    def test_country_evidence_cannot_use_opposite_party_block(self):
+        extraction = sample_extraction()
+        evidence = []
+        for item in extraction.evidence:
+            if item.field == "seller_name":
+                evidence.append(
+                    item.model_copy(
+                        update={
+                            "source_text": (
+                                "Seller: Northstar Demo Components Inc."
+                            )
+                        }
+                    )
+                )
+            elif item.field == "seller_country":
+                evidence.append(
+                    item.model_copy(
+                        update={
+                            "source_text": "Buyer Country: United States"
+                        }
+                    )
+                )
+            else:
+                evidence.append(item)
+        validation = validate_extraction(
+            extraction.model_copy(update={"evidence": evidence}),
+            company_role="BUYER",
+            company_country="KR",
+        )
+        self.assertTrue(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field == "seller_country"
+                for item in validation.issues
+            )
+        )
+
+    def test_country_name_quote_cannot_replace_exact_country_evidence(self):
+        extraction = sample_extraction()
+        evidence = [
+            item
+            for item in extraction.evidence
+            if item.field not in {"seller_country", "buyer_country"}
+        ]
+        validation = validate_extraction(
+            extraction.model_copy(update={"evidence": evidence}),
+            company_role="BUYER",
+            company_country="KR",
+            source_page_texts=[""],
+        )
+        missing_fields = {
+            item.field
+            for item in validation.issues
+            if item.code == "MISSING_CORE_EVIDENCE"
+        }
+        self.assertTrue(
+            {"seller_country", "buyer_country"}.issubset(missing_fields)
+        )
+
     def test_advance_installment_may_precede_shipment(self):
         extraction = TradeDocumentExtraction.model_validate_json(
             (

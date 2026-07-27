@@ -67,6 +67,10 @@ AI 추출값은 Pydantic·결정론 규칙·사용자 확인 전에는 계산에
 `United States`, `Republic of Korea` 같은 자연어 국가는 검증 전에 `US`, `KR`로
 정규화하고 원본과 변경 이력을 audit에 보존합니다. 금액 원문에 실제 통화 코드가
 있을 때만 currency evidence를 안전하게 연결합니다.
+당사자 이름·국가는 각각 정확한 field evidence와 현재 값의 원문 일치를 요구합니다.
+텍스트 PDF는 메모리 안에서 페이지 원문을 대조하고, 이미지형 PDF에서 evidence가
+누락되면 `OCR_REQUIRED`로 차단합니다. 사용자가 값을 수정하면 이전 evidence를
+자동 폐기한 뒤 전체 검증을 다시 실행합니다.
 Stage 1 v25 방향 점수는 시장 문맥 전용이며
 `probability_calibrated=false`이면 실제 발생확률이나 기대손실 가중치가 아닙니다.
 뉴스는 가격 예측 입력이 아니고 금융 숫자를 변경하지 않습니다.
@@ -167,7 +171,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-27 기준 240개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-27 기준 264개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.

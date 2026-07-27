@@ -176,7 +176,10 @@ def _evidence_covered(
     fields = {
         item.field
         for item in extraction.evidence
-        if item.source_text.strip()
+        if (
+            item.source_text.strip()
+            and item.extraction_type != "INFERRED"
+        )
     }
     if field == "required_date":
         return "issue_date" in fields or "contract_date" in fields
@@ -187,7 +190,12 @@ def _evidence_covered(
             )
         )
     if field == "trade_type":
-        return "seller_name" in fields and "buyer_name" in fields
+        return {
+            "seller_name",
+            "seller_country",
+            "buyer_name",
+            "buyer_country",
+        }.issubset(fields)
     return field in fields
 
 

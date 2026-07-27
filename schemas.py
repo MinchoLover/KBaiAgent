@@ -59,7 +59,11 @@ class PaymentInstallment(StrictModel):
 class FieldEvidence(StrictModel):
     field: str = Field(
         min_length=1,
-        description="근거가 뒷받침하는 스키마 필드명",
+        description=(
+            "근거가 뒷받침하는 정확한 스키마 필드명. seller_name, "
+            "seller_country, buyer_name, buyer_country 등 핵심 필드를 "
+            "party 같은 임의 이름으로 합치지 않음"
+        ),
     )
     page: Optional[int] = Field(
         default=None,
@@ -83,10 +87,22 @@ class TradeDocumentExtraction(StrictModel):
     document_type: DocumentType
     document_number: Optional[str] = None
 
-    seller_name: Optional[str] = None
-    seller_country: Optional[str] = None
-    buyer_name: Optional[str] = None
-    buyer_country: Optional[str] = None
+    seller_name: Optional[str] = Field(
+        default=None,
+        description="문서에 명시된 판매자 법인명. 값이 있으면 동일 field evidence 필요",
+    )
+    seller_country: Optional[str] = Field(
+        default=None,
+        description="문서에 명시된 판매자 국가. 값이 있으면 동일 field evidence 필요",
+    )
+    buyer_name: Optional[str] = Field(
+        default=None,
+        description="문서에 명시된 구매자 법인명. 값이 있으면 동일 field evidence 필요",
+    )
+    buyer_country: Optional[str] = Field(
+        default=None,
+        description="문서에 명시된 구매자 국가. 값이 있으면 동일 field evidence 필요",
+    )
 
     company_role: CompanyRole
     trade_type: TradeType

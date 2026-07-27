@@ -19,9 +19,18 @@ dataset/
 합성 문서 상단에 `TEST DOCUMENT - NO LEGAL EFFECT`가 있습니다. balance due,
 Net 30/60/90, 명시 due, 분할결제, due 누락, 혼합 날짜, 다중통화, 수입·수출,
 JPY 100단위, 흐린 이미지, prompt injection, due 충돌을 포함합니다.
+당사자 이름과 국가는 같은 실제 원문을 재사용할 수 있지만
+`seller_name`/`seller_country`/`buyer_name`/`buyer_country` 각각의 정확한 evidence
+항목으로 정답에 기록합니다.
 
 manifest의 `split=test`는 평가 전용이고 fine-tuning에서 영구 제외됩니다.
 `human_approved=false`인 가상 생성 정답도 승인 전에는 학습 후보가 아닙니다.
+
+문서 이미지를 바꾸지 않고 정답 JSON 계약만 재생성할 때는 다음을 사용합니다.
+
+```bash
+python scripts/generate_synthetic_dataset.py --json-only
+```
 
 ## 평가
 

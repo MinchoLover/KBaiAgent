@@ -34,11 +34,25 @@
       "confidence_reason": "Seller label and country are explicit."
     },
     {
+      "field": "seller_country",
+      "page": 1,
+      "source_text": "Seller: Pine Synthetic Industrial Co. (CN)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Seller country is explicit in the seller block."
+    },
+    {
       "field": "buyer_name",
       "page": 1,
       "source_text": "Buyer: Korea Fictional Assembly Ltd. (KR)",
       "extraction_type": "EXPLICIT",
       "confidence_reason": "Buyer label and country are explicit."
+    },
+    {
+      "field": "buyer_country",
+      "page": 1,
+      "source_text": "Buyer: Korea Fictional Assembly Ltd. (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "Buyer country is explicit in the buyer block."
     },
     {
       "field": "currency",

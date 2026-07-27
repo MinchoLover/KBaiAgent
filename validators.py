@@ -18,6 +18,7 @@ from src.document_intake.normalization import (
     normalize_country_name,
     normalize_extraction_values,
 )
+from src.document_intake.source_evidence import augment_party_evidence
 
 
 ISO_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
@@ -303,6 +304,7 @@ def _prepare_extraction_for_validation(
     company_role: Optional[str],
     company_country: Optional[str],
     user_trade_type: Optional[str],
+    source_page_texts: Optional[Sequence[str]] = None,
 ) -> Tuple[
     TradeDocumentExtraction,
     Optional[str],
@@ -316,6 +318,11 @@ def _prepare_extraction_for_validation(
         ISO_4217_CODES,
     )
     audit.extend(evidence_audit)
+    normalized, party_evidence_audit = augment_party_evidence(
+        normalized,
+        source_page_texts=source_page_texts,
+    )
+    audit.extend(party_evidence_audit)
 
     normalized_company_country, company_audit = normalize_country_name(
         company_country,
@@ -406,6 +413,44 @@ def _evidence_fields(
     return grouped
 
 
+def _is_non_inferred_source_evidence(item: FieldEvidence) -> bool:
+    return (
+        item.extraction_type != "INFERRED"
+        and bool(item.source_text.strip())
+    )
+
+
+def _evidence_contains_value(
+    source_text: str,
+    value: Optional[str],
+) -> bool:
+    if not value:
+        return False
+    source_key = re.sub(r"[^\w]+", " ", source_text.casefold())
+    value_key = re.sub(r"[^\w]+", " ", value.casefold())
+    source_key = re.sub(r"\s+", " ", source_key).strip()
+    value_key = re.sub(r"\s+", " ", value_key).strip()
+    return bool(source_key and value_key) and (
+        " {} ".format(value_key) in " {} ".format(source_key)
+    )
+
+
+def _mentions_opposite_party(
+    source_text: str,
+    opposite_name: Optional[str],
+    opposite_party: str,
+) -> bool:
+    if _evidence_contains_value(source_text, opposite_name):
+        return True
+    labels = {
+        "seller": r"\bseller\b|판매자",
+        "buyer": r"\bbuyer\b|구매자",
+    }
+    return bool(
+        re.search(labels[opposite_party], source_text, re.IGNORECASE)
+    )
+
+
 def _currencies_from_text(text: str) -> Set[str]:
     candidates = set(re.findall(r"\b[A-Z]{3}\b", text))
     return candidates.intersection(ISO_4217_CODES)
@@ -477,38 +522,53 @@ def required_evidence_gaps(
         field
         for field in required
         if not grouped.get(field)
-        or not any(item.source_text.strip() for item in grouped[field])
+        or not any(
+            _is_non_inferred_source_evidence(item)
+            for item in grouped[field]
+        )
     }
     if extraction.trade_type != "UNKNOWN":
-        for name_field, country_field, country in (
+        for (
+            name_field,
+            country_field,
+            name,
+            country,
+            opposite_name,
+            opposite_party,
+        ) in (
             (
                 "seller_name",
                 "seller_country",
+                extraction.seller_name,
                 extraction.seller_country,
+                extraction.buyer_name,
+                "buyer",
             ),
             (
                 "buyer_name",
                 "buyer_country",
+                extraction.buyer_name,
                 extraction.buyer_country,
+                extraction.seller_name,
+                "seller",
             ),
         ):
-            country_evidence = (
-                grouped.get(country_field, [])
-                + grouped.get(name_field, [])
-            )
-            country_token = re.compile(
-                r"\b{}\b".format(re.escape(country or "")),
-                re.IGNORECASE,
-            )
+            name_evidence = grouped.get(name_field, [])
+            if not name or not any(
+                _is_non_inferred_source_evidence(item)
+                and _evidence_contains_value(item.source_text, name)
+                for item in name_evidence
+            ):
+                gaps.add(name_field)
+
+            country_evidence = grouped.get(country_field, [])
             if not country or not any(
-                item.source_text.strip()
-                and (
-                    item.field == country_field
-                    or country_token.search(item.source_text)
-                    or country_alias_matches_text(
-                        item.source_text,
-                        country,
-                    )
+                _is_non_inferred_source_evidence(item)
+                and country_alias_matches_text(item.source_text, country)
+                and not _mentions_opposite_party(
+                    item.source_text,
+                    opposite_name,
+                    opposite_party,
                 )
                 for item in country_evidence
             ):
@@ -939,6 +999,7 @@ def validate_extraction(
     company_country: Optional[str] = None,
     confirmations: Optional[ConfirmationState] = None,
     user_trade_type: Optional[str] = None,
+    source_page_texts: Optional[Sequence[str]] = None,
 ) -> ValidationResult:
     """Validate model output without trusting model-provided review flags."""
 
@@ -954,6 +1015,7 @@ def validate_extraction(
         company_role=company_role,
         company_country=company_country,
         user_trade_type=user_trade_type,
+        source_page_texts=source_page_texts,
     )
     issues: List[ValidationIssue] = []
     effective_role = company_role or extraction.company_role
@@ -1120,6 +1182,7 @@ def validate_extraction(
         if confirmation_state.user_confirmed_override
         else []
     )
+    unresolved_evidence_gaps: List[str] = []
     for field in evidence_gaps:
         if field in evidence_overrides:
             normalization_audit.append(
@@ -1135,12 +1198,28 @@ def validate_extraction(
                 )
             )
             continue
+        unresolved_evidence_gaps.append(field)
         issues.append(
             _issue(
                 "MISSING_CORE_EVIDENCE",
                 "HIGH",
                 "핵심 필드 {}의 원문 evidence가 없습니다.".format(field),
                 field,
+            )
+        )
+
+    if (
+        unresolved_evidence_gaps
+        and source_page_texts is not None
+        and not any(page_text.strip() for page_text in source_page_texts)
+    ):
+        issues.append(
+            _issue(
+                "OCR_REQUIRED",
+                "MEDIUM",
+                "PDF에 로컬 텍스트 레이어가 없어 원문 evidence를 "
+                "자동 대조할 수 없습니다. 문서를 직접 검토하거나 OCR이 필요합니다.",
+                "evidence",
             )
         )
 
@@ -1284,6 +1363,7 @@ def apply_deterministic_review_state(
     company_country: Optional[str] = None,
     confirmations: Optional[ConfirmationState] = None,
     user_trade_type: Optional[str] = None,
+    source_page_texts: Optional[Sequence[str]] = None,
 ) -> Tuple[TradeDocumentExtraction, ValidationResult]:
     (
         deterministic,
@@ -1296,6 +1376,7 @@ def apply_deterministic_review_state(
         company_role=company_role,
         company_country=company_country,
         user_trade_type=user_trade_type,
+        source_page_texts=source_page_texts,
     )
     result = validate_extraction(
         extraction,
@@ -1303,6 +1384,7 @@ def apply_deterministic_review_state(
         company_country=company_country,
         confirmations=confirmations,
         user_trade_type=user_trade_type,
+        source_page_texts=source_page_texts,
     )
     deterministic = deterministic.model_copy(
         update={

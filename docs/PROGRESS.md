@@ -30,7 +30,8 @@
 - [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
 - [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
 - [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
-- [x] 240 API-free tests
+- [x] 264 API-free tests
 - [x] offline evaluation and regression baseline
-- [ ] live OpenAI smoke test — API key required
+- [x] 합성 이미지형 PDF 1건 live OpenAI smoke test
+- [ ] 허가된 실제 문서군 live 품질 benchmark
 - [ ] production auth/malware scanning/CI — follow-up scope

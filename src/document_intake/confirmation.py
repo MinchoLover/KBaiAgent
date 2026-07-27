@@ -14,6 +14,58 @@ from validators import apply_deterministic_review_state, parse_iso_date
 from src.document_intake.normalization import normalize_country_name
 
 
+REVIEW_EDITABLE_EXTRACTION_FIELDS = (
+    "document_type",
+    "document_number",
+    "seller_name",
+    "seller_country",
+    "buyer_name",
+    "buyer_country",
+    "company_role",
+    "trade_type",
+    "currency",
+    "grand_total",
+    "amount_due",
+    "issue_date",
+    "contract_date",
+    "shipment_date",
+    "explicit_due_date",
+    "payment_terms",
+    "incoterm",
+    "installments",
+)
+
+
+def discard_stale_evidence_after_review(
+    original: TradeDocumentExtraction,
+    reviewed: TradeDocumentExtraction,
+) -> TradeDocumentExtraction:
+    """Drop model evidence for values changed by a reviewer.
+
+    Evidence belongs to the value extracted from the source, never to a later
+    user edit.  A reviewer can explicitly attest to a resulting evidence gap
+    at the confirmation gate; this function deliberately does not add a
+    replacement evidence item.
+    """
+
+    changed_fields = {
+        field
+        for field in REVIEW_EDITABLE_EXTRACTION_FIELDS
+        if getattr(original, field) != getattr(reviewed, field)
+    }
+    if not changed_fields:
+        return reviewed
+    return reviewed.model_copy(
+        update={
+            "evidence": [
+                item
+                for item in reviewed.evidence
+                if item.field not in changed_fields
+            ]
+        }
+    )
+
+
 class ReviewAuditSnapshot(StrictModel):
     company_role: Literal["BUYER", "SELLER"]
     company_country: str
