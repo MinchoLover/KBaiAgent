@@ -18,8 +18,9 @@ flowchart LR
     intake["Stage 0 Intake"]
     confirm{사용자 확인 완료?}
     waiting([WAITING_FOR_USER])
-    market["Stage 1 Market risk adapter"]
-    manual["Manual stress fallback"]
+    market["Stage 1 HTTP/File/Mock forecast adapter"]
+    spot["Spot rate provider"]
+    scenario["Model path + fixed stress builder"]
     cashflow["Stage 2 confirmed binding + Decimal cashflow"]
     hedge["Stage 3 Hedge candidates"]
     product["Stage 4 Official retrieval"]
@@ -35,9 +36,10 @@ flowchart LR
     intake --> confirm
     confirm -->|"No"| waiting
     confirm -->|"Yes"| market
-    market --> cashflow
-    market -.->|"Adapter failure"| manual
-    manual --> cashflow
+    spot --> scenario
+    market --> scenario
+    market -.->|"Disclosed fallback"| scenario
+    scenario --> cashflow
     cashflow --> hedge
     hedge --> product
     product --> draft
@@ -64,9 +66,9 @@ case ID, 상태, 시간, provider, retry, fallback, 근거 참조 경로, 경고
 |---|---|---|---|
 | 0 Intake | `src/document_intake/extractor.py::extract_trade_document_with_metadata`, `confirmation.py::create_confirmation_record`, `validators.py::apply_deterministic_review_state` | 업로드 bytes 또는 demo fixture, 회사 역할·국가 | `TradeDocumentExtraction`, `ValidationResult`, `ConfirmationRecord` |
 | Gate | `src/workflow/gates.py::confirmation_gate` | 추출, 확인 기록, 결정론 검증 | 허용 여부와 안전한 차단 사유 |
-| 1 Market Risk | `WorkflowOrchestrator.run_market_risk` → `src/stage1/adapter.py::load_stage1` | 통화, target date, 기준 환율, 선택적 JSON/REST | `Stage1LoadResult`, `NormalizedScenarioSet` |
+| 1 Market Risk | `WorkflowOrchestrator.run_market_risk` → `market_integration_service.py` | 팀 Stage 1 HTTP/file/mock, 별도 Spot, 결제일 | `MarketIntegrationResult`, `NormalizedScenarioSet` |
 | 2 Cashflow | `WorkflowOrchestrator.run_cashflow` → `src/stage2/binding.py` → `src/stage2/engine.py::run_stage2` | 확인 거래 fingerprint, Stage 1 시나리오, 기업 현금흐름 | fingerprint를 포함한 `Stage2Result` |
-| 3 Hedge | `WorkflowOrchestrator.run_hedge` → `src/stage3/optimizer.py::generate_strategy_candidates` | Stage 2 결과와 제약 | 상위 3개 `StrategyCandidate` |
+| 3 Hedge | `WorkflowOrchestrator.run_hedge` → `src/stage3/optimizer.py::generate_strategy_candidates` | Stage 2 결과와 명시적 비용·제약 가정 | 안정성·균형·비용 후보 또는 `NO_FEASIBLE_CANDIDATE` |
 | 4 Product | `WorkflowOrchestrator.run_product_search` → `search_offline_kb` 또는 `search_official_web` | 거래 방향, 전략 상품 유형 | 공식 출처가 있는 `Stage4Result` |
 | 5 Report | `WorkflowOrchestrator.run_report` → `generate_report` → `critique_report` | Stage 0~4 구조화 결과 | `ReportResult`, `ReportCritique` |
 
@@ -101,7 +103,7 @@ case ID, 상태, 시간, provider, retry, fallback, 근거 참조 경로, 경고
 - Stage 0~5 실행 순서와 선행 조건
 - 사용자 확인 gate
 - Stage 0 확인 거래와 Stage 2 결제 이벤트의 fingerprint·필드 재대조
-- Stage 1 수동 stress 및 공식 상품 offline KB fallback
+- Stage 1 HTTP/file/mock fallback 공개, Spot 안전 차단, 공식 상품 offline KB fallback
 - 보고서 재작성 상한 1회 전달과 결정론 report fallback
 - downstream 상태 무효화, 종료 상태, 안전한 trace
 
@@ -147,8 +149,9 @@ runner를 호출하지 않습니다.
 | 상황 | 처리 |
 |---|---|
 | API key 없음 | demo fixture, manual stress, offline KB, deterministic report |
-| 외부 Stage 1 오류/스키마 오류 | ±3%, ±5%, ±10%를 포함한 manual stress |
-| Stage 1 endpoint 보안 정책 실패 | 요청하지 않고 manual stress fallback |
+| Stage 1 HTTP 오류/스키마 오류 | file/mock fallback 사용 사실을 공개; 모두 실패하면 고정 stress만 |
+| Spot 없음 또는 수동값 미확인 | 계산 차단 |
+| 21거래일 밖 결제일 | 모델 환율은 문맥 전용, ±3/5/10%만 계산 |
 | 공식 web search 오류 | allowlist 검증된 offline 공식 KB |
 | 공식 web cache 만료/무효 | live 재검색 후 실패 시 offline 공식 KB |
 | 상품 공식 근거 없음 | 빈 candidates 유지, LLM 호출 전 deterministic report 전환 |

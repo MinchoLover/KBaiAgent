@@ -70,9 +70,11 @@ export outflow = hedge fee + bank fee
 
 `bank_fee`는 UI 표기와 같이 결제 이벤트별 고정 수수료입니다.
 
-기준 손실은 수입이면 `scenario total outflow - BASE outflow`, 수출이면
-`BASE inflow - scenario total inflow`입니다. 따라서 수입은 환율 상승, 수출은 환율
-하락이 불리합니다. 비교 기준 이름을 결과에 저장합니다.
+방향을 보존하는 값은 수입이면 `scenario total outflow - BASE outflow`, 수출이면
+`BASE inflow - scenario total inflow`이며 `signed_impact_vs_base`에 저장합니다.
+금융 위험 지표 `loss_vs_base`는 `max(0, signed impact)`입니다. 따라서 유리한
+시나리오를 음수 손실로 표시하지 않습니다. 수입은 환율 상승, 수출은 환율 하락이
+불리합니다.
 
 ## 날짜별 ledger
 
@@ -84,7 +86,8 @@ post_credit_shortfall = max(-(balance + credit_limit), 0)
 ```
 
 세 부족 개념을 혼용하지 않습니다. 각 scenario에 전체 날짜 ledger, 종료·최저 잔고,
-최초 buffer 부족일, 최대 buffer 부족, 현금 적자, 신용 후 부족을 저장합니다.
+최초 buffer 부족일, 최초 실제 현금 적자일, 최대 buffer 부족, 현금 적자, 신용 후
+부족을 저장합니다.
 시작 시점에 이미 최소 운영자금보다 낮으면 최초 buffer 부족일은 `as_of`입니다.
 모든 ledger entry와 Stage 2 결과는 `CALCULATION` 상태로 표시하고, 적용 환율의 성격은
 별도 `scenario_kind`의 `STRESS` 또는 `FORECAST`로 보존합니다.
@@ -100,3 +103,8 @@ post_credit_shortfall = max(-(balance + credit_limit), 0)
 
 Stage 1 계약은 target date 하나를 제공하므로 분할결제일이 여러 개면 같은 scenario
 set을 각 결제일에 대체 적용하고 결제일별 warning을 남깁니다.
+
+새 Stage 1 web forecast는 21거래일 안의 결제에만 모델 분위수 시나리오를 Stage 2에
+전달합니다. 결제일이 범위 밖이면 `HORIZON_MISMATCH`를 남기고 ±3/5/10% 고정
+스트레스만 계산합니다. 각 `ScenarioResult`에는 source kind, horizon, warning과
+숫자 source path가 포함됩니다.

@@ -99,7 +99,7 @@ payment_gap
 - 계산 숫자를 직접 복사하는 버전형 JSON·Markdown 상담 패킷
 - 입력 hash, 환율 기준시각, 시나리오 ID, 원문 문서 hash와 확정 필드
 - API 없는 수입·수출 대표 CLI 및 Streamlit 원클릭 흐름
-- 184개 API-free 회귀 테스트
+- 219개 API-free 회귀 테스트
 
 ## 9. 미구현 기능
 

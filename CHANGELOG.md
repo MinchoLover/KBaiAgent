@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-27
+
+- sibling `kb_macro_ai`용 `krw_forecast_web_v1` HTTP/file/mock adapter 추가
+- 독립 Spot provider와 KoreaExim·사용자 확인 수동값·fixture provenance 추가
+- v36 수입 상승, v34 수출 하락 경로위험과 ±3/5/10% stress builder 추가
+- 21거래일 밖 결제의 `HORIZON_MISMATCH`와 모델 환율 계산 차단
+- Stage 2 signed impact/비음수 loss, 최초 실제 현금 적자와 source path 보강
+- Stage 3 안정성·균형·비용 후보, q90/±10%/유동성 제약과 infeasible 상태 추가
+- 보고서 입력 최소화와 q90·미보정 점수·horizon·뉴스 정책 critic 추가
+- 수입·수출 Stage 1 fixture E2E, 실제 sibling HTTP, Streamlit health 검증
+- API-free 테스트 219개와 통합 문서·환경설정 갱신
+
 ## 2026-07-23
 
 - Stage 0 strict extraction schema, prompt files, evidence-based validator, confirmation gate 추가

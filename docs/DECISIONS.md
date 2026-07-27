@@ -107,5 +107,43 @@ LLM 보고서는 선택적 설명 계층으로 유지합니다. LLM 장애 또�
 
 `maximum_buffer_shortfall`은 기업이 스스로 정한 최소 운영자금 방어선 미달이고,
 `post_credit_shortfall`은 현금과 입력한 대출한도 반영 후에도 남는 자금 부족입니다.
-상담 패킷에서는 후자를 `payment_gap_krw`로 명명합니다. 수입 대표 사례는 전자가
-600,000원이고 후자가 0원이므로 지급불능으로 분류하지 않습니다.
+상담 패킷에서는 후자를 `payment_gap_krw`로 명명합니다. 현재 수입 대표 사례는
+확정 유입 40,000,000원과 비용 45,000,000원을 반영해 전자가 2,600,000원이고
+후자가 0원이므로 지급불능으로 분류하지 않습니다.
+
+## 15. Stage 1 web forecast and legacy scenarios coexist
+
+Context: 기존 Stage 1 계약은 절대 환율 배열이지만 `kb_macro_ai`의
+`krw_forecast_web_v1`은 spot이 없는 21거래일 상대 경로위험과 방향 score를
+제공합니다.
+
+Decision: 기존 `Stage1ScenarioSet` adapter를 제거하거나 바꾸지 않습니다. 새
+HTTP/file/mock provider가 원본 forecast를 별도 DTO로 검증하고, 독립 spot provider와
+`ScenarioBuilder`가 검증된 절대 환율을 만들어 기존 Stage 2 경계로 전달합니다.
+
+Trade-off: Stage 1 표현 DTO와 계산용 scenario DTO가 둘 다 존재하지만, 모델 문맥과
+금융 숫자의 신뢰 경계를 코드로 분리할 수 있습니다.
+
+Revisit condition: Stage 1이 안정적인 공식 absolute-rate contract를 제공하고 양 팀이
+공용 schema version을 합의한 경우 adapter 중복을 줄일 수 있습니다.
+
+## 16. Direction scores never become cash-flow probabilities
+
+`probability_calibrated=false`인 v25 up/down 값은 `score`와
+`MARKET_CONTEXT_ONLY`로 저장합니다. Stage 2 scenario의 `probability`는 null이고
+expected loss·buffer probability 같은 확률 가중 지표를 만들지 않습니다. v36/v34
+quantile도 발생확률이 아니라 예측분포의 경로위험 분위수로 표시합니다.
+
+## 17. Horizon mismatch removes model rates from calculation
+
+21거래일 종료일을 prediction date에서 평일 기준으로 계산합니다. 최종 결제일이 그
+범위를 넘으면 model quantile rate는 시장 문맥에만 남기고 Stage 2 계산용 set에는
+BASE와 ±3/5/10 고정 스트레스만 포함합니다. 기존의 경고 후 대체 적용은 legacy
+adapter 호환용으로만 남기며 새 web integration 경로에서는 사용하지 않습니다.
+
+## 18. Separate spot provenance
+
+Stage 1 상대수익률에 기준환율을 임의로 보충하지 않습니다. 공식 KoreaExim adapter,
+사용자 확인 수동 입력, 표시된 demo fixture 순서로 `SpotQuote`를 만들며 source,
+as-of, quote convention, 확인 여부를 함께 보존합니다. live 모드에서 셋 다 없으면
+분석을 차단합니다.

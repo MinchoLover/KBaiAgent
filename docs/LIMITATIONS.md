@@ -1,5 +1,18 @@
 # Assumptions and Limitations
 
+## Stage 1 시장모델과 환율
+
+- 모델 지원 범위는 USD/KRW 한 통화쌍과 21거래일입니다.
+- v25 방향 점수는 보정된 발생확률이 아니며 기대손실 가중치로 사용하지 않습니다.
+- v36/v34 q90은 90% 발생확률이 아니라 모델 예측분포의 상위 경로위험 분위수입니다.
+- 정확한 미래 환율을 예측하지 않으며 Stage 1 JSON에 없는 spot을 추정하지 않습니다.
+- 결제일이 horizon 밖이면 모델 시나리오는 초기 21거래일 시장 문맥일 뿐이고,
+  결제기간 숫자는 고정 스트레스로만 계산합니다.
+- 뉴스는 설명용이며 방향 점수·분위수·손실 숫자를 변경하지 않습니다.
+- 모델과 제공 fixture는 연구·대회용입니다.
+- fixture spot 1,400원은 실시간 환율이 아닙니다. 운영 시 공식 reference 또는
+  사용자가 확인한 수동 환율이 필요합니다.
+
 ## 문서 AI
 
 - 합성 데이터 중심이며 실제 OCR 품질·언어·레이아웃 분포의 live baseline은 API 키가
@@ -31,11 +44,13 @@
 
 ## 전략·상품
 
-- Stage 3 비용률과 staged risk factor는 데모 가정이며 실제 최적화나 투자 자문이
+- Stage 3 비용률, forward effective rate와 staged risk factor는 공개된
+  `assumptions_contract` 아래의 시뮬레이션 가정이며 실제 최적화·주문·투자 자문이
   아닙니다.
 - Stage 4 offline KB는 2026-07-23 확인 snapshot이며 자격·금리·한도·신청기간 최신성을
   보장하지 않습니다.
 - official web search도 URL과 설명 후보만 제공하며 승인 가능성을 판정하지 않습니다.
+- 금융상품 가입·대출심사·보험인수·헤지 계약 가능성을 보장하지 않습니다.
 - official web search cache는 기본 24시간 TTL과 allowlist·모델·질의·거래방향을
   재검증합니다. TTL 안의 자료도 상품 조건 최신성을 보장하지 않으므로 확인일과 공식
   페이지를 사람이 다시 확인해야 합니다.

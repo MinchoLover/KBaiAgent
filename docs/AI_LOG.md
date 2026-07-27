@@ -1,5 +1,21 @@
 # AI Use Log
 
+## 2026-07-27 Stage 1 integration and decision-flow hardening
+
+Codex가 sibling `kb_macro_ai`의 `krw_forecast_web_v1` 계약을 읽기 전용으로
+검증하고, 메인 저장소에 HTTP/file/mock provider, 별도 Spot provider,
+21거래일 model-path/고정 스트레스 builder를 추가했습니다. v25 미보정 방향 점수는
+시장 문맥으로만 보존하고 수입 v36 상승·수출 v34 하락 분위수를 서로 다른 불리
+방향으로 연결했습니다. 90일 결제는 `HORIZON_MISMATCH`로 모델 환율 계산을
+차단합니다.
+
+Stage 2는 유리한 시나리오의 음수 손실을 0으로 분리하고 signed impact를 별도
+보존합니다. Stage 3은 비용 가정과 q90·±10%·운영자금·신용 제약을 공개하는
+안정성/균형/비용 후보와 infeasible 결과를 만듭니다. 보고서 LLM 입력에서 문서
+원문 evidence를 제거하고 q90·미보정 점수·horizon·뉴스 오용 critic을 추가했습니다.
+API-free 전체 219개 테스트와 실제 Streamlit health, 실행 중인 sibling Stage 1
+HTTP 응답 파싱을 검증했습니다.
+
 ## 2026-07-23
 
 Codex가 저장소 감사, schema와 prompt 분리, deterministic validators, Stage 1~5 모듈,

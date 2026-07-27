@@ -14,8 +14,8 @@
 
 1. 사용자가 PDF/이미지 무역문서를 안전하게 업로드하거나 가상 데모 문서를 연다.
 2. 추출된 통화·금액·결제일과 원문 근거를 검토하고 명시적으로 확인한다.
-3. 워크플로가 구조화된 환율 시나리오를 받아 `Decimal` 현금흐름과 헤지 후보를
-   결정론적으로 계산하고, 공식 출처가 있는 상품 후보만 연결한다.
+3. 워크플로가 Stage 1의 21거래일 방향·경로위험 JSON과 별도 확인된 spot을 받아
+   모델 분위수와 고정 스트레스를 구분하고 `Decimal` 현금흐름을 계산한다.
 4. 보고서 생성 결과를 독립 critic이 검사하고, 필요하면 한 번만 재작성한 뒤 안전한
    결정론 보고서까지 포함한 최종 상태와 trace를 보여준다.
 
@@ -24,7 +24,9 @@
 A user can:
 
 - 기존 Streamlit 버튼 흐름과 전체 오프라인 데모를 그대로 사용할 수 있다.
-- 확인 전 계산이 차단되고, 외부 Stage/API 실패 시 표시된 fallback 결과를 받을 수 있다.
+- 확인 전 계산이 차단되고, Stage 1 HTTP 실패 시 표시된 file/mock fallback 결과를
+  받을 수 있다.
+- 21거래일 밖 결제에는 모델 분위수 환율을 적용하지 않고 고정 스트레스만 계산한다.
 - 기업 재무 담당자 관점의 업무 용어로 거래 확인, 환율 가정, 현금 영향, 대응 전략,
   상담 후보와 리포트 흐름을 이해할 수 있다.
 - JSON, validator code, provider와 workflow trace는 필요할 때만 고급 영역에서 확인할
@@ -39,16 +41,19 @@ The team can verify:
 
 ## P0 scope
 
-1. 기존 Stage 모델 위에 `WorkflowState`, 공통 `StageResult`, 안전한 trace를 도입한다.
-2. 확인 게이트와 Stage 순서, 실패·fallback·종료 조건을 오케스트레이터로 이동한다.
-3. 보고서 critic 결과·1회 재작성·fallback 사유를 구조화하고 상품 근거 경계를 강화한다.
-4. 오프라인 데모와 Streamlit을 같은 오케스트레이션 경로에 연결하고 문서·테스트를 갱신한다.
+1. `krw_forecast_web_v1`을 검증하는 HTTP/file/mock provider와 품질·신선도 경고를
+   구현한다.
+2. 별도 spot provider와 사용자 확인 gate를 두고 v36 상승·v34 하락 분위수를
+   절대환율로 변환한다.
+3. 21거래일 horizon 안에서는 모델 경로위험, 밖에서는 고정 ±3/5/10 스트레스만
+   Stage 2에 전달한다.
+4. fixture 수입·수출 E2E와 Streamlit 상태·보고서·문서를 같은 계약으로 갱신한다.
 
 ## Non-goals
 
 - Stage 1 팀의 예측 모델 또는 JSON/REST 계약 재구현
 - 완전 자율형 멀티에이전트, 자동 금융 자문·상품 승인 판단
-- Stage 2 계산식이나 Stage 3 grid 점수의 변경
+- Stage 2의 이미 검증된 환노출·ledger 정의를 재작성하는 작업
 - 실제 OpenAI 호출, 실제 공식 웹 검색, 배포·인증·중앙 로그 구축
 
 ## Constraints
@@ -68,6 +73,9 @@ The team can verify:
 | Primary success | 확인된 가상 거래와 offline 설정 | 오케스트레이터를 실행 | Stage 0~5, 최종 보고서, 안전한 trace가 생성된다 |
 | Validation failure | 필수 필드 또는 사용자 확인 누락 | downstream 실행 요청 | `WAITING_FOR_USER`이며 Cashflow가 실행되지 않는다 |
 | External Stage 1 failure | 외부 adapter 오류 | 워크플로 실행 | ±3/5/10 수동 stress로 `FALLBACK`하고 경고를 남긴다 |
+| Stage 1 web success | 제공 web JSON과 확인된 spot | 21일 이내 수입/수출 거래 분석 | 수입은 v36 up, 수출은 v34 down 분위수를 사용한다 |
+| Horizon mismatch | 결제일이 21거래일 이후 | 모델 JSON을 연결 | 모델 값은 문맥으로만 보존하고 금액은 고정 stress로만 계산한다 |
+| Uncalibrated direction | `probability_calibrated=false` | 보고서·Stage 2 생성 | 기대손실 확률가중치와 실제확률 문구가 생성되지 않는다 |
 | Unsafe Stage 1 endpoint | 사설·loopback·metadata IP | REST 실행 요청 | network 호출 없이 차단하고 수동 stress로 전환한다 |
 | Stale official cache | TTL을 넘긴 cache | 공식 web 검색 | cache를 사용하지 않고 live 검색을 시도한다 |
 | Empty product state | 공식 근거 후보 없음 | 보고서 생성 | 임의 상품을 만들지 않고 빈 후보 상태를 명시한다 |

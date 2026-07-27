@@ -4,10 +4,11 @@
 - [x] Stage 0 schema, prompts, adapter, validator, confirmation gate
 - [x] 16 synthetic documents, labels, fixture predictions, manifest
 - [x] offline/live evaluator, baseline regression, fine-tuning candidate exporter
-- [x] Stage 1 manual/external adapter
+- [x] Stage 1 legacy adapter + web forecast HTTP/file/mock provider
+- [x] Spot provider, model/fixed scenario builder, 21-day horizon gate
 - [x] Stage 2 confirmed-trade binding, Decimal exposure, scenario, ledger,
   composite stress
-- [x] Stage 3 top-3 candidate grid
+- [x] Stage 3 constrained stability/balanced/cost candidate grid
 - [x] Stage 4 official offline KB and optional allowlist web search
 - [x] Stage 5 explainer policy, critic, deterministic fallback
 - [x] Typed WorkflowState, StageResult, confirmation gate, trace
@@ -27,7 +28,7 @@
 - [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
 - [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
 - [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
-- [x] 184 API-free tests
+- [x] 219 API-free tests
 - [x] offline evaluation and regression baseline
 - [ ] live OpenAI smoke test — API key required
 - [ ] production auth/malware scanning/CI — follow-up scope

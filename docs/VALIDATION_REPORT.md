@@ -1,177 +1,147 @@
 # Validation Report
 
-검증일: 2026-07-24  
-환경: macOS, Python 3.9.6, Streamlit 1.50.0, streamlit-pdf 1.0.8,
-pandas 2.3.3, OpenAI SDK 2.47.0, Pydantic 2.13.4.
+검증일: 2026-07-27 KST
+환경: macOS, Python 3.9.6, Streamlit 1.50.0, Pydantic 2.13.4
 
-## 결과 요약
+## 최종 결과
 
-- Python 3.9 compile: PASS
-- dependency check: PASS
-- offline unit/integration tests: 174/174 PASS
-- offline end-to-end Stage 0~5: PASS
-- standalone WorkflowOrchestrator, confirmation gate, fallback, safe trace: PASS
-- Streamlit AppTest: PASS
-- 실제 Streamlit 서버와 `/_stcore/health`: PASS — HTTP 200, 응답 `ok`
-- extraction fixture evaluation: 17건 실행
-- prompt regression: PASS
-- fine-tuning export gate: 후보 0, 제외 17 — 의도한 안전 결과
-- official offline KB: 8개 공식 자료, 요청한 6개 상품군 포함
-- Stage 1 outbound HTTPS/public IP/host allowlist tests: PASS
-- official search fresh/stale cache TTL tests: PASS
-- app import: PASS
-- live OpenAI call: NOT RUN — API key 없음
-- official web search live: NOT RUN — API key 없음, 기본 OFF
+| 검증 | 명령 | 결과 |
+| --- | --- | --- |
+| 한 명령 release gate | `python scripts/verify.py` | PASS |
+| compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 219/219 PASS |
+| dependency | `python -m pip check` | PASS |
+| extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
+| regression | `python scripts/run_regression.py` | PASS |
+| Streamlit AppTest | 전체 unittest 내 실행 | PASS |
+| Streamlit 실제 health | `curl ...:8502/_stcore/health` | HTTP 200, `ok` |
+| Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
+| Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
+| sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
 
-## 평가 결과
+## Stage 1 검증
 
-`dataset/predictions/fixture`는 label과 일치하는 evaluator 검증 fixture입니다.
+저장소 fixture:
 
-- field exact/normalized: 100%
-- currency: 100%
-- amount exact/tolerance: 100%
-- date: 100%
-- required completion: 100%
-- hallucination: 0%
-- evidence coverage: 100%
-- human review recall: 100%
-- document PASS: 82.35% (14/17)
-
-PASS하지 않은 3건은 의도한 안전 차단입니다.
-
-- `invoice_missing_due_008`: 문서에 결제일/조건 없음
-- `invoice_multi_currency_010`: 여러 통화 CRITICAL
-- `invoice_due_conflict_016`: explicit due와 Net 30 계산 충돌 CRITICAL
-
-이 수치는 실제 모델 품질이 아닙니다. 실제 baseline은 live mode로 생성해야 합니다.
-
-## 실행한 명령
-
-```bash
-python scripts/generate_synthetic_dataset.py
-python scripts/generate_demo_outputs.py
-PYTHONPYCACHEPREFIX=/tmp/invoice_intake_compile_pycache \
-  python -m compileall -q app.py src tests
-python -m pip check
-python -m unittest discover -s tests -v
-python scripts/evaluate_extraction.py --mode offline
-python scripts/run_regression.py
-python scripts/export_finetuning_candidates.py
-python scripts/verify.py
+```text
+direction: USD_KRW_DOWN
+up/down score: 0.288 / 0.712
+calibrated probability: false
+maximum rise q50/q75/q90: 0.015 / 0.026 / 0.035
+maximum fall q50/q75/q90: 0.010 / 0.021 / 0.036
 ```
 
-## 테스트가 고정한 핵심 위험
+실행 중이던 sibling HTTP 서버의 2026-07-27 출력도 메인 Python adapter로 직접
+파싱했습니다.
 
-업로드 MIME/magic/page/size, schema serialization, amount/date/Net N, balance due,
-installment 합, due 충돌, 다중통화, prompt injection, missing evidence, 역할 매핑,
-confirmation gate, Stage 1 fallback/JPY/probability, 수입·수출 손실 방향, natural hedge
-날짜, 기존 hedge cashflow, buffer/cash/credit 부족, Stage 3 비율, 비공식 URL 차단,
-보고서 숫자와 JSON path의 실제 연관성, secret redaction, 상태 무효화, PDF 미리보기,
-offline end-to-end를 포함합니다. 추가로 UI 없는 orchestrator, 확인 전 Cashflow
-미호출, Stage 1·상품 검색 fallback, RAG empty 상품 생성 차단, critic 정확히 1회
-재작성, report API fallback, trace payload 비포함을 고정합니다. 분할결제에서는
-동일 통화 자연상계 잔여량과 기존
-헤지 수수료가 여러 회차에 중복 적용되지 않고 작은 수수료의 반올림 잔여도 음수가
-되지 않는 것을 고정합니다. 문서 SHA·회사 국가·거래 방향·통화·회차별 금액·결제일
-fingerprint를 재검증해 확인 뒤 바뀐 Stage 2 입력이 계산 runner에 도달하지 않는
-경계도 포함합니다. Stage 1 REST의
-private/loopback/metadata IP 차단, exact host allowlist, 명시적 로컬 opt-in과 공식
-검색 cache의 fresh hit·stale refresh도 포함합니다.
-
-공식 KB는 선물환, 환변동보험, 외화예금, 수출입대출, 정책자금, 보증상품을 모두
-포함합니다. 거래방향과 맞지 않는 상품은 ranking 단계에서 제외하고, 자격·한도·승인은
-항상 `unknown` 또는 상담 필요 상태로 유지합니다.
-
-## Live 실행
-
-API 키 설정 후 비용이 발생하는 호출을 한 건으로 제한해 실행합니다.
-
-```bash
-python scripts/live_smoke_test.py samples/sample_invoice.png
-python scripts/evaluate_extraction.py --mode live --max-cases 2
+```text
+provider health: HTTP OK
+direction: USD_KRW_DOWN
+up/down score: 0.041 / 0.959
+calibrated probability: false
+maximum rise q50/q75/q90: 0.014 / 0.022 / 0.035
+maximum fall q50/q75/q90: 0.011 / 0.025 / 0.041
 ```
 
-현재 계정에서 기본 모델을 사용할 수 없으면 `.env`의 모델 ID를 접근 가능한
-vision/Structured Outputs 모델로 바꿉니다.
+실제 출력은 새로 생성되면 fixture와 달라질 수 있습니다. 두 결과 모두 방향 점수를
+발생확률로 사용하지 않았고, 뉴스는 숫자 계산에 미반영했습니다.
 
-## 최종 인계
+자동 테스트 범위:
 
-### 1. 감사에서 확인한 핵심 문제
+- raw schema mismatch, q 순서, path return 상한, score 합
+- stale market data, partial fallback, failed series, news query degraded
+- HTTP success/timeout/invalid JSON, response/fallback provenance
+- file/mock mode, remote URL/host 제한
+- 수동 spot 확인 gate, KoreaExim parsing, JPY(100) 정규화
+- 정확한 model/fixed rate, horizon mismatch
+- 수입 v36 상승·수출 v34 하락 방향
 
-- CRITICAL: 추출값이 통화·금액·결제일 확인 없이 계산으로 전달될 수 있었고, 문서·역할
-  변경 뒤 session 결과가 섞일 수 있었습니다.
-- HIGH: evidence·다중통화·날짜충돌 검증, 업로드 magic/parse 검사, Decimal 계산,
-  기존 hedge와 자연상계의 분할결제 배분이 부족했습니다.
-- MEDIUM: prompt version/few-shot, 정답셋·평가·회귀, 공식 출처 정책, 보고서 숫자
-  추적성이 없거나 약했습니다.
-- LOW: README와 지원 형식·제한이 달랐고 의존성 재현성이 부족했습니다.
+## 대표 수입 결과
 
-### 2. 실제 구현 범위
-
-Stage 0 strict extraction/검증/사람 확인, typed workflow orchestrator와 trace,
-Stage 1 manual·JSON·REST adapter, Stage 2
-확정 거래 binding·Decimal exposure·ledger·복합 stress, Stage 3 top-3 후보,
-Stage 4 official KB와 선택적
-allowlist web search, Stage 5 critic·fallback, 단일 Streamlit UI, 다운로드, dataset,
-offline/live evaluator, regression과 fine-tuning export gate를 구현했습니다.
-
-### 3. 핵심 파일
-
-- 앱: `app.py`
-- 스키마·검증: `schemas.py`, `validators.py`, `src/domain/`,
-  `src/document_intake/`
-- 계산·후속 단계: `src/stage1/`~`src/stage5/`
-- 평가: `scripts/evaluate_extraction.py`, `scripts/run_regression.py`,
-  `scripts/export_finetuning_candidates.py`, `scripts/verify.py`
-- 문서: `README.md`, `START_HERE.md`, `docs/`
-
-### 4. 실행 명령
-
-```bash
-cp .env.example .env
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
+```text
+수입대금: USD 100,000
+결제용 보유외화: USD 20,000
+열린 노출: USD 80,000
+기준환율: 1,400
+기준 필요액: 112,000,000원
++5% 환율: 1,470
++5% 필요액: 117,600,000원
+추가비용: 5,600,000원
+현재현금/유입/비용: 130,000,000 / 40,000,000 / 45,000,000원
+결제 후 현금: 7,400,000원
+운영자금 부족: 2,600,000원
+대출한도 후 지급부족: 0원
 ```
 
-API 키가 없으면 앱의 데모 모드와 전체 오프라인 데모를 사용합니다.
+`LIQUIDITY_BUFFER_RISK`이며 `PAYMENT_CAPACITY_RISK`가 아님을 검증했습니다.
 
-### 5. 테스트
+## 대표 수출 결과
 
-Python 3.9 compile, dependency check, 174/174 API-free unit/integration tests,
-`scripts/verify.py`, Streamlit AppTest가 모두 PASS했습니다. 또한
-`127.0.0.1:8765`에서 headless Streamlit 서버를 기동해 `/_stcore/health`의 HTTP 200과
-`ok` 응답을 확인한 뒤 정상 종료했습니다.
+USD 100,000 수취 거래에서 기준 수취액 140,000,000원, -5% 스트레스 수취액
+133,000,000원, 원화 수취 감소 7,000,000원을 검증했습니다.
+`FX_RECEIPT_RISK`가 발생하고 수입 `FX_COST_RISK`와 구분됩니다.
 
-### 6. Offline 평가
+두 대표 사례는 90일 결제이므로 Stage 1 모델 분위수가 계산에서 제외되고
+`HORIZON_MISMATCH`가 보고서까지 전달됩니다.
 
-17건에서 exact/normalized/currency/amount/date/evidence/review 지표 100%,
-hallucination 0%, document PASS 82.35%입니다. 실패 3건은 누락 due·다중통화·due 충돌을
-의도적으로 자동 차단한 사례입니다. fixture 점수는 live 모델 품질 점수가 아닙니다.
+## Stage 3·보고서 검증
 
-### 7. Live API
+- 5%p grid와 비율 합 1
+- 안정성·균형·비용 우선 후보
+- q90와 고정 ±10% 손실, 최저 현금, 대출 후 부족
+- 비용·위험계수·최대 forward 가정 공개
+- 제약 해가 없으면 `NO_FEASIBLE_CANDIDATE`
+- 보고서 JSON에서 문서 `source_text`와 confirmation 원본값 제외
+- 보고서 숫자·JSON path 일치
+- q90 확률 오용, 미보정 방향 점수 확률 오용, horizon 외삽, 뉴스 숫자 반영,
+  비공식 상품 근거를 critic이 차단
+- LLM API 없음/실패/critic 재실패 시 결정론 template
 
-API 키가 없어 실행하지 않았습니다. adapter의 이미지 `input_image`, PDF `input_file`,
-Structured Output parse, retry/fallback 경로는 mock과 설치 SDK signature로
-검증했습니다.
+## 실패와 해결 기록
 
-### 8. 남은 한계
+### macOS compile cache
 
-실문서 OCR baseline, 실제 공식 web search, Windows launcher, production 인증·malware
-scan과 egress proxy 수준 DNS rebinding 방어는 현재 환경에서 검증하지 못했습니다.
-Stage 3 비용·위험계수와 Stage 4 자격 조건은 상담 전제의 데모 가정입니다.
+```text
+실행 명령: python -m compileall .
+결과: 실패
+오류 메시지: sandbox 밖 Python cache 경로 PermissionError
+직접 원인: 기본 pycache가 허용되지 않은 macOS cache 경로를 사용
+근본 원인: 실행 sandbox 파일쓰기 제한
+수정 필요 여부: 코드 수정 불필요
+해결: PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache로 재실행 PASS
+```
 
-### 9. Stage 1 연결 계약
+### Streamlit port bind
 
-`schema_version=1.0`, 거래 통화, `KRW_PER_1_FC`, 환율 표시 단위, as-of, target date,
-`FORECAST` 또는 `STRESS`, scenario 이름·환율·base 여부·선택적 probability를 JSON
-파일이나 REST 응답으로 전달합니다. 전체 예시는 `docs/STAGE1_CONTRACT.md`와
-`samples/stage1_scenarios.json`에 있습니다.
+```text
+실행 명령: python -m streamlit run app.py --server.port 8502
+결과: sandbox 안에서 PermissionError
+직접 원인: local port bind 권한 제한
+해결: 승인된 로컬 실행으로 재시도, health `ok`
+```
 
-### 10. 다음 우선 작업
+### Stage 1 server start
 
-1. 고정 test split 1~2건으로 비용 제한 live baseline을 생성하고 raw/validated 실패를
-   분리 분석합니다.
-2. 실제 은행 quote·기업 cashflow 계약으로 Stage 2/3 가정과 비용계수를 보정합니다.
-3. 공개 배포 전에 인증, malware scan, egress allowlist와 CI를 추가합니다.
+```text
+실행 명령: zsh scripts/serve_web_forecast.sh
+결과: Address already in use
+직접 원인: 127.0.0.1:8765에 팀 서버가 이미 실행 중
+해결: 기존 사용자 프로세스를 종료하지 않고 health와 forecast를 읽어 통합 검증
+```
+
+### 최초 최종 gate
+
+```text
+실행 명령: python scripts/verify.py
+결과: unit test는 PASS, README 문서 링크 2개 누락으로 gate 실패
+해결: STAGE1_INTEGRATION·SPOT_PROVIDER_SETUP 링크 추가 후 재실행 PASS
+```
+
+## 미실행
+
+- 실제 OpenAI 문서 추출·LLM 보고서: 자격증명과 비용 승인 없음
+- 한국수출입은행 live 호출: 자격증명 없음
+- 공식 web 상품 검색 live: 기본 비활성, 자격증명 없음
+- Windows launcher: 현재 macOS 환경에서 미검증
+
+위 항목은 구현 완료나 live 품질 검증으로 표시하지 않습니다.

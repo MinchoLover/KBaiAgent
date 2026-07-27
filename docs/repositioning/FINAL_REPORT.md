@@ -1,5 +1,13 @@
 # KB AI Challenge MVP 재포지셔닝 최종 보고서
 
+> 2026-07-27 통합 보강: 팀 `kb_macro_ai`의 실제
+> `krw_forecast_web_v1`을 HTTP/file/mock adapter로 연결하고 별도 Spot provider,
+> 21거래일 horizon gate, 수입 v36/수출 v34 scenario, 제약형 Stage 3와 시장정책
+> report critic을 추가했습니다. 현재 검증은 219개 PASS이며 최신 실행·제한은
+> `docs/VALIDATION_REPORT.md`, `docs/STAGE1_INTEGRATION.md`,
+> `docs/LIMITATIONS.md`가 우선합니다. 아래 1~6절의 커밋·기준선 설명은 이전
+> 재포지셔닝 작업 당시 기록입니다.
+
 ## 1. 기준 브랜치와 커밋
 
 - 변경 전 브랜치: `main`
@@ -134,8 +142,8 @@ python scripts/run_decision_demo.py --company-role BUYER --format summary
 | +5% 스트레스 환율 | 1,470 KRW/USD |
 | 스트레스 원화 필요액 | 117,600,000.00원 |
 | 기준 대비 추가 비용 | 5,600,000.00원 |
-| 예정 운영비 반영 후 현금 | 9,400,000.00원 |
-| 최소 운영자금 부족 | 600,000.00원 |
+| 확정 유입 40,000,000원·비용 45,000,000원 반영 후 현금 | 7,400,000.00원 |
+| 최소 운영자금 부족 | 2,600,000.00원 |
 | 대출한도 반영 후 지급 부족 | 0.00원 |
 
 위험 코드는 `FX_COST_RISK`, `LOSS_LIMIT_EXCEEDED`,
@@ -171,7 +179,7 @@ python scripts/run_decision_demo.py --company-role SELLER --format summary
 | 검증 | 실행 명령 | 실제 결과 |
 | --- | --- | --- |
 | Python compile | `PYTHONPYCACHEPREFIX=/private/tmp/kbai-pycache .venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git|__pycache__)(/|$)' .` | 성공 |
-| 전체 단위·통합·UI | `.venv/bin/python -m unittest discover -s tests -v` | 184개 성공, 0개 실패 |
+| 전체 단위·통합·UI | `.venv/bin/python -m unittest discover -s tests -v` | 219개 성공, 0개 실패 |
 | 오프라인 추출 계약 | `.venv/bin/python scripts/evaluate_extraction.py --mode offline` | 17건, pass rate 82.35%, hallucination 0.00% |
 | 회귀 기준 | `.venv/bin/python scripts/run_regression.py` | 성공 |
 | 의존성 | `.venv/bin/python -m pip check` | broken requirement 없음 |

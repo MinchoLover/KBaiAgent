@@ -2,6 +2,11 @@
 
 팀원의 환율 분석 모델은 이 저장소에서 재구현하지 않습니다.
 
+현재 팀 `kb_macro_ai`의 `krw_forecast_web_v1` 계약과 HTTP/file/mock 연결은
+[`STAGE1_INTEGRATION.md`](STAGE1_INTEGRATION.md)와
+[`STAGE1_JSON_MAPPING.md`](STAGE1_JSON_MAPPING.md)가 canonical입니다.
+아래 `schema_version=1.0` 계약은 기존 일반 시나리오 JSON과의 하위 호환 경로입니다.
+
 ## MANUAL_STRESS
 
 기준 환율에 `-10%, -5%, -3%, 0%, +3%, +5%, +10%`를 적용합니다. 결과 kind는
