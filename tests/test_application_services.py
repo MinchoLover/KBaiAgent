@@ -15,6 +15,8 @@ class Stage2InputServiceTests(unittest.TestCase):
                 "sha256": "a" * 64,
                 "user_confirmed": True,
                 "confirmed_fields": [
+                    "company_role",
+                    "trade_type",
                     "currency",
                     "amount_due",
                     "due_date",

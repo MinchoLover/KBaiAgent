@@ -251,7 +251,7 @@
         "trade_type": true
       },
       "validation_critical_codes": [
-        "EXPLICIT_DERIVED_DUE_DATE_CONFLICT"
+        "DUE_DATE_CONFLICT"
       ]
     },
     "sample_existing_demo": {

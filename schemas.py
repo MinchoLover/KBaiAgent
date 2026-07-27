@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 DocumentType = Literal[
@@ -135,6 +135,7 @@ class TradeDocumentExtraction(StrictModel):
 
 
 class ConfirmationState(StrictModel):
+    company_role_confirmed: bool = False
     trade_type_confirmed: bool = False
     currency_confirmed: bool = False
     amount_due_confirmed: bool = False
@@ -142,13 +143,80 @@ class ConfirmationState(StrictModel):
     confirmed_due_date: Optional[str] = None
     confirmed_by: Optional[str] = None
     confirmed_at: Optional[str] = None
+    user_confirmed_override: bool = False
+    user_confirmed_override_fields: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_user_override(self) -> "ConfirmationState":
+        allowed = {
+            "currency",
+            "amount_due",
+            "explicit_due_date",
+            "payment_terms",
+            "installments",
+            "issue_date",
+            "contract_date",
+            "seller_name",
+            "seller_country",
+            "buyer_name",
+            "buyer_country",
+        }
+        fields = list(dict.fromkeys(self.user_confirmed_override_fields))
+        if any(field not in allowed for field in fields):
+            raise ValueError("허용되지 않은 evidence 확인 필드가 있습니다.")
+        if self.user_confirmed_override != bool(fields):
+            raise ValueError(
+                "user_confirmed_override와 확인 필드 기록이 일치해야 합니다."
+            )
+        if (
+            "currency" in fields
+            and not self.currency_confirmed
+        ):
+            raise ValueError("currency evidence override에는 통화 확인이 필요합니다.")
+        if (
+            "amount_due" in fields
+            and not self.amount_due_confirmed
+        ):
+            raise ValueError(
+                "amount_due evidence override에는 금액 확인이 필요합니다."
+            )
+        if any(
+            field in {
+                "explicit_due_date",
+                "payment_terms",
+                "installments",
+                "issue_date",
+                "contract_date",
+            }
+            for field in fields
+        ) and not self.due_date_confirmed:
+            raise ValueError("날짜 evidence override에는 결제일 확인이 필요합니다.")
+        if any(
+            field in {
+                "seller_name",
+                "seller_country",
+                "buyer_name",
+                "buyer_country",
+            }
+            for field in fields
+        ) and not (
+            self.company_role_confirmed
+            and self.trade_type_confirmed
+        ):
+            raise ValueError(
+                "당사자 evidence override에는 회사 역할과 거래방향 확인이 "
+                "필요합니다."
+            )
+        object.__setattr__(self, "user_confirmed_override_fields", fields)
+        return self
 
     def all_critical_fields_confirmed(
         self,
         installment_schedule_confirmed: bool = False,
     ) -> bool:
         return (
-            self.trade_type_confirmed
+            self.company_role_confirmed
+            and self.trade_type_confirmed
             and self.currency_confirmed
             and self.amount_due_confirmed
             and self.due_date_confirmed
@@ -166,13 +234,32 @@ class ValidationIssue(StrictModel):
     message: str
 
 
+class NormalizationAuditEntry(StrictModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=False,
+        validate_assignment=True,
+    )
+
+    field: str
+    raw_value: Optional[str] = None
+    normalized_value: Optional[str] = None
+    status: str
+    message: str
+
+
 class ValidationResult(StrictModel):
     issues: List[ValidationIssue] = Field(default_factory=list)
+    normalization_audit: List[NormalizationAuditEntry] = Field(
+        default_factory=list
+    )
     detected_currencies: List[str] = Field(default_factory=list)
     normalized_currency: Optional[str] = None
     resolved_due_date: Optional[str] = None
     due_date_source: DueDateSource = "MISSING"
+    auto_trade_type: TradeType = "UNKNOWN"
     derived_trade_type: TradeType = "UNKNOWN"
+    trade_type_source: str = "UNKNOWN"
     missing_required_fields: List[str] = Field(default_factory=list)
     needs_human_review: bool = True
     validation_pass: bool = False

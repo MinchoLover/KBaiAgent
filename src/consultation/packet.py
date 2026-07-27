@@ -67,6 +67,8 @@ def _confirmed_fields(
 ) -> List[str]:
     checks = confirmation.checks
     fields: List[str] = []
+    if getattr(checks, "company_role_confirmed", False):
+        fields.append("company_role")
     if getattr(checks, "trade_type_confirmed", False):
         fields.append("trade_type")
     if checks.currency_confirmed:

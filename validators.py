@@ -7,9 +7,16 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from schemas import (
     ConfirmationState,
     FieldEvidence,
+    NormalizationAuditEntry,
     TradeDocumentExtraction,
     ValidationIssue,
     ValidationResult,
+)
+from src.document_intake.normalization import (
+    augment_currency_evidence,
+    country_alias_matches_text,
+    normalize_country_name,
+    normalize_extraction_values,
 )
 
 
@@ -19,9 +26,19 @@ PLAIN_AMOUNT_RE = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 GROUPED_AMOUNT_RE = re.compile(
     r"^-?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?$"
 )
-NET_TERM_RE = re.compile(r"\bnet\s*(\d{1,3})\s*(?:days?)?\b", re.IGNORECASE)
+NET_TERM_RE = re.compile(
+    r"\bnet\s*(\d{1,3})"
+    r"(?:\s+(calendar|business)\s+days?|\s+days?)?\b",
+    re.IGNORECASE,
+)
+NET_TERM_REFERENCE_RE = re.compile(
+    r"\b(?:from|after)\s+(?:the\s+)?"
+    r"(contract|invoice)\s+date\b",
+    re.IGNORECASE,
+)
 COMPLEX_NET_TERM_RE = re.compile(
-    r"\b(?:eom|end\s+of\s+month|after|from|following|acceptance|b/?l)\b",
+    r"\b(?:eom|end\s+of\s+month|following|acceptance|b/?l|"
+    r"after\s+shipment|from\s+shipment|after\s+delivery|from\s+delivery)\b",
     re.IGNORECASE,
 )
 PROMPT_INJECTION_PATTERNS = (
@@ -171,7 +188,50 @@ def calculate_net_due_date(
     days = int(match.group(1))
     if days < 0 or days > 365:
         return None
+    day_kind = (match.group(2) or "calendar").lower()
+    if day_kind == "business":
+        cursor = parsed_base
+        remaining = days
+        while remaining > 0:
+            cursor += timedelta(days=1)
+            if cursor.weekday() < 5:
+                remaining -= 1
+        return cursor.isoformat()
     return (parsed_base + timedelta(days=days)).isoformat()
+
+
+def _net_term_base_date(
+    *,
+    issue_date: Optional[str],
+    contract_date: Optional[str],
+    payment_terms: Optional[str],
+    document_type: Optional[str],
+) -> Optional[str]:
+    if not payment_terms:
+        return None
+    reference = NET_TERM_REFERENCE_RE.search(payment_terms)
+    if reference is not None:
+        reference_name = reference.group(1).lower()
+        return (
+            contract_date
+            if reference_name == "contract"
+            else issue_date
+        )
+    if document_type == "SALES_CONTRACT":
+        return contract_date or issue_date
+    return issue_date or contract_date
+
+
+def calculate_extraction_net_due_date(
+    extraction: TradeDocumentExtraction,
+) -> Optional[str]:
+    base_date = _net_term_base_date(
+        issue_date=extraction.issue_date,
+        contract_date=extraction.contract_date,
+        payment_terms=extraction.payment_terms,
+        document_type=extraction.document_type,
+    )
+    return calculate_net_due_date(base_date, extraction.payment_terms)
 
 
 def derive_due_date(
@@ -188,10 +248,12 @@ def derive_due_date(
             "EXPLICIT",
         )
 
-    if document_type == "SALES_CONTRACT":
-        base_date = contract_date or issue_date
-    else:
-        base_date = issue_date or contract_date
+    base_date = _net_term_base_date(
+        issue_date=issue_date,
+        contract_date=contract_date,
+        payment_terms=payment_terms,
+        document_type=document_type,
+    )
 
     calculated = calculate_net_due_date(base_date, payment_terms)
     if calculated:
@@ -233,6 +295,100 @@ def derive_trade_type(
     ):
         return "EXPORT"
     return "UNKNOWN"
+
+
+def _prepare_extraction_for_validation(
+    extraction: TradeDocumentExtraction,
+    *,
+    company_role: Optional[str],
+    company_country: Optional[str],
+    user_trade_type: Optional[str],
+) -> Tuple[
+    TradeDocumentExtraction,
+    Optional[str],
+    List[NormalizationAuditEntry],
+    str,
+    str,
+]:
+    normalized, audit = normalize_extraction_values(extraction)
+    normalized, evidence_audit = augment_currency_evidence(
+        normalized,
+        ISO_4217_CODES,
+    )
+    audit.extend(evidence_audit)
+
+    normalized_company_country, company_audit = normalize_country_name(
+        company_country,
+        "company_country",
+    )
+    if company_audit.status != "EMPTY":
+        audit.append(company_audit)
+
+    effective_role = company_role or normalized.company_role
+    if normalized.company_role != effective_role:
+        audit.append(
+            NormalizationAuditEntry(
+                field="company_role",
+                raw_value=normalized.company_role,
+                normalized_value=effective_role,
+                status="USER_CONTEXT_APPLIED",
+                message=(
+                    "문서 모델 역할보다 사용자가 선택한 회사 역할 {}를 "
+                    "적용했습니다.".format(effective_role)
+                ),
+            )
+        )
+
+    auto_trade_type = derive_trade_type(
+        effective_role,
+        company_country=normalized_company_country,
+        seller_country=normalized.seller_country,
+        buyer_country=normalized.buyer_country,
+    )
+    explicit_trade_type = (
+        user_trade_type
+        if user_trade_type in {"IMPORT", "EXPORT"}
+        else None
+    )
+    final_trade_type = explicit_trade_type or auto_trade_type
+    trade_type_source = (
+        "USER_OVERRIDE"
+        if explicit_trade_type is not None
+        else "AUTO"
+        if auto_trade_type in {"IMPORT", "EXPORT"}
+        else "UNKNOWN"
+    )
+    normalized = normalized.model_copy(
+        update={
+            "company_role": effective_role,
+            "trade_type": final_trade_type,
+            "derived_due_date": None,
+        }
+    )
+    if final_trade_type != extraction.trade_type:
+        audit.append(
+            NormalizationAuditEntry(
+                field="trade_type",
+                raw_value=extraction.trade_type,
+                normalized_value=final_trade_type,
+                status=trade_type_source,
+                message=(
+                    "정규화된 회사 역할과 당사자 국가를 기준으로 거래 방향을 "
+                    "{}로 결정했습니다.".format(final_trade_type)
+                    if trade_type_source == "AUTO"
+                    else "사용자가 거래 방향을 {}로 명시했습니다.".format(
+                        final_trade_type
+                    )
+                ),
+            )
+        )
+    return (
+        normalized,
+        normalized_company_country,
+        audit,
+        auto_trade_type,
+        trade_type_source,
+    )
 
 
 def _date_base(extraction: TradeDocumentExtraction) -> Optional[str]:
@@ -349,6 +505,10 @@ def required_evidence_gaps(
                 and (
                     item.field == country_field
                     or country_token.search(item.source_text)
+                    or country_alias_matches_text(
+                        item.source_text,
+                        country,
+                    )
                 )
                 for item in country_evidence
             ):
@@ -590,6 +750,7 @@ def _validate_date_relationships(
     parsed: Dict[str, Optional[date]],
     resolved_due_date: Optional[str],
     issues: List[ValidationIssue],
+    audit: List[NormalizationAuditEntry],
 ) -> None:
     contract = parsed.get("contract_date")
     issue = parsed.get("issue_date")
@@ -651,27 +812,33 @@ def _validate_date_relationships(
                         )
                     )
 
-    base_date = _date_base(extraction)
     try:
-        calculated = calculate_net_due_date(
-            base_date,
-            extraction.payment_terms,
-        )
+        calculated = calculate_extraction_net_due_date(extraction)
     except ValueError:
         calculated = None
-    if (
-        extraction.explicit_due_date
-        and calculated
-        and extraction.explicit_due_date != calculated
-    ):
-        issues.append(
-            _issue(
-                "EXPLICIT_DERIVED_DUE_DATE_CONFLICT",
-                "CRITICAL",
-                "명시 결제일과 Net N 계산 결제일이 충돌합니다.",
-                "explicit_due_date",
+    if extraction.explicit_due_date and calculated:
+        if extraction.explicit_due_date != calculated:
+            issues.append(
+                _issue(
+                    "DUE_DATE_CONFLICT",
+                    "CRITICAL",
+                    "명시 결제일과 Net N 결정론 계산 결제일이 충돌합니다.",
+                    "explicit_due_date",
+                )
             )
-        )
+        else:
+            audit.append(
+                NormalizationAuditEntry(
+                    field="explicit_due_date",
+                    raw_value=extraction.explicit_due_date,
+                    normalized_value=calculated,
+                    status="VERIFIED",
+                    message=(
+                        "명시 결제일이 계약 조건의 Net N 결정론 계산값 "
+                        "{}와 일치합니다.".format(calculated)
+                    ),
+                )
+            )
 
     for index, installment in enumerate(extraction.installments):
         try:
@@ -771,18 +938,26 @@ def validate_extraction(
     company_role: Optional[str] = None,
     company_country: Optional[str] = None,
     confirmations: Optional[ConfirmationState] = None,
+    user_trade_type: Optional[str] = None,
 ) -> ValidationResult:
     """Validate model output without trusting model-provided review flags."""
 
     confirmation_state = confirmations or ConfirmationState()
+    (
+        extraction,
+        normalized_company_country,
+        normalization_audit,
+        auto_trade_type,
+        trade_type_source,
+    ) = _prepare_extraction_for_validation(
+        extraction,
+        company_role=company_role,
+        company_country=company_country,
+        user_trade_type=user_trade_type,
+    )
     issues: List[ValidationIssue] = []
     effective_role = company_role or extraction.company_role
-    derived_trade_type = derive_trade_type(
-        effective_role,
-        company_country=company_country,
-        seller_country=extraction.seller_country,
-        buyer_country=extraction.buyer_country,
-    )
+    derived_trade_type = extraction.trade_type
 
     if extraction.company_role != effective_role:
         issues.append(
@@ -793,18 +968,38 @@ def validate_extraction(
                 "company_role",
             )
         )
-    if extraction.trade_type != derived_trade_type:
+    if (
+        trade_type_source == "USER_OVERRIDE"
+        and auto_trade_type in {"IMPORT", "EXPORT"}
+        and derived_trade_type != auto_trade_type
+    ):
         issues.append(
             _issue(
-                "TRADE_TYPE_MISMATCH",
-                "HIGH",
-                "trade_type이 사용자 역할과 당사자 국가의 결정론적 매핑과 다릅니다.",
+                "TRADE_TYPE_OVERRIDE_CONFLICT",
+                "MEDIUM",
+                "사용자가 선택한 trade_type이 정규화된 국가 기반 자동판정과 "
+                "다릅니다. 사용자 선택을 유지하되 원문 재확인이 필요합니다.",
                 "trade_type",
             )
         )
 
-    if company_country:
-        normalized_company_country = company_country.strip().upper()
+    unknown_country_fields = {
+        item.field
+        for item in normalization_audit
+        if item.status == "UNKNOWN_ALIAS"
+    }
+    for item in normalization_audit:
+        if item.status == "UNKNOWN_ALIAS":
+            issues.append(
+                _issue(
+                    "UNKNOWN_COUNTRY_ALIAS",
+                    "MEDIUM",
+                    item.message,
+                    item.field,
+                )
+            )
+
+    if normalized_company_country:
         if (
             len(normalized_company_country) != 2
             or not normalized_company_country.isalpha()
@@ -822,9 +1017,15 @@ def validate_extraction(
             if effective_role == "BUYER"
             else extraction.seller_country
         )
+        role_country_field = (
+            "buyer_country"
+            if effective_role == "BUYER"
+            else "seller_country"
+        )
         if (
             role_country
             and role_country.upper() != normalized_company_country
+            and role_country_field not in unknown_country_fields
         ):
             issues.append(
                 _issue(
@@ -843,7 +1044,7 @@ def validate_extraction(
             len(country) != 2
             or not country.isalpha()
             or country != country.upper()
-        ):
+        ) and field not in unknown_country_fields:
             issues.append(
                 _issue(
                     "INVALID_PARTY_COUNTRY",
@@ -892,6 +1093,7 @@ def validate_extraction(
         parsed_dates,
         resolved_due_date,
         issues,
+        normalization_audit,
     )
     if (
         extraction.payment_terms
@@ -913,7 +1115,26 @@ def validate_extraction(
         extraction,
         due_date_source,
     )
+    evidence_overrides = set(
+        confirmation_state.user_confirmed_override_fields
+        if confirmation_state.user_confirmed_override
+        else []
+    )
     for field in evidence_gaps:
+        if field in evidence_overrides:
+            normalization_audit.append(
+                NormalizationAuditEntry(
+                    field=field,
+                    raw_value=None,
+                    normalized_value=None,
+                    status="USER_CONFIRMED_OVERRIDE",
+                    message=(
+                        "AI evidence가 없지만 사용자가 원문에서 {} 값을 "
+                        "직접 대조해 확인했습니다.".format(field)
+                    ),
+                )
+            )
+            continue
         issues.append(
             _issue(
                 "MISSING_CORE_EVIDENCE",
@@ -927,6 +1148,20 @@ def validate_extraction(
     for field in ("currency", "amount_due", "explicit_due_date"):
         for evidence in evidence_by_field.get(field, []):
             if evidence.extraction_type == "INFERRED":
+                if field in evidence_overrides:
+                    normalization_audit.append(
+                        NormalizationAuditEntry(
+                            field=field,
+                            raw_value=None,
+                            normalized_value=None,
+                            status="USER_CONFIRMED_OVERRIDE",
+                            message=(
+                                "AI evidence가 추론값이지만 사용자가 원문에서 "
+                                "{} 값을 직접 대조해 확인했습니다.".format(field)
+                            ),
+                        )
+                    )
+                    continue
                 issues.append(
                     _issue(
                         "INFERRED_CRITICAL_FIELD",
@@ -1027,11 +1262,14 @@ def validate_extraction(
 
     return ValidationResult(
         issues=deduplicated,
+        normalization_audit=normalization_audit,
         detected_currencies=detected_currencies,
         normalized_currency=normalized_currency,
         resolved_due_date=resolved_due_date,
         due_date_source=due_date_source,
+        auto_trade_type=auto_trade_type,
         derived_trade_type=derived_trade_type,
+        trade_type_source=trade_type_source,
         missing_required_fields=missing_required_fields,
         needs_human_review=needs_human_review,
         validation_pass=validation_pass,
@@ -1045,25 +1283,26 @@ def apply_deterministic_review_state(
     company_role: Optional[str] = None,
     company_country: Optional[str] = None,
     confirmations: Optional[ConfirmationState] = None,
+    user_trade_type: Optional[str] = None,
 ) -> Tuple[TradeDocumentExtraction, ValidationResult]:
-    effective_role = company_role or extraction.company_role
-    deterministic = extraction.model_copy(
-        update={
-            "company_role": effective_role,
-            "trade_type": derive_trade_type(
-                effective_role,
-                company_country=company_country,
-                seller_country=extraction.seller_country,
-                buyer_country=extraction.buyer_country,
-            ),
-            "derived_due_date": None,
-        }
+    (
+        deterministic,
+        _,
+        _,
+        _,
+        _,
+    ) = _prepare_extraction_for_validation(
+        extraction,
+        company_role=company_role,
+        company_country=company_country,
+        user_trade_type=user_trade_type,
     )
     result = validate_extraction(
-        deterministic,
-        company_role=effective_role,
+        extraction,
+        company_role=company_role,
         company_country=company_country,
         confirmations=confirmations,
+        user_trade_type=user_trade_type,
     )
     deterministic = deterministic.model_copy(
         update={
@@ -1146,7 +1385,7 @@ def build_stage2_input(
         installment_schedule_confirmed=bool(extraction.installments)
     ):
         raise ValueError(
-            "거래 방향·금액·통화·결제일을 각각 사용자 확인해야 합니다."
+            "회사 역할·거래 방향·금액·통화·결제일을 각각 사용자 확인해야 합니다."
         )
     if not validation.stage2_allowed:
         raise ValueError(
@@ -1209,7 +1448,13 @@ def build_stage2_input(
             "filename": Path(source_filename).name,
             "sha256": source_sha256,
             "user_confirmed": True,
-            "confirmed_fields": ["currency", "amount_due", "due_date"],
+            "confirmed_fields": [
+                "company_role",
+                "trade_type",
+                "currency",
+                "amount_due",
+                "due_date",
+            ],
             "confirmed_at": confirmed_at,
         },
         "trade": {

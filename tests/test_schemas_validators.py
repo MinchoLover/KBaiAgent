@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def confirmed_state(due_date: str = "2026-10-18") -> ConfirmationState:
     return ConfirmationState(
+        company_role_confirmed=True,
         trade_type_confirmed=True,
         currency_confirmed=True,
         amount_due_confirmed=True,
@@ -228,6 +229,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_confirmation_gate_requires_single_settlement_date_value(self):
         checks = ConfirmationState(
+            company_role_confirmed=True,
             trade_type_confirmed=True,
             currency_confirmed=True,
             amount_due_confirmed=True,
@@ -251,6 +253,7 @@ class ValidationTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         checks = ConfirmationState(
+            company_role_confirmed=True,
             trade_type_confirmed=True,
             currency_confirmed=True,
             amount_due_confirmed=True,
@@ -283,6 +286,7 @@ class ValidationTests(unittest.TestCase):
                 source_filename="invoice.png",
                 source_sha256="a" * 64,
                 company_country="KR",
+                company_role_confirmed=True,
                 trade_type_confirmed=True,
             )
 
@@ -298,6 +302,7 @@ class ValidationTests(unittest.TestCase):
                 source_filename="../invoice.png",
                 source_sha256="not-a-fingerprint",
                 company_country="KR",
+                company_role_confirmed=True,
                 trade_type_confirmed=True,
             )
         with self.assertRaises(ValidationError):
@@ -311,6 +316,7 @@ class ValidationTests(unittest.TestCase):
                 source_filename="../invoice.png",
                 source_sha256="a" * 64,
                 company_country="KR",
+                company_role_confirmed=True,
                 trade_type_confirmed=True,
                 confirmed_at="2026-07-23T09:00:00",
             )
@@ -326,6 +332,7 @@ class ValidationTests(unittest.TestCase):
             source_filename="invoice.png",
             source_sha256="a" * 64,
             company_country="KR",
+            company_role_confirmed=True,
             trade_type_confirmed=True,
         )
 
@@ -338,7 +345,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_invalid_currency_is_critical(self):
         extraction = sample_extraction().model_copy(
-            update={"currency": "usd"}
+            update={"currency": "US1"}
         )
         validation = validate_extraction(extraction)
         self.assertIn(
@@ -433,7 +440,7 @@ class ValidationTests(unittest.TestCase):
         )
         validation = validate_extraction(extraction)
         self.assertIn(
-            "EXPLICIT_DERIVED_DUE_DATE_CONFLICT",
+            "DUE_DATE_CONFLICT",
             [item.code for item in validation.issues],
         )
 
@@ -558,6 +565,7 @@ class ValidationTests(unittest.TestCase):
             source_filename="invoice.pdf",
             source_sha256="a" * 64,
             company_country="KR",
+            company_role_confirmed=True,
             trade_type_confirmed=True,
             confirmed_at="2026-07-23T09:00:00+09:00",
         )

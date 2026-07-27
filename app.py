@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from html import escape
 from pathlib import Path
@@ -31,6 +31,10 @@ from src.document_intake.confirmation import (
 from src.document_intake.extractor import (
     ExtractionError,
     extract_trade_document_with_metadata,
+)
+from src.document_intake.normalization import (
+    normalize_country_name,
+    normalize_date_text,
 )
 from src.domain.consultation_models import (
     ConsultationPacketResult,
@@ -164,6 +168,40 @@ def _completed_stage() -> int:
 
 def _blank_to_none(value: Any) -> Optional[str]:
     return optional_text(value)
+
+
+def _date_or_none(value: Any) -> Optional[str]:
+    return normalize_date_text(optional_text(value))
+
+
+def _normalized_company_country(value: str) -> str:
+    normalized, _ = normalize_country_name(value, "company_country")
+    if (
+        normalized is None
+        or len(normalized) != 2
+        or not normalized.isalpha()
+    ):
+        raise ValueError(
+            "회사 국가를 확인 가능한 ISO alpha-2 코드로 정규화할 수 없습니다."
+        )
+    return normalized
+
+
+def _review_audit_values(
+    extraction: TradeDocumentExtraction,
+    company_country: str,
+) -> Dict[str, Any]:
+    return {
+        "company_role": extraction.company_role,
+        "company_country": company_country,
+        "trade_type": extraction.trade_type,
+        "seller_country": extraction.seller_country,
+        "buyer_country": extraction.buyer_country,
+        "currency": extraction.currency,
+        "amount_due": extraction.amount_due,
+        "contract_date": extraction.contract_date,
+        "explicit_due_date": extraction.explicit_due_date,
+    }
 
 
 def _safe_index(options: List[str], value: str) -> int:
@@ -390,10 +428,9 @@ def _demo_all(company_role: str = "BUYER") -> None:
     st.session_state["stage1_mode_widget"] = "EXTERNAL_STAGE1"
     result = run_decision_support_demo(company_role)
     extraction = result["extraction"]
-    source_path, source_mime, unused_extraction = _demo_fixture(company_role)
-    del unused_extraction
+    source_path, source_mime, original_extraction = _demo_fixture(company_role)
     _save_model("extraction", extraction)
-    _save_model("extraction_original", extraction)
+    _save_model("extraction_original", original_extraction)
     _save_model("extraction_validation", result["validation"])
     _save_model("confirmation", result["confirmation"])
     _save_model("confirmation_validation", result["validation"])
@@ -935,6 +972,18 @@ st.session_state.setdefault(
     "구매자 · BUYER",
 )
 st.session_state.setdefault("company_country_widget", "KR")
+pending_company_role = st.session_state.pop(
+    "pending_company_role_widget",
+    None,
+)
+pending_company_country = st.session_state.pop(
+    "pending_company_country_widget",
+    None,
+)
+if pending_company_role is not None:
+    st.session_state["company_role_widget"] = pending_company_role
+if pending_company_country is not None:
+    st.session_state["company_country_widget"] = pending_company_country
 
 with st.sidebar:
     st.markdown(
@@ -1086,10 +1135,9 @@ with stage0_tab:
             "BUYER" if role_label.startswith("구매자") else "SELLER"
         )
         company_country = st.text_input(
-            "우리 회사 국가 코드 · 예: KR",
-            max_chars=2,
+            "우리 회사 국가 · 예: KR, Republic of Korea",
             key="company_country_widget",
-        ).strip().upper()
+        ).strip()
         uploaded = st.file_uploader(
             "거래문서 업로드",
             type=["pdf", "png", "jpg", "jpeg"],
@@ -1163,8 +1211,7 @@ with stage0_tab:
         key="analyze_document",
     ):
         try:
-            if len(company_country) != 2 or not company_country.isalpha():
-                raise ValueError("회사 국가는 ISO alpha-2 두 글자여야 합니다.")
+            _normalized_company_country(company_country)
             if run_mode == "LIVE":
                 if uploaded is None:
                     raise ValueError("실제 API 모드에서는 문서를 업로드하세요.")
@@ -1184,6 +1231,7 @@ with stage0_tab:
                     )
                 extraction = extraction_run.extraction
                 validation = extraction_run.validation
+                original_extraction = extraction_run.raw_extraction
                 metadata_dict = {
                     "filename": extraction_run.upload.filename,
                     "mime_type": extraction_run.upload.mime_type,
@@ -1210,6 +1258,7 @@ with stage0_tab:
                     company_role=company_role,
                     company_country=company_country,
                 )
+                original_extraction = demo_extraction
                 metadata_dict = {
                     "filename": metadata.filename,
                     "mime_type": metadata.mime_type,
@@ -1223,7 +1272,7 @@ with stage0_tab:
                     "attempts": 1,
                 }
             _save_model("extraction", extraction)
-            _save_model("extraction_original", extraction)
+            _save_model("extraction_original", original_extraction)
             _save_model("extraction_validation", validation)
             st.session_state["upload_metadata"] = metadata_dict
             clear_review_widgets(st.session_state)
@@ -1255,7 +1304,8 @@ with stage0_tab:
         _section_intro(
             "STEP 1.2 · 값 검토",
             "AI가 읽은 거래정보가 원문과 같은지 확인하세요",
-            "값을 수정한 뒤 검증하고, 핵심 세 항목을 직접 대조하면 거래가 확정됩니다.",
+            "값을 수정한 뒤 다시 검증하고, 회사 역할과 핵심 거래값을 직접 "
+            "대조하면 거래가 확정됩니다.",
         )
         document_types = [
             "COMMERCIAL_INVOICE",
@@ -1263,10 +1313,38 @@ with stage0_tab:
             "PURCHASE_ORDER",
             "UNKNOWN",
         ]
-        st.session_state[
-            "review_trade_type_widget"
-        ] = extraction.trade_type
         with st.form("review_extraction"):
+            context_row = st.columns(3)
+            reviewed_company_role = context_row[0].selectbox(
+                "우리 회사 역할",
+                ["BUYER", "SELLER"],
+                index=_safe_index(
+                    ["BUYER", "SELLER"],
+                    extraction.company_role,
+                ),
+                key="review_company_role_widget",
+            )
+            reviewed_company_country = context_row[1].text_input(
+                "우리 회사 국가",
+                value=company_country,
+                help="자연어 국가명은 검증 전에 ISO alpha-2로 정규화합니다.",
+                key="review_company_country_widget",
+            )
+            selected_trade_type = context_row[2].selectbox(
+                "수입/수출 판정",
+                ["AUTO", "IMPORT", "EXPORT"],
+                index=0,
+                format_func=lambda value: {
+                    "AUTO": "자동 판정",
+                    "IMPORT": "수입 · 사용자 지정",
+                    "EXPORT": "수출 · 사용자 지정",
+                }[value],
+                key="review_trade_type_choice_widget",
+                help=(
+                    "자동 판정은 역할과 정규화된 당사자 국가를 사용합니다. "
+                    "사용자 지정값이 자동판정과 다르면 경고를 남깁니다."
+                ),
+            )
             row1 = st.columns(4)
             document_type = row1[0].selectbox(
                 "문서 유형",
@@ -1337,12 +1415,12 @@ with stage0_tab:
                 key="review_incoterm_widget",
             )
             row3[3].text_input(
-                "수입/수출 · 자동 판정",
+                "현재 적용된 수입/수출",
+                value=extraction.trade_type,
                 disabled=True,
-                key="review_trade_type_widget",
                 help=(
-                    "회사 역할과 구매자·판매자 국가 근거가 모두 맞을 때만 "
-                    "IMPORT/EXPORT로 결정합니다."
+                    "위 자동/사용자 지정 선택을 저장하면 최신 입력으로 "
+                    "다시 판정합니다."
                 ),
             )
             row4 = st.columns(4)
@@ -1355,7 +1433,7 @@ with stage0_tab:
                 "판매자 국가",
                 value=extraction.seller_country or "",
                 key="review_seller_country_widget",
-            ).strip().upper()
+            ).strip()
             buyer_name = row4[2].text_input(
                 "구매자",
                 value=extraction.buyer_name or "",
@@ -1365,7 +1443,7 @@ with stage0_tab:
                 "구매자 국가",
                 value=extraction.buyer_country or "",
                 key="review_buyer_country_widget",
-            ).strip().upper()
+            ).strip()
 
             installment_rows = [
                 item.model_dump() for item in extraction.installments
@@ -1394,7 +1472,7 @@ with stage0_tab:
                 key="installment_editor",
             )
             reviewed = st.form_submit_button(
-                "수정 내용 저장하고 검증",
+                "수정 내용 저장 및 다시 검증",
                 type="primary",
             )
 
@@ -1419,7 +1497,7 @@ with stage0_tab:
                                 if optional_text(row.get("currency"))
                                 else None
                             ),
-                            due_date=_blank_to_none(row.get("due_date")),
+                            due_date=_date_or_none(row.get("due_date")),
                             condition=_blank_to_none(row.get("condition")),
                         )
                     )
@@ -1436,10 +1514,10 @@ with stage0_tab:
                         "currency": _blank_to_none(currency),
                         "grand_total": _blank_to_none(grand_total),
                         "amount_due": _blank_to_none(amount_due),
-                        "issue_date": _blank_to_none(issue_date),
-                        "contract_date": _blank_to_none(contract_date),
-                        "shipment_date": _blank_to_none(shipment_date),
-                        "explicit_due_date": _blank_to_none(
+                        "issue_date": _date_or_none(issue_date),
+                        "contract_date": _date_or_none(contract_date),
+                        "shipment_date": _date_or_none(shipment_date),
+                        "explicit_due_date": _date_or_none(
                             explicit_due_date
                         ),
                         "payment_terms": _blank_to_none(payment_terms),
@@ -1452,12 +1530,46 @@ with stage0_tab:
                 )
                 edited, validation = apply_deterministic_review_state(
                     edited,
-                    company_role=company_role,
-                    company_country=company_country,
+                    company_role=reviewed_company_role,
+                    company_country=reviewed_company_country,
+                    user_trade_type=(
+                        selected_trade_type
+                        if selected_trade_type in {"IMPORT", "EXPORT"}
+                        else None
+                    ),
                 )
+                normalized_review_country = _normalized_company_country(
+                    reviewed_company_country
+                )
+                audit_trail = list(
+                    st.session_state.get("review_audit_trail", [])
+                )
+                audit_trail.append(
+                    {
+                        "changed_at": datetime.now(timezone.utc).isoformat(),
+                        "before": _review_audit_values(
+                            extraction,
+                            company_country,
+                        ),
+                        "after": _review_audit_values(
+                            edited,
+                            normalized_review_country,
+                        ),
+                    }
+                )
+                st.session_state["review_audit_trail"] = audit_trail
                 _save_model("extraction", edited)
                 _save_model("extraction_validation", validation)
                 clear_confirmation_and_later(st.session_state)
+                st.session_state["pending_company_role_widget"] = (
+                    "구매자 · BUYER"
+                    if reviewed_company_role == "BUYER"
+                    else "판매자 · SELLER"
+                )
+                st.session_state[
+                    "pending_company_country_widget"
+                ] = normalized_review_country
+                st.session_state["skip_signature_sync_once"] = True
                 _store_intake_workflow(
                     mode=run_mode,
                     extraction=edited,
@@ -1497,7 +1609,8 @@ with stage0_tab:
             banner_icon = "✓"
             banner_title = "거래값 확정 완료"
             banner_copy = (
-                "거래 방향·통화·결제금액·결제일을 사용자가 확인했습니다. "
+                "회사 역할·거래 방향·통화·결제금액·결제일을 사용자가 "
+                "확인했습니다. "
                 "이제 환율 가정 단계로 이동할 수 있습니다."
             )
         elif validation.validation_pass:
@@ -1505,8 +1618,8 @@ with stage0_tab:
             banner_icon = "3"
             banner_title = "자동 검증 완료 · 핵심값 확인이 남았습니다"
             banner_copy = (
-                "아래 원문 근거와 거래 방향·통화·결제금액·결제일을 대조한 뒤 "
-                "거래를 확정하세요."
+                "아래 원문 근거와 회사 역할·거래 방향·통화·결제금액·결제일을 "
+                "대조한 뒤 거래를 확정하세요."
             )
         else:
             banner_class = "danger"
@@ -1549,9 +1662,11 @@ with stage0_tab:
         confirmation_submit = False
         confirmed_due = resolved_due
         trade_type_ok = False
+        company_role_ok = False
         currency_ok = False
         amount_ok = False
         due_ok = False
+        evidence_override_fields: List[str] = []
         if not is_confirmed:
             st.markdown("#### 핵심 거래값 최종 확인")
             st.caption(
@@ -1568,25 +1683,54 @@ with stage0_tab:
                     ),
                     key="confirmed_due_widget",
                 )
-                check_cols = st.columns(4)
-                trade_type_ok = check_cols[0].checkbox(
+                check_cols = st.columns(5)
+                company_role_ok = check_cols[0].checkbox(
+                    "{} 역할을 확인했습니다".format(extraction.company_role),
+                    key="confirm_company_role_widget",
+                )
+                trade_type_ok = check_cols[1].checkbox(
                     "{} 거래 방향을 확인했습니다".format(
                         validation.derived_trade_type
                     ),
                     key="confirm_trade_type_widget",
                 )
-                currency_ok = check_cols[1].checkbox(
+                currency_ok = check_cols[2].checkbox(
                     "통화를 원문과 대조했습니다",
                     key="confirm_currency_widget",
                 )
-                amount_ok = check_cols[2].checkbox(
+                amount_ok = check_cols[3].checkbox(
                     "결제금액을 원문과 대조했습니다",
                     key="confirm_amount_widget",
                 )
-                due_ok = check_cols[3].checkbox(
+                due_ok = check_cols[4].checkbox(
                     "결제일과 조건을 대조했습니다",
                     key="confirm_due_widget",
                 )
+                missing_evidence_fields = sorted(
+                    {
+                        item.field
+                        for item in validation.issues
+                        if (
+                            item.code
+                            in {
+                                "MISSING_CORE_EVIDENCE",
+                                "INFERRED_CRITICAL_FIELD",
+                            }
+                            and item.field is not None
+                        )
+                    }
+                )
+                if missing_evidence_fields:
+                    st.warning(
+                        "아래 필드는 AI 원문 evidence가 없거나 추론값입니다. "
+                        "문서 미리보기와 직접 대조한 필드만 선택해야 다음 단계로 "
+                        "전달됩니다."
+                    )
+                    evidence_override_fields = st.multiselect(
+                        "원문에서 직접 확인한 evidence 누락 필드",
+                        options=missing_evidence_fields,
+                        key="confirm_evidence_override_widget",
+                    )
                 confirmation_submit = st.form_submit_button(
                     "이 거래를 확정하고 다음 단계 준비",
                     type="primary",
@@ -1601,14 +1745,20 @@ with stage0_tab:
                 record = create_confirmation_record(
                     original=original,
                     confirmed=extraction,
-                    confirmed_due_date=_blank_to_none(confirmed_due),
+                    confirmed_due_date=_date_or_none(confirmed_due),
                     currency_confirmed=currency_ok,
                     amount_due_confirmed=amount_ok,
                     due_date_confirmed=due_ok,
                     source_filename=metadata["filename"],
                     source_sha256=metadata["sha256"],
                     company_country=company_country,
+                    company_role_confirmed=company_role_ok,
                     trade_type_confirmed=trade_type_ok,
+                    trade_type_source=validation.trade_type_source,
+                    evidence_override_fields=evidence_override_fields,
+                    review_audit_trail=list(
+                        st.session_state.get("review_audit_trail", [])
+                    ),
                     confirmed_by="streamlit-user",
                 )
                 confirmed_validation = validate_confirmation(
@@ -1641,7 +1791,7 @@ with stage0_tab:
                 )
                 if not confirmed_validation.stage2_allowed:
                     st.error(
-                        "거래를 확정하지 못했습니다. 네 항목을 모두 대조하고 "
+                        "거래를 확정하지 못했습니다. 다섯 항목을 모두 대조하고 "
                         "중요 검증 문제를 해결하세요."
                     )
                 else:
@@ -2744,7 +2894,7 @@ with stage2_tab:
                 )
                 packet_cols[2].metric(
                     "확인 완료 핵심필드",
-                    "{}/4".format(len(packet.user_confirmed_fields)),
+                    "{}/5".format(len(packet.user_confirmed_fields)),
                 )
                 download_cols = st.columns(2)
                 with download_cols[0]:

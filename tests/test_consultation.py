@@ -83,6 +83,7 @@ class DecisionSupportImportTests(unittest.TestCase):
         self.assertEqual(
             packet.user_confirmed_fields,
             [
+                "company_role",
                 "trade_type",
                 "currency",
                 "trade_amount_fx",

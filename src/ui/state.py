@@ -22,9 +22,12 @@ PIPELINE_KEYS = (
     "stage4_result",
     "report_result",
     "workflow_state",
+    "review_audit_trail",
 )
 
 REVIEW_WIDGET_KEYS = (
+    "review_company_role_widget",
+    "review_company_country_widget",
     "review_document_type_widget",
     "review_document_number_widget",
     "review_currency_widget",
@@ -37,6 +40,7 @@ REVIEW_WIDGET_KEYS = (
     "review_payment_terms_widget",
     "review_incoterm_widget",
     "review_trade_type_widget",
+    "review_trade_type_choice_widget",
     "review_seller_name_widget",
     "review_seller_country_widget",
     "review_buyer_name_widget",
@@ -46,10 +50,12 @@ REVIEW_WIDGET_KEYS = (
 
 CONFIRMATION_WIDGET_KEYS = (
     "confirmed_due_widget",
+    "confirm_company_role_widget",
     "confirm_trade_type_widget",
     "confirm_currency_widget",
     "confirm_amount_widget",
     "confirm_due_widget",
+    "confirm_evidence_override_widget",
 )
 
 STAGE1_WIDGET_KEYS = (

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import Field, field_validator
 
@@ -11,6 +11,38 @@ from schemas import (
     ValidationResult,
 )
 from validators import apply_deterministic_review_state, parse_iso_date
+from src.document_intake.normalization import normalize_country_name
+
+
+class ReviewAuditSnapshot(StrictModel):
+    company_role: Literal["BUYER", "SELLER"]
+    company_country: str
+    trade_type: Literal["IMPORT", "EXPORT", "UNKNOWN"]
+    seller_country: Optional[str] = None
+    buyer_country: Optional[str] = None
+    currency: Optional[str] = None
+    amount_due: Optional[str] = None
+    contract_date: Optional[str] = None
+    explicit_due_date: Optional[str] = None
+
+
+class ReviewAuditEntry(StrictModel):
+    changed_at: str
+    before: ReviewAuditSnapshot
+    after: ReviewAuditSnapshot
+
+    @field_validator("changed_at")
+    @classmethod
+    def validate_changed_at(cls, value: str) -> str:
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(
+                "review changed_at은 ISO 8601 datetime이어야 합니다."
+            ) from exc
+        if parsed.tzinfo is None:
+            raise ValueError("review changed_at에는 timezone offset이 필요합니다.")
+        return value
 
 
 class ConfirmationRecord(StrictModel):
@@ -19,8 +51,10 @@ class ConfirmationRecord(StrictModel):
     confirmed_at: str
     company_role: Literal["BUYER", "SELLER"]
     company_country: str = Field(pattern=r"^[A-Z]{2}$")
+    trade_type_source: Literal["AUTO", "USER_OVERRIDE", "UNKNOWN"] = "AUTO"
     original_values: Dict[str, Any] = Field(default_factory=dict)
     confirmed_values: Dict[str, Any] = Field(default_factory=dict)
+    review_audit_trail: List[ReviewAuditEntry] = Field(default_factory=list)
     checks: ConfirmationState
 
     @field_validator("confirmed_at")
@@ -48,7 +82,15 @@ def create_confirmation_record(
     source_filename: str,
     source_sha256: str,
     company_country: str,
+    company_role_confirmed: bool = False,
     trade_type_confirmed: bool = False,
+    trade_type_source: Literal[
+        "AUTO",
+        "USER_OVERRIDE",
+        "UNKNOWN",
+    ] = "AUTO",
+    evidence_override_fields: Optional[List[str]] = None,
+    review_audit_trail: Optional[List[Dict[str, Any]]] = None,
     confirmed_by: Optional[str] = None,
     confirmed_at: Optional[str] = None,
 ) -> ConfirmationRecord:
@@ -65,6 +107,7 @@ def create_confirmation_record(
 
     timestamp = confirmed_at or datetime.now(timezone.utc).isoformat()
     checks = ConfirmationState(
+        company_role_confirmed=company_role_confirmed,
         trade_type_confirmed=trade_type_confirmed,
         currency_confirmed=currency_confirmed,
         amount_due_confirmed=amount_due_confirmed,
@@ -72,6 +115,8 @@ def create_confirmation_record(
         confirmed_due_date=confirmed_due_date,
         confirmed_by=confirmed_by,
         confirmed_at=timestamp,
+        user_confirmed_override=bool(evidence_override_fields),
+        user_confirmed_override_fields=evidence_override_fields or [],
     )
     original_values = original.model_dump()
     original_values["installment_due_dates"] = [
@@ -82,14 +127,26 @@ def create_confirmation_record(
     confirmed_values["installment_due_dates"] = [
         item.due_date for item in confirmed.installments
     ]
+    normalized_company_country, _ = normalize_country_name(
+        company_country,
+        "company_country",
+    )
+    if (
+        normalized_company_country is None
+        or len(normalized_company_country) != 2
+        or not normalized_company_country.isalpha()
+    ):
+        raise ValueError("확인 기록의 회사 국가를 ISO alpha-2로 정규화할 수 없습니다.")
     return ConfirmationRecord(
         source_filename=Path(source_filename).name,
         source_sha256=source_sha256.lower(),
         confirmed_at=timestamp,
         company_role=confirmed.company_role,
-        company_country=company_country.strip().upper(),
+        company_country=normalized_company_country,
+        trade_type_source=trade_type_source,
         original_values=original_values,
         confirmed_values=confirmed_values,
+        review_audit_trail=review_audit_trail or [],
         checks=checks,
     )
 
@@ -100,7 +157,12 @@ def validate_confirmation(
     record: ConfirmationRecord,
     company_country: str,
 ) -> ValidationResult:
-    normalized_company_country = company_country.strip().upper()
+    normalized_company_country, _ = normalize_country_name(
+        company_country,
+        "company_country",
+    )
+    if normalized_company_country is None:
+        raise ValueError("현재 회사 국가가 필요합니다.")
     if normalized_company_country != record.company_country:
         raise ValueError(
             "확인 기록의 회사 국가가 현재 회사 국가와 일치하지 않습니다."
@@ -110,5 +172,10 @@ def validate_confirmation(
         company_role=record.company_role,
         company_country=normalized_company_country,
         confirmations=record.checks,
+        user_trade_type=(
+            extraction.trade_type
+            if record.trade_type_source == "USER_OVERRIDE"
+            else None
+        ),
     )
     return validation

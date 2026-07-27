@@ -1,0 +1,82 @@
+{
+  "document_type": "SALES_CONTRACT",
+  "document_number": "KBFX-2026-001",
+  "seller_name": "BlueWave Components Inc.",
+  "seller_country": "United States",
+  "buyer_name": "Hanseong Precision Co., Ltd.",
+  "buyer_country": "Republic of Korea",
+  "company_role": "BUYER",
+  "trade_type": "UNKNOWN",
+  "currency": "USD",
+  "grand_total": "100000.00",
+  "amount_due": "100000.00",
+  "issue_date": "YYYY-MM-DD",
+  "contract_date": "2026-07-27",
+  "shipment_date": "2026-08-20",
+  "explicit_due_date": "2026-10-25",
+  "derived_due_date": null,
+  "payment_terms": "Net 90 calendar days from the Contract Date",
+  "incoterm": "FOB Seattle, Incoterms 2020",
+  "installments": [],
+  "evidence": [
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: BlueWave Components Inc.",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "판매자 명칭이 원문에 직접 표시됨"
+    },
+    {
+      "field": "seller_country",
+      "page": 1,
+      "source_text": "Seller Country: United States",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "판매자 국가가 원문에 직접 표시됨"
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Hanseong Precision Co., Ltd.",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "구매자 명칭이 원문에 직접 표시됨"
+    },
+    {
+      "field": "buyer_country",
+      "page": 1,
+      "source_text": "Buyer Country: Republic of Korea",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "구매자 국가가 원문에 직접 표시됨"
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "Total Contract Price: USD 100,000.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "계약 총액과 통화가 원문에 직접 표시됨"
+    },
+    {
+      "field": "contract_date",
+      "page": 1,
+      "source_text": "Contract Date: July 27, 2026",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "계약일이 원문에 직접 표시됨"
+    },
+    {
+      "field": "explicit_due_date",
+      "page": 1,
+      "source_text": "Payment Due Date: October 25, 2026",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "결제일이 원문에 직접 표시됨"
+    },
+    {
+      "field": "payment_terms",
+      "page": 1,
+      "source_text": "Net 90 calendar days from the Contract Date",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "결제조건이 원문에 직접 표시됨"
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}

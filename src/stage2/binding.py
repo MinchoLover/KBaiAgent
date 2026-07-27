@@ -253,11 +253,15 @@ def confirmed_trade_from_document_input(
         raise ValueError("사용자 확인된 Stage 0 문서 입력이 필요합니다.")
     confirmed_fields = source.get("confirmed_fields")
     if not isinstance(confirmed_fields, list) or not {
+        "company_role",
+        "trade_type",
         "currency",
         "amount_due",
         "due_date",
     }.issubset(set(confirmed_fields)):
-        raise ValueError("통화·금액·결제일 확인 기록이 필요합니다.")
+        raise ValueError(
+            "회사 역할·거래 방향·통화·금액·결제일 확인 기록이 필요합니다."
+        )
 
     trade_type = trade.get("trade_type")
     currency = trade.get("currency")

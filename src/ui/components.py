@@ -86,6 +86,17 @@ def render_stepper(completed_stage: int) -> None:
 
 
 def render_validation(validation: ValidationResult) -> None:
+    for item in validation.normalization_audit:
+        if item.status in {
+            "NORMALIZED",
+            "AUTO",
+            "USER_OVERRIDE",
+            "USER_CONTEXT_APPLIED",
+            "EVIDENCE_LINKED",
+            "VERIFIED",
+            "USER_CONFIRMED_OVERRIDE",
+        }:
+            st.info(item.message)
     if not validation.issues:
         st.success("결정론적 검증 PASS")
         return

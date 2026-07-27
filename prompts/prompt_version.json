@@ -1,8 +1,8 @@
 {
-  "version": "1.2.0",
-  "updated_at": "2026-07-23",
+  "version": "1.3.0",
+  "updated_at": "2026-07-27",
   "schema_version": "1.0.0",
-  "purpose": "country evidence, complex Net-term abstention, and deterministic validation boundary",
+  "purpose": "required core evidence, country normalization, and deterministic validation boundary",
   "files": [
     "system_prompt.md",
     "extraction_rules.md",
