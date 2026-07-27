@@ -75,7 +75,11 @@ def extract_trade_document_with_metadata(
         source_page_texts = (
             extract_pdf_page_texts(file_bytes)
             if upload.mime_type == "application/pdf"
-            else None
+            # An explicit empty sequence tells the deterministic validator
+            # that a live image has no independent text layer. It must then
+            # require field-level human attestation instead of trusting a
+            # vision model's quote as self-verifying evidence.
+            else []
         )
         extraction, validation = apply_deterministic_review_state(
             adapter_result.extraction,

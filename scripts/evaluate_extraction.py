@@ -556,6 +556,13 @@ def evaluate_records(
             hallucination_count,
             hallucination_total,
         ),
+        # This metric is a fixture-level claim check only. It must never be
+        # presented as proof that a quote exists in an uploaded document;
+        # source-grounded verification happens in the Stage 0 intake path.
+        "evidence_claim_coverage": _ratio(
+            evidence_covered,
+            evidence_total,
+        ),
         "evidence_coverage": _ratio(evidence_covered, evidence_total),
         "human_review_recall": _ratio(
             review_true_positive,
@@ -708,8 +715,8 @@ def write_reports(
         "- Hallucination rate: {:.2%}".format(
             summary["hallucination_rate"]
         ),
-        "- Evidence coverage: {:.2%}".format(
-            summary["evidence_coverage"]
+        "- Evidence claim coverage (not source verification): {:.2%}".format(
+            summary["evidence_claim_coverage"]
         ),
         "- Human review recall: {:.2%}".format(
             summary["human_review_recall"]
@@ -727,10 +734,13 @@ def write_reports(
         "## Interpretation",
         "",
         "Fixture predictions validate the evaluation pipeline; they do not measure "
-        "live model quality. Run `--mode live` on the same manifest for a real "
-        "baseline. Source-incomplete or intentionally conflicting documents can "
-        "correctly fail the document PASS rule even when extraction exactly "
-        "matches the label.",
+        "live model quality or prove a quote exists in the source document. "
+        "Run `--mode live` on the same manifest for a real baseline. The Stage 0 "
+        "intake path independently verifies text-PDF quotes against source pages; "
+        "image/scanned documents require field-level human confirmation. "
+        "Source-incomplete or intentionally conflicting documents can correctly "
+        "fail the document PASS rule even when extraction exactly matches the "
+        "label.",
         "",
         "## Failure count",
         "",

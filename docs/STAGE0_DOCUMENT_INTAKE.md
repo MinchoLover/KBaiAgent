@@ -43,11 +43,17 @@ field로 연결합니다. 상대 당사자 이름·라벨이 섞인 인용문은
 `Canada` 같은 확인된 별칭도 같은 ISO 코드로 정규화합니다. `No` 같은 일반 단어가
 노르웨이 코드 `NO`로 오인되지 않도록 대소문자를 잃은 2글자 토큰은 사용하지 않습니다.
 
-텍스트 레이어가 있는 PDF는 `pypdf`로 메모리 안에서 페이지 텍스트만 읽어 모델 인용과
-실제 페이지를 대조하고, 당사자 block에서 확인된 짧은 원문만 evidence로 보완합니다.
-파일이나 원문은 저장·로그하지 않습니다. 이미지형 PDF는 로컬 텍스트가 비어 있으므로
-누락 evidence가 남아 있으면 `OCR_REQUIRED`를 함께 표시하되 HIGH
-`MISSING_CORE_EVIDENCE`를 약화하지 않습니다.
+텍스트 레이어가 있는 PDF는 `pypdf`로 메모리 안에서 페이지 텍스트만 읽습니다. 모델
+인용문이 실제 페이지에 있어야 하며, 인용문은 현재 당사자·국가·통화·금액·날짜·지급
+조건 값을 의미적으로 뒷받침해야 합니다. 통화는 ISO 코드, 금액은 `Decimal`, 날짜는
+`date`로 대조합니다. 페이지가 틀렸지만 다른 실제 페이지에서 인용문을 찾으면 그
+페이지로 정정합니다. 인용문이 없거나 값이 다르면 canonical extraction에서 제거하고
+`EVIDENCE_NOT_IN_SOURCE` 또는 `EVIDENCE_VALUE_MISMATCH`로 Stage 2를 막습니다.
+
+파일이나 원문은 저장·로그하지 않습니다. 이미지·스캔 PDF는 독립 텍스트 레이어가
+없으므로 모든 핵심 evidence를 `EVIDENCE_UNVERIFIABLE`로 취급하고
+`OCR_REQUIRED`를 표시합니다. 사용자가 문서 미리보기와 직접 대조한 필드만 confirmation
+override로 열 수 있으며, 자동 evidence로 승격하지 않습니다.
 
 ## Responses API
 
@@ -59,8 +65,8 @@ fallback 모델을 한 번 시도합니다.
 ## 결정론 검증
 
 순서는 raw extraction → placeholder/문자열 정리 → 국가 정규화 → 금액·날짜
-정규화 → evidence 후처리 → trade type 자동판정 → 필수값 → 논리 검증 → 사용자
-확인 gate → Stage 2 계약 생성으로 고정합니다.
+정규화 → evidence 보완 → 원문·값 기반 evidence 검증 → trade type 자동판정 → 필수값
+→ 논리 검증 → 사용자 확인 gate → Stage 2 계약 생성으로 고정합니다.
 
 - ISO 형태 통화와 모든 양수 금액
 - Balance Due와 Grand Total 관계
@@ -71,7 +77,7 @@ fallback 모델을 한 번 시도합니다.
 - 명시 due와 계산 due 충돌
 - 사용자 역할·당사자 국가 evidence와 거래 방향
 - evidence에서 여러 통화 및 prompt injection 문구
-- 핵심값 evidence와 필수값 누락
+- 핵심값 evidence의 원문 존재·현재 값 일치·필수값 누락
 
 CRITICAL/HIGH가 있거나 핵심값이 없으면 `validation_pass=false`입니다. 모델의
 `needs_human_review`를 믿지 않고 위 규칙으로 다시 계산합니다.
@@ -93,9 +99,10 @@ CRITICAL/HIGH가 있거나 핵심값이 없으면 `validation_pass=false`입니�
 확인 기록에는 전체 원본 추출 snapshot, 전체 수정 snapshot, 확인시각, 파일명,
 SHA-256 fingerprint, 자동판정/사용자 override 출처가 남습니다. 단일 결제는 실제
 확인 날짜가 필요하고, 분할결제는 회차별 due date를 한 묶음으로 확인할 수 있습니다.
-AI evidence가 없을 때는 사용자가 원문에서 직접 대조한 필드만 override로 별도
-기록할 수 있으며 AI evidence가 존재한 것처럼 기록하지 않습니다. 다섯 확인과
-validation PASS가 모두 충족되기 전에는 Stage 2 입력을 만들 수 없습니다.
+AI evidence가 없거나 원문·값 대조에 실패한 경우에는 사용자가 원문에서 직접 대조한
+필드만 override로 별도 기록할 수 있으며 AI evidence가 존재한 것처럼 기록하지
+않습니다. 다섯 확인과 validation PASS가 모두 충족되기 전에는 Stage 2 입력을 만들 수
+없습니다.
 
 `tests/fixtures/kbfx_sales_contract_extraction.json`은
 `United States → US`, `Republic of Korea → KR`, `BUYER → IMPORT`,

@@ -1,6 +1,6 @@
 # Validation Report
 
-검증일: 2026-07-27 KST
+검증일: 2026-07-28 KST
 환경: macOS, Python 3.9.6, Streamlit 1.50.0, Pydantic 2.13.4
 
 ## 최종 결과
@@ -9,7 +9,8 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 264/264 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 273/273 PASS |
+| Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
 | Stage 0 live 합성 PDF | `scripts/live_smoke_test.py samples/demo_net90_contract.pdf --company-role SELLER` | PASS, `SALES_CONTRACT`, 10.14초 |

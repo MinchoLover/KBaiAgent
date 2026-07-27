@@ -18,7 +18,10 @@ from src.document_intake.normalization import (
     normalize_country_name,
     normalize_extraction_values,
 )
-from src.document_intake.source_evidence import augment_party_evidence
+from src.document_intake.source_evidence import (
+    augment_party_evidence,
+    verify_core_evidence_against_source,
+)
 
 
 ISO_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
@@ -318,11 +321,23 @@ def _prepare_extraction_for_validation(
         ISO_4217_CODES,
     )
     audit.extend(evidence_audit)
+    normalized, source_evidence_audit = verify_core_evidence_against_source(
+        normalized,
+        source_page_texts=source_page_texts,
+    )
+    audit.extend(source_evidence_audit)
     normalized, party_evidence_audit = augment_party_evidence(
         normalized,
         source_page_texts=source_page_texts,
     )
     audit.extend(party_evidence_audit)
+    normalized, final_source_evidence_audit = (
+        verify_core_evidence_against_source(
+            normalized,
+            source_page_texts=source_page_texts,
+        )
+    )
+    audit.extend(final_source_evidence_audit)
 
     normalized_company_country, company_audit = normalize_country_name(
         company_country,
@@ -508,12 +523,15 @@ def required_evidence_gaps(
     if _date_base(extraction):
         required.append(base_field)
 
-    if due_date_source == "EXPLICIT":
+    # Confirmation changes the resolved due-date source to USER_CONFIRMED,
+    # but it must not erase the evidence obligation of an explicit document
+    # date or payment term.
+    if extraction.explicit_due_date:
         required.append("explicit_due_date")
-    elif due_date_source == "DERIVED":
-        required.append("payment_terms")
-    elif due_date_source == "INSTALLMENTS":
+    elif extraction.installments:
         required.append("installments")
+    elif extraction.payment_terms:
+        required.append("payment_terms")
 
     if extraction.trade_type != "UNKNOWN":
         required.extend(["seller_name", "buyer_name"])
@@ -1177,6 +1195,22 @@ def validate_extraction(
         extraction,
         due_date_source,
     )
+    evidence_failure_statuses: Dict[str, str] = {}
+    evidence_failure_priority = {
+        "EVIDENCE_VALUE_MISMATCH": 3,
+        "EVIDENCE_NOT_IN_SOURCE": 2,
+        "EVIDENCE_UNVERIFIABLE": 1,
+    }
+    for entry in normalization_audit:
+        if entry.status not in evidence_failure_priority:
+            continue
+        existing = evidence_failure_statuses.get(entry.field)
+        if (
+            existing is None
+            or evidence_failure_priority[entry.status]
+            > evidence_failure_priority[existing]
+        ):
+            evidence_failure_statuses[entry.field] = entry.status
     evidence_overrides = set(
         confirmation_state.user_confirmed_override_fields
         if confirmation_state.user_confirmed_override
@@ -1199,6 +1233,40 @@ def validate_extraction(
             )
             continue
         unresolved_evidence_gaps.append(field)
+        failure_status = evidence_failure_statuses.get(field)
+        if failure_status == "EVIDENCE_VALUE_MISMATCH":
+            issues.append(
+                _issue(
+                    "EVIDENCE_VALUE_MISMATCH",
+                    "HIGH",
+                    "핵심 필드 {}의 evidence 인용문과 현재 추출값이 다릅니다.".format(
+                        field
+                    ),
+                    field,
+                )
+            )
+        elif failure_status == "EVIDENCE_NOT_IN_SOURCE":
+            issues.append(
+                _issue(
+                    "EVIDENCE_NOT_IN_SOURCE",
+                    "HIGH",
+                    "핵심 필드 {}의 evidence 인용문이 업로드 원문에 없습니다.".format(
+                        field
+                    ),
+                    field,
+                )
+            )
+        elif failure_status == "EVIDENCE_UNVERIFIABLE":
+            issues.append(
+                _issue(
+                    "EVIDENCE_UNVERIFIABLE",
+                    "HIGH",
+                    "핵심 필드 {}는 독립 텍스트 원문으로 자동 대조할 수 없습니다.".format(
+                        field
+                    ),
+                    field,
+                )
+            )
         issues.append(
             _issue(
                 "MISSING_CORE_EVIDENCE",

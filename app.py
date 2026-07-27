@@ -37,6 +37,7 @@ from src.document_intake.normalization import (
     normalize_country_name,
     normalize_date_text,
 )
+from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.domain.consultation_models import (
     ConsultationPacketResult,
     ConsultationTopic,
@@ -99,6 +100,23 @@ def _model_from_state(key: str, model_class: Any) -> Optional[Any]:
 
 def _save_model(key: str, value: Any) -> None:
     st.session_state[key] = value.model_dump()
+
+
+def _live_source_page_texts(
+    *,
+    run_mode: str,
+    file_bytes: bytes,
+    mime_type: str,
+) -> Optional[List[str]]:
+    """Return in-memory source text only for the current live upload."""
+
+    if run_mode != "LIVE":
+        return None
+    if mime_type == "application/pdf":
+        return extract_pdf_page_texts(file_bytes)
+    # Live images have no independent local text layer. An explicit empty
+    # sequence preserves the fail-closed evidence policy.
+    return []
 
 
 def _save_decision_support(value: DecisionSupportResult) -> None:
@@ -1550,6 +1568,11 @@ with stage0_tab:
                         if selected_trade_type in {"IMPORT", "EXPORT"}
                         else None
                     ),
+                    source_page_texts=_live_source_page_texts(
+                        run_mode=run_mode,
+                        file_bytes=preview_bytes,
+                        mime_type=preview_mime,
+                    ),
                 )
                 normalized_review_country = _normalized_company_country(
                     reviewed_company_country
@@ -1603,6 +1626,11 @@ with stage0_tab:
                 extraction,
                 company_role=company_role,
                 company_country=company_country,
+                source_page_texts=_live_source_page_texts(
+                    run_mode=run_mode,
+                    file_bytes=preview_bytes,
+                    mime_type=preview_mime,
+                ),
             )
         confirmation = _model_from_state(
             "confirmation",
@@ -1735,12 +1763,13 @@ with stage0_tab:
                 )
                 if missing_evidence_fields:
                     st.warning(
-                        "아래 필드는 AI 원문 evidence가 없거나 추론값입니다. "
-                        "문서 미리보기와 직접 대조한 필드만 선택해야 다음 단계로 "
-                        "전달됩니다."
+                        "아래 필드는 원문 evidence가 없거나, 원문에 인용문이 "
+                        "없거나, 현재 값과 일치하지 않거나, 독립 텍스트 원문으로 "
+                        "대조할 수 없습니다. 문서 미리보기와 직접 대조한 필드만 "
+                        "선택해야 다음 단계로 전달됩니다."
                     )
                     evidence_override_fields = st.multiselect(
-                        "원문에서 직접 확인한 evidence 누락 필드",
+                        "원문에서 직접 확인한 evidence 예외 필드",
                         options=missing_evidence_fields,
                         key="confirm_evidence_override_widget",
                     )
@@ -1778,6 +1807,11 @@ with stage0_tab:
                     extraction=extraction,
                     record=record,
                     company_country=company_country,
+                    source_page_texts=_live_source_page_texts(
+                        run_mode=run_mode,
+                        file_bytes=preview_bytes,
+                        mime_type=preview_mime,
+                    ),
                 )
                 _save_model("confirmation", record)
                 _save_model(

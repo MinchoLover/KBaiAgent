@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-28
+
+- 텍스트 PDF의 핵심 evidence를 실제 페이지 존재와 현재 당사자·통화·금액·날짜·지급조건 값으로 결정론 검증
+- 금액·결제일 불일치, 원문 부재·반대 당사자 인용, 수량을 금액으로 오인하는 evidence를 Stage 2 전 차단
+- 올바른 인용이 다른 페이지에 있으면 page 번호를 정정하고, 이미지·스캔 문서는 독립 텍스트 원문 없이 field-level 사용자 override 전 차단
+- 수정·최종 confirmation 단계에서도 현재 live 업로드의 원문 텍스트를 다시 대조
+- fixture evaluator의 evidence coverage를 source verification이 아닌 evidence claim coverage로 명시
+
 ## 2026-07-27
 
 - 핵심값별 정확한 비추론 evidence 계약과 few-shot 자체 감사 추가

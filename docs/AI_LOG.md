@@ -1,5 +1,20 @@
 # AI Use Log
 
+## 2026-07-28 P0 source-grounded evidence gate
+
+Codex가 Stage 0의 evidence 존재 여부만 보던 검증을 원문 기반 검증으로 강화했습니다.
+텍스트 PDF에서는 모델 인용문이 실제 페이지에 있는지 확인하고, 당사자·국가·통화·금액·
+날짜·지급조건이 현재 canonical 값과 일치할 때만 evidence로 유지합니다. 잘못된 금액·
+결제일 인용, 원문에 없는 당사자 인용은 `EVIDENCE_VALUE_MISMATCH` 또는
+`EVIDENCE_NOT_IN_SOURCE`로 차단합니다. 이미지·스캔 문서는 독립 텍스트가 없으므로
+`EVIDENCE_UNVERIFIABLE`과 `OCR_REQUIRED` 상태에서 field-level 사용자 확인 전에는
+Stage 2로 전달하지 않습니다. 원문·업로드 bytes·비밀값은 로그나 dataset에 추가하지
+않았습니다.
+
+금액·결제일 위조 인용, 원문 부재 당사자, textless image, 실제 페이지 번호 복구,
+명시적 사용자 override를 회귀 테스트로 추가했고 `python scripts/verify.py` 273개
+테스트가 통과했습니다.
+
 ## 2026-07-27 Stage 0 exact evidence integrity
 
 Codex와 병렬 에이전트가 공유된 실패 화면의 `MISSING_CORE_EVIDENCE`를 추적했습니다.

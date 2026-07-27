@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Sequence
 
 from pydantic import Field, field_validator
 
@@ -208,6 +208,7 @@ def validate_confirmation(
     extraction: TradeDocumentExtraction,
     record: ConfirmationRecord,
     company_country: str,
+    source_page_texts: Optional[Sequence[str]] = None,
 ) -> ValidationResult:
     normalized_company_country, _ = normalize_country_name(
         company_country,
@@ -229,5 +230,6 @@ def validate_confirmation(
             if record.trade_type_source == "USER_OVERRIDE"
             else None
         ),
+        source_page_texts=source_page_texts,
     )
     return validation

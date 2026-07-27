@@ -325,6 +325,350 @@ class EvidenceNormalizationTests(unittest.TestCase):
         )
 
 
+class SourceGroundedEvidenceTests(unittest.TestCase):
+    @staticmethod
+    def confirmed_checks(
+        overrides=None,
+    ):
+        override_fields = overrides or []
+        return ConfirmationState(
+            company_role_confirmed=True,
+            trade_type_confirmed=True,
+            currency_confirmed=True,
+            amount_due_confirmed=True,
+            due_date_confirmed=True,
+            confirmed_due_date="2026-10-25",
+            user_confirmed_override=bool(override_fields),
+            user_confirmed_override_fields=override_fields,
+        )
+
+    @staticmethod
+    def matching_page_text():
+        return """Seller: BlueWave Components Inc.
+Seller Country: United States
+Buyer: Hanseong Precision Co., Ltd.
+Buyer Country: Republic of Korea
+Total Contract Price: USD 100,000.00
+Contract Date: July 27, 2026
+Payment Due Date: October 25, 2026
+Net 90 calendar days from the Contract Date
+"""
+
+    def test_amount_and_due_evidence_must_match_current_values(self):
+        raw = raw_contract().model_copy(
+            update={
+                "evidence": [
+                    item.model_copy(
+                        update={
+                            "source_text": "Total Contract Price: USD 9.00"
+                        }
+                    )
+                    if item.field == "amount_due"
+                    else item.model_copy(
+                        update={
+                            "source_text": (
+                                "Payment Due Date: January 1, 2030"
+                            )
+                        }
+                    )
+                    if item.field == "explicit_due_date"
+                    else item
+                    for item in raw_contract().evidence
+                ]
+            }
+        )
+        page_text = self.matching_page_text().replace(
+            "Total Contract Price: USD 100,000.00",
+            "Total Contract Price: USD 9.00",
+        ).replace(
+            "Payment Due Date: October 25, 2026",
+            "Payment Due Date: January 1, 2030",
+        )
+
+        extraction, validation = apply_deterministic_review_state(
+            raw,
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=self.confirmed_checks(),
+            source_page_texts=[page_text],
+        )
+
+        self.assertFalse(validation.validation_pass)
+        self.assertFalse(validation.stage2_allowed)
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_VALUE_MISMATCH"
+                and item.field == "amount_due"
+                for item in validation.issues
+            )
+        )
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_VALUE_MISMATCH"
+                and item.field == "explicit_due_date"
+                for item in validation.issues
+            )
+        )
+        self.assertFalse(
+            any(item.field == "amount_due" for item in extraction.evidence)
+        )
+        self.assertFalse(
+            any(
+                item.field == "explicit_due_date"
+                for item in extraction.evidence
+            )
+        )
+
+    def test_party_quote_absent_from_uploaded_text_blocks_stage2(self):
+        page_text = self.matching_page_text().replace(
+            "Seller: BlueWave Components Inc.",
+            "Seller: Different Seller LLC",
+        )
+        extraction, validation = apply_deterministic_review_state(
+            raw_contract(),
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=self.confirmed_checks(),
+            source_page_texts=[page_text],
+        )
+
+        self.assertFalse(validation.stage2_allowed)
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_NOT_IN_SOURCE"
+                and item.field == "seller_name"
+                for item in validation.issues
+            )
+        )
+        self.assertFalse(
+            any(
+                item.field == "seller_name"
+                for item in extraction.evidence
+            )
+        )
+
+    def test_opposite_party_label_cannot_support_seller_name(self):
+        raw = raw_contract().model_copy(
+            update={
+                "evidence": [
+                    item.model_copy(
+                        update={
+                            "source_text": "Buyer: BlueWave Components Inc."
+                        }
+                    )
+                    if item.field == "seller_name"
+                    else item
+                    for item in raw_contract().evidence
+                ]
+            }
+        )
+        page_text = self.matching_page_text().replace(
+            "Seller: BlueWave Components Inc.",
+            "Buyer: BlueWave Components Inc.",
+        )
+        extraction, validation = apply_deterministic_review_state(
+            raw,
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=self.confirmed_checks(),
+            source_page_texts=[page_text],
+        )
+
+        self.assertFalse(validation.stage2_allowed)
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_VALUE_MISMATCH"
+                and item.field == "seller_name"
+                for item in validation.issues
+            )
+        )
+        self.assertFalse(
+            any(
+                item.field == "seller_name"
+                for item in extraction.evidence
+            )
+        )
+
+    def test_unlabeled_quantity_cannot_support_amount_due(self):
+        raw = raw_contract().model_copy(
+            update={
+                "evidence": [
+                    item.model_copy(
+                        update={
+                            "source_text": "Quantity: USD 100,000.00"
+                        }
+                    )
+                    if item.field == "amount_due"
+                    else item
+                    for item in raw_contract().evidence
+                ]
+            }
+        )
+        page_text = self.matching_page_text().replace(
+            "Total Contract Price: USD 100,000.00",
+            "Quantity: USD 100,000.00",
+        )
+        extraction, validation = apply_deterministic_review_state(
+            raw,
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=self.confirmed_checks(),
+            source_page_texts=[page_text],
+        )
+
+        self.assertFalse(validation.stage2_allowed)
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_VALUE_MISMATCH"
+                and item.field == "amount_due"
+                for item in validation.issues
+            )
+        )
+        self.assertFalse(
+            any(item.field == "amount_due" for item in extraction.evidence)
+        )
+
+    def test_verified_evidence_recovers_actual_page_number(self):
+        extraction, validation = apply_deterministic_review_state(
+            raw_contract(),
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=self.confirmed_checks(),
+            source_page_texts=["Contract No. KBFX-2026-001", self.matching_page_text()],
+        )
+
+        self.assertTrue(validation.stage2_allowed)
+        self.assertEqual(
+            {
+                item.page
+                for item in extraction.evidence
+                if item.field
+                in {
+                    "seller_name",
+                    "seller_country",
+                    "buyer_name",
+                    "buyer_country",
+                    "currency",
+                    "amount_due",
+                    "contract_date",
+                    "explicit_due_date",
+                    "payment_terms",
+                }
+            },
+            {2},
+        )
+
+    def test_textless_live_document_requires_field_level_override(self):
+        extraction, validation = apply_deterministic_review_state(
+            raw_contract(),
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=self.confirmed_checks(),
+            source_page_texts=[],
+        )
+
+        self.assertFalse(validation.stage2_allowed)
+        self.assertIn("OCR_REQUIRED", issue_codes(validation))
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_UNVERIFIABLE"
+                and item.field == "amount_due"
+                for item in validation.issues
+            )
+        )
+        self.assertFalse(extraction.evidence)
+
+    def test_explicit_human_override_can_release_value_mismatch(self):
+        raw = raw_contract().model_copy(
+            update={
+                "evidence": [
+                    item.model_copy(
+                        update={
+                            "source_text": "Total Contract Price: USD 9.00"
+                        }
+                    )
+                    if item.field == "amount_due"
+                    else item
+                    for item in raw_contract().evidence
+                ]
+            }
+        )
+        page_text = self.matching_page_text().replace(
+            "Total Contract Price: USD 100,000.00",
+            "Total Contract Price: USD 9.00",
+        )
+        extraction, validation = apply_deterministic_review_state(
+            raw,
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=self.confirmed_checks(overrides=["amount_due"]),
+            source_page_texts=[page_text],
+        )
+
+        self.assertTrue(validation.stage2_allowed)
+        self.assertFalse(
+            any(item.field == "amount_due" for item in extraction.evidence)
+        )
+        self.assertTrue(
+            any(
+                item.status == "USER_CONFIRMED_OVERRIDE"
+                and item.field == "amount_due"
+                for item in validation.normalization_audit
+            )
+        )
+
+    def test_confirmation_rechecks_source_text_when_available(self):
+        raw = raw_contract().model_copy(
+            update={
+                "evidence": [
+                    item.model_copy(
+                        update={
+                            "source_text": "Total Contract Price: USD 9.00"
+                        }
+                    )
+                    if item.field == "amount_due"
+                    else item
+                    for item in raw_contract().evidence
+                ]
+            }
+        )
+        page_text = self.matching_page_text().replace(
+            "Total Contract Price: USD 100,000.00",
+            "Total Contract Price: USD 9.00",
+        )
+        record = create_confirmation_record(
+            original=raw,
+            confirmed=raw,
+            confirmed_due_date="2026-10-25",
+            company_role_confirmed=True,
+            trade_type_confirmed=True,
+            currency_confirmed=True,
+            amount_due_confirmed=True,
+            due_date_confirmed=True,
+            source_filename="contract.pdf",
+            source_sha256="d" * 64,
+            company_country="KR",
+            confirmed_by="regression-test",
+            confirmed_at="2026-07-28T10:00:00+09:00",
+        )
+
+        validation = validate_confirmation(
+            extraction=raw,
+            record=record,
+            company_country="KR",
+            source_page_texts=[page_text],
+        )
+
+        self.assertFalse(validation.stage2_allowed)
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_VALUE_MISMATCH"
+                and item.field == "amount_due"
+                for item in validation.issues
+            )
+        )
+
+
 class PartyEvidenceAugmentationTests(unittest.TestCase):
     PARTY_FIELDS = {
         "seller_name",

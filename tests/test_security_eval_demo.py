@@ -295,6 +295,7 @@ class DatasetAndEvaluationTests(unittest.TestCase):
             self.assertEqual(summary["currency_accuracy"], 1.0)
             self.assertEqual(summary["hallucination_rate"], 0.0)
             self.assertEqual(summary["evidence_coverage"], 1.0)
+            self.assertEqual(summary["evidence_claim_coverage"], 1.0)
             self.assertTrue((Path(directory) / "eval_report.md").is_file())
 
     def test_missing_prediction_penalizes_all_metrics(self):
