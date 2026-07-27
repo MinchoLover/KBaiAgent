@@ -8,6 +8,7 @@ from src.application.market_integration_service import (
     integrate_stage1_market,
 )
 from src.config import Settings
+from src.domain.stage1_web_models import SpotQuote
 from src.stage1.forecast_provider import (
     FileStage1ForecastProvider,
     HttpStage1ForecastProvider,
@@ -248,6 +249,26 @@ class SpotRateProviderTests(unittest.TestCase):
 
 
 class ScenarioBuilderTests(unittest.TestCase):
+    def test_date_only_official_spot_is_normalized_to_korea_timezone(self):
+        result = build_fx_scenarios(
+            spot_quote=SpotQuote(
+                pair="USD/KRW",
+                rate="1400",
+                quote_convention="KRW_PER_1_USD",
+                rate_type="MARKET_OR_REFERENCE",
+                as_of="2026-07-27",
+                source="KOREAEXIM_DEAL_BASE_RATE",
+                user_confirmed=False,
+            ),
+            settlement_date="2026-08-10",
+            currency="USD",
+            forecast=normalized_forecast(),
+        )
+        self.assertEqual(
+            result.calculation_set.as_of,
+            "2026-07-27T00:00:00+09:00",
+        )
+
     def test_model_quantiles_and_fixed_stress_use_decimal_spot(self):
         result = build_fx_scenarios(
             spot_quote=FixtureSpotRateProvider().get_quote("USD/KRW"),

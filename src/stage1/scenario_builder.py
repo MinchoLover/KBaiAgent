@@ -44,24 +44,24 @@ def _rate(value: Decimal) -> str:
 
 def _as_of_datetime(value: str) -> str:
     try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        parsed = None
-    if parsed is not None:
-        if parsed.tzinfo is None:
-            raise ValueError("spot as_of datetime에는 timezone이 필요합니다.")
-        return parsed.isoformat()
-    try:
         parsed_date = date.fromisoformat(value)
+    except ValueError:
+        parsed_date = None
+    if parsed_date is not None:
+        return datetime.combine(
+            parsed_date,
+            datetime.min.time(),
+            tzinfo=timezone(timedelta(hours=9)),
+        ).isoformat()
+    try:
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
         raise ValueError(
             "spot as_of는 ISO date 또는 timezone datetime이어야 합니다."
         ) from exc
-    return datetime.combine(
-        parsed_date,
-        datetime.min.time(),
-        tzinfo=timezone(timedelta(hours=9)),
-    ).isoformat()
+    if parsed.tzinfo is None:
+        raise ValueError("spot as_of datetime에는 timezone이 필요합니다.")
+    return parsed.isoformat()
 
 
 def _scenario_metadata(
