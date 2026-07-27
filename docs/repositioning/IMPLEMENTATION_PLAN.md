@@ -37,7 +37,7 @@ P0 기능을 네 개의 제품 역량으로 묶습니다.
 | 순서 | 작업 | 재사용할 기존 코드 | 수정 파일 | 완료조건 | 검증 명령 |
 | -: | --- | --- | --- | --- | --- |
 | 1 | 변경 전 기준선·범위 기록 | Git, `scripts/verify.py` | `docs/repositioning/CURRENT_STATE.md`, `IMPLEMENTATION_PLAN.md` | 실제 Git/테스트 결과가 문서에 기록됨 | `git diff --check` |
-| 2 | 거래 방향 사용자 확인 추가 | `ConfirmationState`, confirmation gate | `schemas.py`, `src/document_intake/confirmation.py`, `app.py`, 관련 테스트 | 통화·금액·결제일·거래 방향 네 항목 없이는 Stage 2가 열리지 않음 | `python -m unittest tests.test_schemas_validators tests.test_workflow -v` |
+| 2 | 거래 방향 사용자 확인 추가 | `ConfirmationState`, confirmation gate | `schemas.py`, `src/document_intake/confirmation.py`, `app.py`, 관련 테스트 | 회사 역할·통화·금액·결제일·거래 방향 다섯 항목 없이는 Stage 2가 열리지 않음 | `python -m unittest tests.test_schemas_validators tests.test_workflow -v` |
 | 3 | 구조화 위험 분류 | `Stage2Result`, `Decimal` 유틸 | `src/domain/consultation_models.py`, `src/consultation/risk_classifier.py` | 수입/수출 FX, 손실한도, buffer, 음수현금, payment gap, timing, 정보누락 코드와 근거 출력 | 신규 단위 테스트 |
 | 4 | 규칙 기반 상담 대응 | risk codes, 거래 유형 | `src/consultation/response_mapping.py` | 일반 상담 범주만 반환하고 중복 제거·사람 검토 표시 | 신규 단위 테스트 |
 | 5 | 상담 패킷 JSON·Markdown | confirmation fingerprint, Stage 1/2 JSON | `src/consultation/packet.py`, domain models | 버전·입력 hash·확정필드·질문·서류·고지문과 계산 숫자 일치 | 신규 패킷 테스트 |

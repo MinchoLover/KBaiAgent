@@ -8,7 +8,8 @@
 ## 2. Strict model output, deterministic trust
 
 Responses API structured parse로 syntax/schema를 강제하되 semantic truth는 믿지 않습니다.
-evidence와 충돌 규칙을 일반 코드가 판정하고 사람이 핵심 세 필드를 확인합니다.
+evidence와 충돌 규칙을 일반 코드가 판정하고 사람이 회사 역할·거래 방향·통화·금액·
+결제일 다섯 필드를 확인합니다.
 
 ## 3. One canonical quote
 
@@ -147,3 +148,15 @@ Stage 1 상대수익률에 기준환율을 임의로 보충하지 않습니다. 
 사용자 확인 수동 입력, 표시된 demo fixture 순서로 `SpotQuote`를 만들며 source,
 as-of, quote convention, 확인 여부를 함께 보존합니다. live 모드에서 셋 다 없으면
 분석을 차단합니다.
+
+## 19. Normalize before validating document semantics
+
+자연어 국가명, 날짜 placeholder, 화면용 금액 문자열을 곧바로 ISO/date/Decimal
+검증기에 넣지 않습니다. 독립 normalizer가 raw 값을 audit에 남긴 뒤 내부 계약으로
+정규화하고, 실제 source text를 재사용할 수 있는 경우에만 evidence를 보완한 다음
+trade type을 판정합니다.
+
+사용자 지정 IMPORT/EXPORT는 자동판정보다 우선하지만 자동 결과와 다르면 경고를
+남깁니다. 자동판정과 사용자 지정의 출처를 confirmation record에 보존해 이후
+Stage 2 재검증도 같은 결과를 재현합니다. 확인되지 않은 국가 별칭이나 원문 없는
+currency evidence는 추정하지 않습니다.

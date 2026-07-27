@@ -1,5 +1,18 @@
 # AI Use Log
 
+## 2026-07-27 Stage 0 normalization and confirmation hardening
+
+Codex가 문서 추출값을 계산 전에 정규화하는 경계를 추가했습니다. 자연어 국가 별칭은
+검증 전에 ISO alpha-2로 바꾸고 raw 값과 변경 이력을 보존하며, 알 수 없는 별칭은
+임의 추정하지 않습니다. 거래 방향은 정규화된 회사 역할과 양 당사자 국가로
+결정론적으로 판정합니다.
+
+통화 evidence는 기존 금액 evidence의 실제 원문에 같은 ISO 코드가 있을 때만
+연결합니다. 날짜 placeholder는 null로 정리하고 Contract/Invoice Date 기준
+calendar/business Net N 산술은 Python이 수행합니다. Streamlit 수정 후 전체 검증을
+다시 실행하고 다섯 핵심값을 확인하기 전 Stage 2를 차단합니다. API-free 매매계약
+fixture를 포함한 전체 240개 테스트가 통과했습니다.
+
 ## 2026-07-27 Stage 1 integration and decision-flow hardening
 
 Codex가 sibling `kb_macro_ai`의 `krw_forecast_web_v1` 계약을 읽기 전용으로
@@ -13,7 +26,7 @@ Stage 2는 유리한 시나리오의 음수 손실을 0으로 분리하고 signe
 보존합니다. Stage 3은 비용 가정과 q90·±10%·운영자금·신용 제약을 공개하는
 안정성/균형/비용 후보와 infeasible 결과를 만듭니다. 보고서 LLM 입력에서 문서
 원문 evidence를 제거하고 q90·미보정 점수·horizon·뉴스 오용 critic을 추가했습니다.
-API-free 전체 219개 테스트와 실제 Streamlit health, 실행 중인 sibling Stage 1
+당시 API-free 전체 219개 테스트와 실제 Streamlit health, 실행 중인 sibling Stage 1
 HTTP 응답 파싱을 검증했습니다.
 
 ## 2026-07-23

@@ -2,6 +2,12 @@
 
 ## 2026-07-27
 
+- 국가 자연어 별칭의 ISO alpha-2 정규화와 raw/normalized audit 추가
+- 정규화 후 회사 역할·당사자 국가 기반 IMPORT/EXPORT 자동판정 및 사용자 override 추가
+- 실제 금액 원문의 ISO 통화 코드만 재사용하는 currency evidence 후처리 추가
+- 날짜 placeholder null 처리와 Contract/Invoice 기준 calendar/business Net N 검증 추가
+- Streamlit 수정 후 전체 재검증, 5필드 확인, evidence 사용자 대조 override 추가
+- KBFX 매매계약 fixture의 Stage 0 → Stage 2 회귀 테스트 추가
 - sibling `kb_macro_ai`용 `krw_forecast_web_v1` HTTP/file/mock adapter 추가
 - 독립 Spot provider와 KoreaExim·사용자 확인 수동값·fixture provenance 추가
 - v36 수입 상승, v34 수출 하락 경로위험과 ±3/5/10% stress builder 추가
@@ -10,7 +16,7 @@
 - Stage 3 안정성·균형·비용 후보, q90/±10%/유동성 제약과 infeasible 상태 추가
 - 보고서 입력 최소화와 q90·미보정 점수·horizon·뉴스 정책 critic 추가
 - 수입·수출 Stage 1 fixture E2E, 실제 sibling HTTP, Streamlit health 검증
-- API-free 테스트 219개와 통합 문서·환경설정 갱신
+- API-free 테스트 240개와 통합 문서·환경설정 갱신
 
 ## 2026-07-23
 

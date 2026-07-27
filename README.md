@@ -42,7 +42,8 @@
 ## 4. 핵심 사용자 흐름
 
 1. PDF·PNG·JPG/JPEG 거래 문서를 올리거나 수입·수출 샘플을 선택합니다.
-2. 거래 방향·통화·금액·결제일을 원문 evidence와 대조해 확인합니다.
+2. 국가명을 ISO 코드로 정규화하고 회사 역할·거래 방향·통화·금액·결제일을
+   원문 evidence와 대조해 확인합니다.
 3. Stage 1 HTTP/file/mock 연결 상태와 연구용 21거래일 결과를 확인합니다.
 4. 공식·수동·fixture 중 출처가 명시된 현재 환율을 확인합니다.
 5. 현금·최소운영자금·대출한도·보유외화·기존헤지·예정 입출금을 입력합니다.
@@ -63,6 +64,9 @@ Stage 1은 초기 21일 시장 문맥으로만 표시하고 전체 결제기간 
 - `src/stage5/report_agent.py`: 이미 계산된 JSON을 자연어로 설명
 
 AI 추출값은 Pydantic·결정론 규칙·사용자 확인 전에는 계산에 전달하지 않습니다.
+`United States`, `Republic of Korea` 같은 자연어 국가는 검증 전에 `US`, `KR`로
+정규화하고 원본과 변경 이력을 audit에 보존합니다. 금액 원문에 실제 통화 코드가
+있을 때만 currency evidence를 안전하게 연결합니다.
 Stage 1 v25 방향 점수는 시장 문맥 전용이며
 `probability_calibrated=false`이면 실제 발생확률이나 기대손실 가중치가 아닙니다.
 뉴스는 가격 예측 입력이 아니고 금융 숫자를 변경하지 않습니다.
@@ -163,7 +167,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-27 기준 219개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-27 기준 240개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
@@ -172,7 +176,7 @@ live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외
 
 | 영역 | 상태 | 근거 |
 | --- | --- | --- |
-| 문서 인테이크·사용자 확인 | 완료 | `src/document_intake/`, workflow gate |
+| 문서 인테이크·사용자 확인 | 완료 | 국가·날짜·evidence 정규화, 5필드 workflow gate |
 | Stage 1 HTTP/file/mock | 완료 | `forecast_provider.py` |
 | 제공 Stage 1 JSON 정규화 | 완료 | `web_forecast.py`, fixture tests |
 | Spot 공식/수동/fixture | 완료 | `spot_rate.py`; live 공식 호출은 자격증명 필요 |

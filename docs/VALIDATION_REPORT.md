@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 219/219 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 240/240 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
 | regression | `python scripts/run_regression.py` | PASS |
@@ -18,6 +18,27 @@
 | Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
 | Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
 | sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
+
+## Stage 0 매매계약 회귀
+
+`tests/fixtures/kbfx_sales_contract_extraction.json`을 외부 API 없이 실행했습니다.
+
+```text
+seller_country: United States -> US
+buyer_country: Republic of Korea -> KR
+company_role: BUYER
+trade_type: UNKNOWN -> IMPORT
+issue_date: YYYY-MM-DD -> null
+contract_date + Net 90 calendar days: 2026-10-25
+currency evidence: amount_due 실제 원문 "USD 100,000.00"에서 연결
+확인 전 Stage 2: 차단
+5필드 확인 후 Stage 2: IMPORT / USD / 100000.00 / 2026-10-25
+```
+
+기존 `COMPANY_COUNTRY_ROLE_MISMATCH`, `INVALID_PARTY_COUNTRY`,
+`MISSING_REQUIRED_FIELD trade_type`, `MISSING_CORE_EVIDENCE currency`는 이
+fixture에서 재현되지 않습니다. 실제 PDF live 분석은 외부 호출 없이 실행하지
+않았고, 해당 이름의 PDF 원본은 저장소에서 미확인입니다.
 
 ## Stage 1 검증
 
