@@ -28,7 +28,7 @@ zsh scripts/serve_web_forecast.sh
 메인 저장소:
 
 ```bash
-cp .env.example .env
+cp env.template .env
 ```
 
 `.env`:

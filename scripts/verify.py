@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
 
 REQUIRED_FILES = (
     "app.py",
-    ".env.example",
+    "env.template",
     ".gitignore",
     "requirements.txt",
     "run_mac.command",
@@ -102,9 +102,9 @@ def _check_env_and_secrets(errors: List[str]) -> None:
     for required in (".env", ".venv/", "real_uploads/", ".cache/"):
         if required not in ignore_text:
             errors.append(".gitignore missing {}".format(required))
-    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    example = (ROOT / "env.template").read_text(encoding="utf-8")
     if not re.search(r"^OPENAI_API_KEY=$", example, re.MULTILINE):
-        errors.append(".env.example must keep OPENAI_API_KEY empty")
+        errors.append("env.template must keep OPENAI_API_KEY empty")
     for variable in (
         "STAGE1_PROVIDER",
         "STAGE1_FORECAST_FILE",
@@ -123,7 +123,7 @@ def _check_env_and_secrets(errors: List[str]) -> None:
             re.MULTILINE,
         ):
             errors.append(
-                ".env.example missing security setting {}".format(
+                "env.template missing security setting {}".format(
                     variable
                 )
             )
@@ -139,7 +139,7 @@ def _check_env_and_secrets(errors: List[str]) -> None:
             re.MULTILINE,
         ):
             errors.append(
-                ".env.example must keep {} empty".format(empty_secret)
+                "env.template must keep {} empty".format(empty_secret)
             )
 
     secret_pattern = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")

@@ -40,7 +40,7 @@ Stage 1 기준 저장소: `../kb_macro_ai` `main` `b5168e4`
 | MEDIUM | Python 파일과 문서에 ` 2` 이름의 폐기 후보가 남아 있음 | `src/demo 2.py`, `src/stage5/* 2.py`, `docs/PROJECT_BRIEF 2.md` | 유지보수자가 canonical 파일을 혼동 | 이번 통합에서는 삭제하지 않고 canonical 경로만 문서화 | 미수정 |
 | MEDIUM | `app.py`가 3천 줄 이상인 단일 화면 모듈임 | `app.py` | UI 수정 충돌 위험 | 대규모 UI 분리는 P2 | P2 |
 | MEDIUM | CI·Docker가 없음 | 저장소 파일 검사 | 다른 환경의 재현성이 수동 검증에 의존 | 한 명령 `scripts/verify.py`를 강화; CI는 P2 | P2 |
-| LOW | 실제 OpenAI·공식 환율·공식 웹 검색은 자격증명 없이 live 검증할 수 없음 | `.env.example` | 외부 장애 경계는 mock으로만 검증 | fixture/fetcher test와 설정 문서, live smoke 분리 | 문서화 완료 |
+| LOW | 실제 OpenAI·공식 환율·공식 웹 검색은 자격증명 없이 live 검증할 수 없음 | `env.template` | 외부 장애 경계는 mock으로만 검증 | fixture/fetcher test와 설정 문서, live smoke 분리 | 문서화 완료 |
 
 ## 보안·개인정보 감사
 

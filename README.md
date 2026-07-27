@@ -144,7 +144,7 @@ SPOT_RATE_PROVIDER=manual
 MANUAL_USDKRW_RATE=1400
 ```
 
-전체 변수는 `.env.example`, 빠른 시작은 [START_HERE.md](START_HERE.md)를 봅니다.
+전체 변수는 `env.template`, 빠른 시작은 [START_HERE.md](START_HERE.md)를 봅니다.
 팀 모델 연결은
 [docs/STAGE1_INTEGRATION.md](docs/STAGE1_INTEGRATION.md), 환율 출처 설정은
 [docs/SPOT_PROVIDER_SETUP.md](docs/SPOT_PROVIDER_SETUP.md)를 봅니다.

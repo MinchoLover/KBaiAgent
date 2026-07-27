@@ -43,8 +43,8 @@
 
 ## 3. 환경변수와 외부 의존성
 
-로컬 `.env.example`에는 다음 계약이 있으나 `.gitignore`의 `.env.*` 규칙으로 현재
-Git 추적 대상은 아닙니다. 실제 키 값은 확인하거나 출력하지 않았습니다.
+Git에 포함되는 `env.template`에는 다음 환경변수 계약만 빈 값으로 기록합니다.
+실제 키는 Git에서 제외되는 로컬 `.env`에만 둡니다.
 
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
