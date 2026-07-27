@@ -3,7 +3,7 @@
 > 2026-07-27 통합 보강: 팀 `kb_macro_ai`의 실제
 > `krw_forecast_web_v1`을 HTTP/file/mock adapter로 연결하고 별도 Spot provider,
 > 21거래일 horizon gate, 수입 v36/수출 v34 scenario, 제약형 Stage 3와 시장정책
-> report critic을 추가했습니다. 현재 검증은 240개 PASS이며 최신 실행·제한은
+> report critic을 추가했습니다. 현재 검증은 264개 PASS이며 최신 실행·제한은
 > `docs/VALIDATION_REPORT.md`, `docs/STAGE1_INTEGRATION.md`,
 > `docs/LIMITATIONS.md`가 우선합니다. 아래 1~6절의 커밋·기준선 설명은 이전
 > 재포지셔닝 작업 당시 기록입니다.
@@ -179,7 +179,7 @@ python scripts/run_decision_demo.py --company-role SELLER --format summary
 | 검증 | 실행 명령 | 실제 결과 |
 | --- | --- | --- |
 | Python compile | `PYTHONPYCACHEPREFIX=/private/tmp/kbai-pycache .venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git|__pycache__)(/|$)' .` | 성공 |
-| 전체 단위·통합·UI | `.venv/bin/python -m unittest discover -s tests -v` | 240개 성공, 0개 실패 |
+| 전체 단위·통합·UI | `.venv/bin/python -m unittest discover -s tests -v` | 264개 성공, 0개 실패 |
 | 오프라인 추출 계약 | `.venv/bin/python scripts/evaluate_extraction.py --mode offline` | 17건, pass rate 82.35%, hallucination 0.00% |
 | 회귀 기준 | `.venv/bin/python scripts/run_regression.py` | 성공 |
 | 의존성 | `.venv/bin/python -m pip check` | broken requirement 없음 |
@@ -188,7 +188,8 @@ python scripts/run_decision_demo.py --company-role SELLER --format summary
 | 저장소 검증 | `.venv/bin/python scripts/verify.py` | 최종 실행 결과: 성공 |
 
 오프라인 추출의 82.35%는 fixture·label 계약 평가이며 실제 LLM 품질 점수로 주장하지
-않습니다. 실제 OpenAI live 평가는 외부 자격증명 필요로 미실행입니다.
+않습니다. 합성 PDF 한 건의 OpenAI live smoke test는 통과했지만, 실제 고객 문서군의
+OCR·추출 정확도 benchmark는 아직 수행하지 않았습니다.
 
 실패 기록 1:
 
