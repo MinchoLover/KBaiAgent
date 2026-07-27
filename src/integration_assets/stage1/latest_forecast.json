@@ -1,0 +1,421 @@
+{
+  "schema_version": "krw_forecast_web_v1",
+  "generated_at": "2026-07-27T03:50:07.490058+00:00",
+  "prediction_date": "2026-07-27",
+  "horizon": {
+    "trading_days": 21,
+    "description": "약 1개월"
+  },
+  "models": {
+    "terminal_direction": {
+      "version": "v25",
+      "model_type": "logistic_regression",
+      "features": "market_39"
+    },
+    "maximum_rise": {
+      "version": "v36",
+      "model_type": "quantile_gradient_boosting",
+      "features": "market_39_plus_usdkrw_ohlc_12"
+    },
+    "maximum_fall": {
+      "version": "v34",
+      "model_type": "quantile_gradient_boosting",
+      "features": "market_39"
+    }
+  },
+  "forecast": {
+    "terminal_direction_21d": {
+      "p_usdkrw_up": 0.288,
+      "p_usdkrw_down": 0.712,
+      "direction": "usdkrw_down",
+      "probability_calibrated": false,
+      "interpretation": "21거래일 종착점에서는 USD/KRW 하락 가능성이 우세"
+    },
+    "maximum_rise_21d": {
+      "movement": "usdkrw_up_krw_weakness",
+      "quantiles_simple_return": {
+        "q10": 0.0,
+        "q50": 0.015,
+        "q75": 0.026,
+        "q90": 0.035
+      },
+      "q50_description": "21일 중 최대 상승폭의 중앙 추정치는 약 1.47%",
+      "q90_description": "상위 위험 시나리오 q90은 약 3.55%",
+      "prototype_selected_by_user": true
+    },
+    "maximum_fall_21d": {
+      "movement": "usdkrw_down_krw_strength",
+      "quantiles_simple_return": {
+        "q10": 0.0,
+        "q50": 0.01,
+        "q75": 0.021,
+        "q90": 0.036
+      },
+      "q50_description": "21일 중 최대 하락폭의 중앙 추정치는 약 0.96%",
+      "q90_description": "상위 위험 시나리오 q90은 약 3.60%",
+      "research_adopted": true
+    },
+    "combined_interpretation": {
+      "summary": "21거래일 종착점에서는 USD/KRW 하락 가능성이 우세. 기간 중 최대 상승폭 중앙치는 1.47%, 최대 하락폭 중앙치는 0.96%로 예측한다.",
+      "action_recommendation_supplied": false
+    }
+  },
+  "decision_basis": {
+    "terminal_direction_v25": {
+      "method": "standardized_feature_x_logistic_coefficient",
+      "selected_training_window": "rolling_5y",
+      "description": "미국 증시 대비 한국 증시 성과 값과 최근 21일 고점 대비 환율 하락폭 값이 모두 학습기간 중앙값보다 낮아, 이번 예측에서 해당 특징들의 기여가 크게 나타나 모델이 USD/KRW 하락(원화 강세) 확률을 더 높게 판단했다.",
+      "top_market_factors": [
+        {
+          "feature": "kospi_ex_sp500_return_21",
+          "display_name": "미국 증시 대비 한국 증시 성과",
+          "current_value": -0.237,
+          "training_median": -0.004,
+          "standardized_value": -4.455,
+          "log_odds_contribution": -1.3,
+          "effect": "supports_usdkrw_down"
+        },
+        {
+          "feature": "usdkrw_drawdown_21",
+          "display_name": "최근 21일 고점 대비 환율 하락폭",
+          "current_value": -0.055,
+          "training_median": -0.01,
+          "standardized_value": -2.833,
+          "log_odds_contribution": -1.26,
+          "effect": "supports_usdkrw_down"
+        },
+        {
+          "feature": "usdkrw_range_position_21",
+          "display_name": "최근 21일 범위 내 환율 위치",
+          "current_value": 0.0,
+          "training_median": 0.611,
+          "standardized_value": -1.692,
+          "log_odds_contribution": 0.42,
+          "effect": "supports_usdkrw_up"
+        },
+        {
+          "feature": "usdkrw_beta_broad_dollar_252",
+          "display_name": "원화의 광의달러 민감도",
+          "current_value": 1.174,
+          "training_median": 1.026,
+          "standardized_value": 1.452,
+          "log_odds_contribution": 0.389,
+          "effect": "supports_usdkrw_up"
+        },
+        {
+          "feature": "usdkrw_realized_vol_21",
+          "display_name": "최근 21거래일 환율 변동성",
+          "current_value": 0.071,
+          "training_median": 0.092,
+          "standardized_value": -0.758,
+          "log_odds_contribution": 0.315,
+          "effect": "supports_usdkrw_up"
+        },
+        {
+          "feature": "dxy_log_return_63",
+          "display_name": "최근 63일 달러인덱스 변화",
+          "current_value": 0.023,
+          "training_median": 0.008,
+          "standardized_value": 0.531,
+          "log_odds_contribution": 0.239,
+          "effect": "supports_usdkrw_up"
+        },
+        {
+          "feature": "usdkrw_specific_log_return_63",
+          "display_name": "달러 공통요인을 제외한 원화 63일 변화",
+          "current_value": -0.021,
+          "training_median": 0.014,
+          "standardized_value": -1.225,
+          "log_odds_contribution": 0.226,
+          "effect": "supports_usdkrw_up"
+        },
+        {
+          "feature": "usdkrw_sma_distance_63",
+          "display_name": "환율의 63일 이동평균 이격도",
+          "current_value": -0.026,
+          "training_median": 0.01,
+          "standardized_value": -1.386,
+          "log_odds_contribution": -0.197,
+          "effect": "supports_usdkrw_down"
+        }
+      ],
+      "warning": "특징 기여도는 모델 판단 근거이며 확정된 인과관계가 아니다."
+    },
+    "maximum_rise_v36": {
+      "method": "replace_one_feature_with_training_median",
+      "quantile_explained": "q50",
+      "top_market_factors": [
+        {
+          "feature": "fx_ohlc_gap_1",
+          "display_name": "전일 종가 대비 시가 갭",
+          "current_value": -0.008,
+          "training_median": 0.001,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": 0.151,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "fx_ohlc_upper_wick_1",
+          "display_name": "당일 USD/KRW 상단 꼬리",
+          "current_value": 0.001,
+          "training_median": 0.004,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": -0.115,
+          "effect": "decreases_expected_excursion"
+        },
+        {
+          "feature": "fx_ohlc_log_range_mean_21",
+          "display_name": "최근 21일 평균 장중 변동폭",
+          "current_value": 0.012,
+          "training_median": 0.008,
+          "current_vs_training_median": "above",
+          "local_effect_on_q50_percentage_points": -0.066,
+          "effect": "decreases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_log_return_5",
+          "display_name": "최근 5거래일 USD/KRW 수익률",
+          "current_value": -0.014,
+          "training_median": 0.0,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": 0.05,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_drawdown_21",
+          "display_name": "최근 21일 고점 대비 환율 하락폭",
+          "current_value": -0.055,
+          "training_median": -0.01,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": 0.019,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_beta_broad_dollar_252",
+          "display_name": "원화의 광의달러 민감도",
+          "current_value": 1.174,
+          "training_median": 0.998,
+          "current_vs_training_median": "above",
+          "local_effect_on_q50_percentage_points": 0.011,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_log_return_21",
+          "display_name": "최근 21거래일 USD/KRW 수익률",
+          "current_value": -0.053,
+          "training_median": 0.003,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": 0.0,
+          "effect": "decreases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_log_return_63",
+          "display_name": "최근 63거래일 USD/KRW 수익률",
+          "current_value": -0.004,
+          "training_median": 0.014,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": 0.0,
+          "effect": "decreases_expected_excursion"
+        }
+      ],
+      "warning": "국소 효과는 서로 더해지지 않으며 인과효과를 뜻하지 않는다."
+    },
+    "maximum_fall_v34": {
+      "method": "replace_one_feature_with_training_median",
+      "quantile_explained": "q50",
+      "top_market_factors": [
+        {
+          "feature": "usdkrw_specific_log_return_21",
+          "display_name": "달러 공통요인을 제외한 원화 21일 변화",
+          "current_value": -0.048,
+          "training_median": 0.003,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": 0.12,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "brent_crude_future_log_return_21",
+          "display_name": "브렌트유의 최근 21일 변화",
+          "current_value": 0.252,
+          "training_median": 0.01,
+          "current_vs_training_median": "above",
+          "local_effect_on_q50_percentage_points": -0.077,
+          "effect": "decreases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_specific_log_return_63",
+          "display_name": "달러 공통요인을 제외한 원화 63일 변화",
+          "current_value": -0.021,
+          "training_median": 0.01,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": -0.052,
+          "effect": "decreases_expected_excursion"
+        },
+        {
+          "feature": "wti_crude_future_log_return_21",
+          "display_name": "WTI 유가의 최근 21일 변화",
+          "current_value": 0.207,
+          "training_median": 0.006,
+          "current_vs_training_median": "above",
+          "local_effect_on_q50_percentage_points": -0.026,
+          "effect": "decreases_expected_excursion"
+        },
+        {
+          "feature": "baa_10y_credit_spread_change_21",
+          "display_name": "미국 신용위험 스프레드 변화",
+          "current_value": 0.04,
+          "training_median": -0.03,
+          "current_vs_training_median": "above",
+          "local_effect_on_q50_percentage_points": 0.022,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_log_return_21",
+          "display_name": "최근 21거래일 USD/KRW 수익률",
+          "current_value": -0.053,
+          "training_median": 0.003,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": 0.02,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_beta_broad_dollar_252",
+          "display_name": "원화의 광의달러 민감도",
+          "current_value": 1.174,
+          "training_median": 0.998,
+          "current_vs_training_median": "above",
+          "local_effect_on_q50_percentage_points": 0.018,
+          "effect": "increases_expected_excursion"
+        },
+        {
+          "feature": "usdkrw_log_slope_annualized_21",
+          "display_name": "환율의 21일 추세",
+          "current_value": -0.72,
+          "training_median": 0.033,
+          "current_vs_training_median": "below",
+          "local_effect_on_q50_percentage_points": -0.006,
+          "effect": "decreases_expected_excursion"
+        }
+      ],
+      "warning": "국소 효과는 서로 더해지지 않으며 인과효과를 뜻하지 않는다."
+    },
+    "warning": "시장 특징의 모델 기여는 통계적 판단 근거이며 확정된 인과관계를 의미하지 않는다."
+  },
+  "news_market_context": {
+    "display_name": "뉴스 기반 시장 상황",
+    "news_used_as_predictor": false,
+    "changed_model_forecast": false,
+    "role": "시장상황 설명 및 위험요인 분석",
+    "regional_context": {
+      "US": {
+        "event_count": 0,
+        "risk_level": "unknown",
+        "data_status": "unavailable"
+      },
+      "KR": {
+        "event_count": 0,
+        "risk_level": "unknown",
+        "data_status": "unavailable"
+      },
+      "GLOBAL": {
+        "event_count": 0,
+        "risk_level": "normal",
+        "data_status": "available"
+      }
+    },
+    "key_news_events": [
+      {
+        "region": "MULTI",
+        "category": "energy",
+        "event_stage": "outcome",
+        "action_direction": "weaken",
+        "analysis_confidence": 0.91,
+        "summary": "Oil prices eased after the US and Iran paused their attacks.",
+        "headline": "Oil prices ease after US and Iran pause their attacks",
+        "url": "https://www.twincities.com/2026/07/26/oil-prices-ease-after-us-and-iran-pause-their-attacks/"
+      },
+      {
+        "region": "MULTI",
+        "category": "energy",
+        "event_stage": "outcome",
+        "action_direction": "weaken",
+        "analysis_confidence": 0.91,
+        "summary": "Oil prices eased after the US and Iran paused their attacks.",
+        "headline": "Oil prices ease after US and Iran pause their attacks - Daily Sitka Sentinel",
+        "url": "http://www.sitkasentinel.com/stories/oil-prices-ease-after-us-and-iran-pause-their-attacks,159197"
+      },
+      {
+        "region": "MULTI",
+        "category": "trade_tariff",
+        "event_stage": "retrospective",
+        "action_direction": "tighten",
+        "analysis_confidence": 0.82,
+        "summary": "The article examines Trump’s new double-digit tariffs affecting dozens of countries.",
+        "headline": "Dissecting Trump new double - digit tariffs on dozens of countries – NBC 7 San Diego",
+        "url": "https://www.nbcsandiego.com/news/national-international/trump-administration-double-digit-tariff-breakdown/4053537/"
+      },
+      {
+        "region": "MULTI",
+        "category": "trade_tariff",
+        "event_stage": "retrospective",
+        "action_direction": "tighten",
+        "analysis_confidence": 0.82,
+        "summary": "The article examines Trump’s new double-digit tariffs affecting dozens of countries.",
+        "headline": "Dissecting Trump new double - digit tariffs on dozens of countries – NBC Los Angeles",
+        "url": "https://www.nbclosangeles.com/news/national-international/trump-administration-double-digit-tariff-breakdown/3921992/"
+      }
+    ],
+    "warning": "뉴스 분석은 시장상황 설명용이며 환율 변동의 확정적 원인이나 수치 예측의 직접 계산 근거가 아니다."
+  },
+  "data_quality": {
+    "market_data_latest_date": "2026-07-27",
+    "model_bundle_trained_as_of": "2026-07-21",
+    "market_refresh": {
+      "attempted": true,
+      "target_latest_date": "2026-07-27",
+      "merged_latest_date": "2026-07-27",
+      "successful_series": [
+        "ecos:bok_base_rate",
+        "ecos:kr_gov_3y",
+        "fred:baa_10y_credit_spread",
+        "fred:broad_dollar_index",
+        "fred:fed_target_lower",
+        "fred:fed_target_upper",
+        "fred:us_10y",
+        "fred:us_2y",
+        "fred:vix",
+        "yahoo:brent_crude_future",
+        "yahoo:dxy",
+        "yahoo:kospi",
+        "yahoo:sp500",
+        "yahoo:usd_cny",
+        "yahoo:usd_jpy",
+        "yahoo:usd_twd",
+        "yahoo:usdkrw",
+        "yahoo:wti_crude_future"
+      ],
+      "failed_series": {},
+      "partial_fallback_used": false
+    },
+    "news_refresh": {
+      "attempted": true,
+      "candidate_article_count": 5,
+      "relevant_event_count": 4,
+      "query_errors": {
+        "US": "HTTP Error 429: Too Many Requests",
+        "KR": "HTTP Error 429: Too Many Requests"
+      },
+      "analysis_method": "GDELT_DOC_OpenAI_structured_event_extraction",
+      "llm_model": "gpt-5.6",
+      "semantic_api_enabled": true,
+      "llm_usage": {
+        "input_tokens": 1151,
+        "output_tokens": 1186,
+        "total_tokens": 2337
+      },
+      "fallback_used": false
+    },
+    "ssd_used_at_runtime": false,
+    "research_only": true
+  }
+}

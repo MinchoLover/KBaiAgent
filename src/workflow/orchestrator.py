@@ -7,12 +7,16 @@ from pydantic import Field
 
 from schemas import StrictModel, TradeDocumentExtraction, ValidationResult
 from src.config import Settings
+from src.application.market_integration_service import (
+    integrate_stage1_market,
+)
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
+from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Input, Stage2Result
-from src.domain.stage3_models import Stage3Result
+from src.domain.stage3_models import Stage3Assumptions, Stage3Result
 from src.stage1.adapter import load_stage1
 from src.stage1.manual_scenarios import build_manual_stress_scenarios
 from src.stage1.normalizer import normalize_stage1_scenarios
@@ -33,6 +37,7 @@ from src.workflow.trace import build_trace_event
 
 
 Stage1Loader = Callable[..., Stage1LoadResult]
+MarketIntegrationRunner = Callable[..., MarketIntegrationResult]
 CashflowRunner = Callable[[Stage2Input, Any], Stage2Result]
 HedgeRunner = Callable[..., Stage3Result]
 ProductSearch = Callable[..., Stage4Result]
@@ -42,13 +47,21 @@ ReportGenerator = Callable[..., ReportResult]
 class WorkflowRequest(StrictModel):
     stage2_input: Stage2Input
     manual_base_rate: str
-    stage1_mode: Literal["MANUAL_STRESS", "EXTERNAL_STAGE1"] = (
-        "MANUAL_STRESS"
-    )
+    stage1_mode: Literal[
+        "MANUAL_STRESS",
+        "EXTERNAL_STAGE1",
+        "WEB_FORECAST",
+    ] = "MANUAL_STRESS"
     stage1_payload: Optional[Any] = None
     stage1_endpoint: Optional[str] = None
-    grid_step_percent: int = Field(default=10)
+    stage1_provider: Optional[Literal["http", "file", "mock"]] = None
+    spot_provider: Optional[
+        Literal["auto", "koreaexim", "manual", "fixture"]
+    ] = None
+    manual_spot_confirmed: bool = False
+    grid_step_percent: int = Field(default=5)
     stability_preference: str = "0.7"
+    stage3_assumptions: Optional[Stage3Assumptions] = None
     product_search_mode: Literal[
         "OFFLINE_KB",
         "OFFICIAL_WEB_SEARCH",
@@ -62,6 +75,9 @@ class WorkflowOrchestrator:
         *,
         settings: Optional[Settings] = None,
         stage1_loader: Stage1Loader = load_stage1,
+        market_integration_runner: MarketIntegrationRunner = (
+            integrate_stage1_market
+        ),
         cashflow_runner: CashflowRunner = run_stage2,
         hedge_runner: HedgeRunner = generate_strategy_candidates,
         offline_product_search: ProductSearch = search_offline_kb,
@@ -76,6 +92,7 @@ class WorkflowOrchestrator:
             raise ValueError("보고서 재작성 횟수는 0 또는 1이어야 합니다.")
         self.settings = settings or Settings.from_env()
         self.stage1_loader = stage1_loader
+        self.market_integration_runner = market_integration_runner
         self.cashflow_runner = cashflow_runner
         self.hedge_runner = hedge_runner
         self.offline_product_search = offline_product_search
@@ -272,6 +289,7 @@ class WorkflowOrchestrator:
     @staticmethod
     def _clear_after(state: WorkflowState, stage: str) -> None:
         if stage == "market_risk":
+            state.market_integration = None
             state.stage2_input = None
             state.cashflow = None
             state.hedge = None
@@ -339,6 +357,9 @@ class WorkflowOrchestrator:
         mode: str = "MANUAL_STRESS",
         payload: Optional[Any] = None,
         endpoint: Optional[str] = None,
+        stage1_provider: Optional[str] = None,
+        spot_provider: Optional[str] = None,
+        manual_spot_confirmed: bool = False,
     ) -> WorkflowState:
         if not confirmation_gate(state).allowed:
             return self._wait_for_confirmation(state, "market_risk")
@@ -393,6 +414,70 @@ class WorkflowOrchestrator:
             self._record(state, "market_risk", result)
             return state
         warnings: List[str] = []
+        if mode.strip().upper() == "WEB_FORECAST":
+            try:
+                integration = self.market_integration_runner(
+                    settings=self.settings,
+                    currency=currency,
+                    settlement_date=target_date,
+                    provider_name=stage1_provider,
+                    spot_provider_name=spot_provider,
+                    manual_spot_rate=manual_base_rate,
+                    manual_spot_confirmed=manual_spot_confirmed,
+                )
+                state.market_integration = integration
+                loaded = integration.stage1_load
+                warnings = list(loaded.warnings)
+                fallback_used = bool(
+                    integration.forecast_load is None
+                    or integration.forecast_load.fallback_used
+                )
+                status = (
+                    StageStatus.FALLBACK
+                    if fallback_used
+                    else StageStatus.SUCCEEDED
+                )
+                provider_label = (
+                    integration.forecast_load.source.lower()
+                    if integration.forecast_load is not None
+                    else "fixed_stress_only"
+                )
+                result = StageResult[Stage1LoadResult](
+                    status=status,
+                    data=loaded,
+                    warnings=warnings,
+                    evidence=[
+                        "market_integration.forecast_load.forecast.source",
+                        "market_integration.spot_quote",
+                        "market_integration.scenario_build",
+                    ],
+                    started_at=started_at,
+                    finished_at=datetime.now(timezone.utc),
+                    duration_ms=self._duration_ms(started_ns),
+                    provider="stage1_web_{}".format(provider_label),
+                    fallback_used=fallback_used,
+                )
+                state.market_risk = result
+                state.final_status = StageStatus.RUNNING
+                self._record(state, "market_risk", result)
+                return state
+            except Exception as exc:
+                result = StageResult[Stage1LoadResult](
+                    status=StageStatus.FAILED,
+                    errors=[
+                        "Stage 1 또는 기준환율을 안전하게 준비하지 "
+                        "못했습니다.",
+                        self._safe_error("stage1_web_integration", exc),
+                    ],
+                    started_at=started_at,
+                    finished_at=datetime.now(timezone.utc),
+                    duration_ms=self._duration_ms(started_ns),
+                    provider="stage1_web_integration",
+                )
+                state.market_risk = result
+                state.final_status = StageStatus.FAILED
+                self._record(state, "market_risk", result)
+                return state
         try:
             loaded = self.stage1_loader(
                 expected_currency=currency,
@@ -546,8 +631,9 @@ class WorkflowOrchestrator:
         self,
         state: WorkflowState,
         *,
-        grid_step_percent: int = 10,
+        grid_step_percent: int = 5,
         stability_preference: str = "0.7",
+        assumptions: Optional[Stage3Assumptions] = None,
     ) -> WorkflowState:
         self._clear_after(state, "hedge")
         started_at, started_ns = self._started()
@@ -569,6 +655,7 @@ class WorkflowOrchestrator:
                 state.cashflow.data,
                 grid_step_percent=grid_step_percent,
                 stability_preference=stability_preference,
+                assumptions=assumptions,
             )
             result = StageResult[Stage3Result](
                 status=StageStatus.SUCCEEDED,
@@ -577,6 +664,7 @@ class WorkflowOrchestrator:
                 evidence=[
                     "stage3.candidates",
                     "stage3.objective_mode",
+                    "stage3.assumptions_contract",
                 ],
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
@@ -601,6 +689,11 @@ class WorkflowOrchestrator:
 
     @staticmethod
     def _default_product_query(stage3: Stage3Result) -> str:
+        if not stage3.candidates:
+            return (
+                "수출입 결제자금 환율관리 운영자금 상담 "
+                "선물환 환변동보험"
+            )
         return " ".join(
             stage3.candidates[0].required_product_types
             + [
@@ -731,6 +824,7 @@ class WorkflowOrchestrator:
             stage2=state.cashflow.data,
             stage3=state.hedge.data,
             stage4=state.product_search.data,
+            market_integration=state.market_integration,
         )
 
     def run_report(self, state: WorkflowState) -> WorkflowState:
@@ -773,6 +867,7 @@ class WorkflowOrchestrator:
                 stage2=state.cashflow.data,
                 stage3=state.hedge.data,
                 stage4=state.product_search.data,
+                market_integration=state.market_integration,
                 settings=self.settings,
                 max_revisions=self.max_report_revisions,
             )
@@ -856,6 +951,9 @@ class WorkflowOrchestrator:
             mode=request.stage1_mode,
             payload=request.stage1_payload,
             endpoint=request.stage1_endpoint,
+            stage1_provider=request.stage1_provider,
+            spot_provider=request.spot_provider,
+            manual_spot_confirmed=request.manual_spot_confirmed,
         )
         if self._stopped(state):
             return state
@@ -866,6 +964,7 @@ class WorkflowOrchestrator:
             state,
             grid_step_percent=request.grid_step_percent,
             stability_preference=request.stability_preference,
+            assumptions=request.stage3_assumptions,
         )
         if self._stopped(state):
             return state

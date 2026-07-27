@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.demo import run_decision_support_demo
+from src.demo import (
+    run_decision_support_demo,
+    run_integrated_decision_demo,
+)
 
 
 def _summary(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -22,7 +25,18 @@ def _summary(result: Dict[str, Any]) -> Dict[str, Any]:
         for item in stage2.scenario_results
         if item.scenario_name == assessment.worst_scenario_id
     )
-    return {
+    five_percent_name = (
+        "UP_5" if stage2.trade_type == "IMPORT" else "DOWN_5"
+    )
+    five_percent = next(
+        (
+            item
+            for item in stage2.scenario_results
+            if item.scenario_name == five_percent_name
+        ),
+        None,
+    )
+    summary = {
         "company_role": (
             "BUYER" if stage2.trade_type == "IMPORT" else "SELLER"
         ),
@@ -48,6 +62,43 @@ def _summary(result: Dict[str, Any]) -> Dict[str, Any]:
         "input_hash": packet.input_hash,
         "calculation_version": packet.calculation_version,
     }
+    if five_percent is not None:
+        summary["five_percent_stress"] = {
+            "scenario_id": five_percent.scenario_name,
+            "rate": five_percent.scenario_rate,
+            "required_or_receipt_krw": (
+                five_percent.fx_krw_outflow
+                if stage2.trade_type == "IMPORT"
+                else five_percent.fx_krw_inflow
+            ),
+            "loss_vs_base_krw": five_percent.loss_vs_base,
+            "ending_cash_krw": five_percent.ending_cash,
+            "buffer_shortfall_krw": (
+                five_percent.maximum_buffer_shortfall
+            ),
+            "post_credit_deficit_krw": (
+                five_percent.post_credit_shortfall
+            ),
+        }
+    integration = result.get("market_integration")
+    if integration is not None and integration.forecast_load is not None:
+        forecast = integration.forecast_load.forecast
+        summary["stage1"] = {
+            "source": integration.forecast_load.source,
+            "direction": forecast.direction.label,
+            "up_score": forecast.direction.up_score,
+            "down_score": forecast.direction.down_score,
+            "calibrated_probability": (
+                forecast.direction.calibrated_probability
+            ),
+            "horizon_trading_days": forecast.horizon.trading_days,
+            "horizon_mismatch": (
+                integration.scenario_build.horizon_mismatch
+            ),
+            "spot_rate": integration.spot_quote.rate,
+            "spot_source": integration.spot_quote.source,
+        }
+    return summary
 
 
 def main() -> int:
@@ -64,8 +115,18 @@ def main() -> int:
         choices=["summary", "json", "markdown"],
         default="summary",
     )
+    parser.add_argument(
+        "--stage1-mode",
+        choices=["fixture", "legacy"],
+        default="fixture",
+        help="fixture는 팀 Stage 1 JSON+fixture spot을 사용합니다.",
+    )
     args = parser.parse_args()
-    result = run_decision_support_demo(args.company_role)
+    result = (
+        run_integrated_decision_demo(args.company_role)
+        if args.stage1_mode == "fixture"
+        else run_decision_support_demo(args.company_role)
+    )
     if args.format == "markdown":
         print(result["consultation_packet"].markdown)
         return 0

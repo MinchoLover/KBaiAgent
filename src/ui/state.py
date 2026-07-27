@@ -12,6 +12,7 @@ PIPELINE_KEYS = (
     "stage0_output",
     "stage2_document_input",
     "stage1_load",
+    "market_integration",
     "stage2_input",
     "stage2_result",
     "risk_assessment",
@@ -57,6 +58,9 @@ STAGE1_WIDGET_KEYS = (
     "stage1_source_type_widget",
     "stage1_json_upload",
     "stage1_endpoint_widget",
+    "stage1_provider_widget",
+    "spot_provider_widget",
+    "spot_confirmed_widget",
 )
 
 STAGE2_WIDGET_KEYS = (
@@ -83,6 +87,11 @@ STAGE2_WIDGET_KEYS = (
 STAGE3_WIDGET_KEYS = (
     "stage3_grid_widget",
     "stage3_stability_widget",
+    "stage3_forward_fee_widget",
+    "stage3_staged_fee_widget",
+    "stage3_max_forward_widget",
+    "stage3_staged_risk_widget",
+    "stage3_forward_rate_widget",
 )
 
 STAGE4_WIDGET_KEYS = (
@@ -143,6 +152,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
         0: PIPELINE_KEYS,
         1: (
             "stage1_load",
+            "market_integration",
             "stage2_input",
             "stage2_result",
             "risk_assessment",
@@ -202,6 +212,7 @@ def clear_confirmation_and_later(state: object) -> None:
             "stage0_output",
             "stage2_document_input",
             "stage1_load",
+            "market_integration",
             "stage2_input",
             "stage2_result",
             "risk_assessment",

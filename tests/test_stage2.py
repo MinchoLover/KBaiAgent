@@ -265,7 +265,8 @@ class Stage2EngineTests(unittest.TestCase):
         result = run_stage2(stage2_input("IMPORT"), stress_scenarios())
         low = result.scenario_results[0]
         high = result.scenario_results[-1]
-        self.assertLess(Decimal(low.loss_vs_base), 0)
+        self.assertEqual(Decimal(low.loss_vs_base), 0)
+        self.assertLess(Decimal(low.signed_impact_vs_base), 0)
         self.assertGreater(Decimal(high.loss_vs_base), 0)
 
     def test_export_rate_fall_is_adverse(self):
@@ -273,7 +274,8 @@ class Stage2EngineTests(unittest.TestCase):
         low = result.scenario_results[0]
         high = result.scenario_results[-1]
         self.assertGreater(Decimal(low.loss_vs_base), 0)
-        self.assertLess(Decimal(high.loss_vs_base), 0)
+        self.assertEqual(Decimal(high.loss_vs_base), 0)
+        self.assertLess(Decimal(high.signed_impact_vs_base), 0)
 
     def test_buy_and_sell_spread_directions(self):
         buy = applied_customer_rate(

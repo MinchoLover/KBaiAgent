@@ -40,18 +40,26 @@ REQUIRED_FILES = (
     "scripts/export_finetuning_dataset.py",
     "scripts/run_decision_demo.py",
     "docs/ARCHITECTURE.md",
+    "docs/REPOSITORY_AUDIT.md",
     "docs/STAGE0_DOCUMENT_INTAKE.md",
     "docs/STAGE1_CONTRACT.md",
+    "docs/STAGE1_INTEGRATION.md",
+    "docs/STAGE1_JSON_MAPPING.md",
+    "docs/SPOT_PROVIDER_SETUP.md",
     "docs/STAGE2_CALCULATION_SPEC.md",
     "docs/STAGE3_OPTIMIZATION.md",
+    "docs/STAGE3_OPTIMIZER_SPEC.md",
     "docs/STAGE4_RAG_POLICY.md",
     "docs/STAGE5_REPORT_POLICY.md",
+    "docs/AGENT_WORKFLOW.md",
     "docs/DATASET_AND_EVALS.md",
+    "docs/SECURITY.md",
     "docs/SECURITY_PRIVACY.md",
     "docs/LIMITATIONS.md",
     "docs/DEMO_SCRIPT_KO.md",
     "docs/JUDGE_QA_KO.md",
     "docs/TEAM_HANDOFF.md",
+    "docs/TEAM_HANDOFF_KO.md",
     "docs/VALIDATION_REPORT.md",
     "docs/repositioning/CURRENT_STATE.md",
     "docs/repositioning/IMPLEMENTATION_PLAN.md",
@@ -65,6 +73,9 @@ REQUIRED_FILES = (
     "samples/expected_stage4.json",
     "samples/expected_report.json",
     "samples/expected_report.md",
+    "src/integration_assets/stage1/latest_forecast.json",
+    "src/integration_assets/stage1/JSON_README.md",
+    "src/integration_assets/stage1/team_model_report_3page.docx",
     "reports/baseline_metrics.json",
     "reports/eval_summary.json",
     "reports/eval_report.md",
@@ -95,8 +106,14 @@ def _check_env_and_secrets(errors: List[str]) -> None:
     if not re.search(r"^OPENAI_API_KEY=$", example, re.MULTILINE):
         errors.append(".env.example must keep OPENAI_API_KEY empty")
     for variable in (
+        "STAGE1_PROVIDER",
+        "STAGE1_FORECAST_FILE",
+        "STAGE1_HTTP_TIMEOUT_SECONDS",
+        "STAGE1_MAX_STALENESS_MARKET_DAYS",
         "STAGE1_ALLOW_PRIVATE_ENDPOINTS",
         "STAGE1_ALLOWED_HOSTS",
+        "SPOT_RATE_PROVIDER",
+        "MANUAL_USDKRW_RATE",
         "OFFICIAL_SEARCH_CACHE_TTL_HOURS",
         "OFFICIAL_DOMAINS",
     ):
@@ -109,6 +126,20 @@ def _check_env_and_secrets(errors: List[str]) -> None:
                 ".env.example missing security setting {}".format(
                     variable
                 )
+            )
+    for empty_secret in (
+        "OPEN_AI_API_KEY",
+        "KOREAEXIM_KEY",
+        "ECOS_KEY",
+        "CREDIT_KEY",
+    ):
+        if not re.search(
+            r"^{}=$".format(empty_secret),
+            example,
+            re.MULTILINE,
+        ):
+            errors.append(
+                ".env.example must keep {} empty".format(empty_secret)
             )
 
     secret_pattern = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")
@@ -172,10 +203,25 @@ def _check_readme(errors: List[str]) -> None:
     for document in ("ARCHITECTURE.md", "REFACTORING_REPORT.md"):
         if document not in readme:
             errors.append("README document link missing: {}".format(document))
+    for document in (
+        "STAGE1_INTEGRATION.md",
+        "SPOT_PROVIDER_SETUP.md",
+        "TEAM_HANDOFF_KO.md",
+    ):
+        if document not in readme:
+            errors.append(
+                "README integration document link missing: {}".format(
+                    document
+                )
+            )
 
 
 def _check_demo(errors: List[str]) -> None:
-    from src.demo import run_decision_support_demo, run_offline_demo
+    from src.demo import (
+        run_decision_support_demo,
+        run_integrated_decision_demo,
+        run_offline_demo,
+    )
 
     result = run_offline_demo()
     if not result["validation"].stage2_allowed:
@@ -214,12 +260,33 @@ def _check_demo(errors: List[str]) -> None:
     export_packet = export_demo["consultation_packet"].packet
     if import_demo["stage2"].open_exposure != "80000.00":
         errors.append("import decision demo open exposure is invalid")
-    if import_packet.risk_summary.buffer_shortfall_krw != "600000.00":
+    if import_packet.risk_summary.buffer_shortfall_krw != "2600000.00":
         errors.append("import decision demo buffer shortfall is invalid")
     if import_packet.risk_summary.payment_gap_krw != "0.00":
         errors.append("import decision demo confuses buffer and payment gap")
     if "FX_RECEIPT_RISK" not in export_packet.risk_summary.risk_codes:
         errors.append("export decision demo lost receipt risk direction")
+
+    integrated_import = run_integrated_decision_demo("BUYER")
+    integrated_export = run_integrated_decision_demo("SELLER")
+    for label, demo in (
+        ("import", integrated_import),
+        ("export", integrated_export),
+    ):
+        integration = demo.get("market_integration")
+        if integration is None or integration.forecast_load is None:
+            errors.append("{} integrated demo lost Stage 1".format(label))
+            continue
+        if integration.forecast_load.source != "MOCK":
+            errors.append("{} integrated demo is not offline".format(label))
+        if not integration.scenario_build.horizon_mismatch:
+            errors.append(
+                "{} 90-day demo lost horizon warning".format(label)
+            )
+        if not demo["report"].critique.passed:
+            errors.append(
+                "{} integrated report critic failed".format(label)
+            )
 
 
 def _check_output_schemas(errors: List[str]) -> None:
@@ -262,14 +329,20 @@ def _check_imports(errors: List[str]) -> None:
         "src.document_intake.extractor",
         "src.document_intake.openai_adapter",
         "src.application.demo_service",
+        "src.application.market_integration_service",
         "src.application.consultation_service",
         "src.application.stage2_input_service",
         "src.consultation.packet",
         "src.consultation.response_mapping",
         "src.consultation.risk_classifier",
         "src.domain.consultation_models",
+        "src.domain.stage1_web_models",
         "src.security.upload_guard",
         "src.stage1.adapter",
+        "src.stage1.forecast_provider",
+        "src.stage1.scenario_builder",
+        "src.stage1.spot_rate",
+        "src.stage1.web_forecast",
         "src.stage2.engine",
         "src.stage3.optimizer",
         "src.stage4.local_kb",

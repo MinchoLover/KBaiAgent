@@ -1,6 +1,6 @@
 import hashlib
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sample_data import sample_extraction
 from src.application.consultation_service import build_decision_support
@@ -72,6 +72,34 @@ def _decision_stage2_input(
 ) -> Stage2Input:
     trade_type = "IMPORT" if company_role == "BUYER" else "EXPORT"
     is_import = trade_type == "IMPORT"
+    krw_cashflows: List[KrwCashflowEvent]
+    if is_import:
+        krw_cashflows = [
+            KrwCashflowEvent(
+                date="2026-09-30",
+                amount="40000000",
+                direction="INFLOW",
+                category="REVENUE",
+                description="결제 전 확정 매출 입금",
+            ),
+            KrwCashflowEvent(
+                date="2026-10-01",
+                amount="45000000",
+                direction="OUTFLOW",
+                category="COST",
+                description="결제 전 확정 운영비",
+            ),
+        ]
+    else:
+        krw_cashflows = [
+            KrwCashflowEvent(
+                date="2026-10-18",
+                amount="145000000",
+                direction="OUTFLOW",
+                category="COST",
+                description="수출대금으로 충당할 확정 운영비",
+            )
+        ]
     return Stage2Input(
         confirmed_trade_sha256=confirmed_trade_sha256,
         as_of_date="2026-07-23",
@@ -94,23 +122,7 @@ def _decision_stage2_input(
         minimum_cash_buffer="10000000",
         credit_limit="0",
         acceptable_fx_loss="5000000",
-        krw_cashflows=[
-            KrwCashflowEvent(
-                date=(
-                    "2026-10-01" if is_import else "2026-10-18"
-                ),
-                amount=(
-                    "3000000" if is_import else "145000000"
-                ),
-                direction="OUTFLOW",
-                category="COST",
-                description=(
-                    "결제 전 확정 운영비"
-                    if is_import
-                    else "수출대금으로 충당할 확정 운영비"
-                ),
-            )
-        ],
+        krw_cashflows=krw_cashflows,
         bank_spread_bps="0",
         bank_fee="0",
         composite_stress=CompositeStress(),
@@ -243,6 +255,7 @@ def run_offline_demo(
 def run_decision_support_demo(
     company_role: str = "BUYER",
     orchestrator: Optional[WorkflowOrchestrator] = None,
+    use_stage1_web_fixture: bool = False,
 ) -> Dict[str, Any]:
     if company_role not in {"BUYER", "SELLER"}:
         raise ValueError("회사 역할은 BUYER 또는 SELLER여야 합니다.")
@@ -286,25 +299,44 @@ def run_decision_support_demo(
         company_role=company_role,
         confirmed_trade_sha256=confirmed_trade.trade_sha256,
     )
-    workflow = orchestrator or WorkflowOrchestrator(settings=Settings())
+    workflow = orchestrator or WorkflowOrchestrator(
+        settings=Settings(
+            stage1_provider=(
+                "mock" if use_stage1_web_fixture else "http"
+            ),
+            spot_rate_provider=(
+                "fixture" if use_stage1_web_fixture else "manual"
+            ),
+        )
+    )
     state = workflow.initialize(
         mode="OFFLINE",
         extraction=extraction,
         validation=validation,
         confirmation=record,
     )
-    state = workflow.run(
-        state,
-        WorkflowRequest(
-            stage2_input=stage2_input,
-            manual_base_rate="1400",
-            stage1_mode="EXTERNAL_STAGE1",
-            stage1_payload=_decision_scenarios(
-                company_role
-            ).model_dump(),
-            product_search_mode="OFFLINE_KB",
+    request = WorkflowRequest(
+        stage2_input=stage2_input,
+        manual_base_rate="1400",
+        stage1_mode=(
+            "WEB_FORECAST"
+            if use_stage1_web_fixture
+            else "EXTERNAL_STAGE1"
         ),
+        stage1_payload=(
+            None
+            if use_stage1_web_fixture
+            else _decision_scenarios(company_role).model_dump()
+        ),
+        stage1_provider=(
+            "mock" if use_stage1_web_fixture else None
+        ),
+        spot_provider=(
+            "fixture" if use_stage1_web_fixture else None
+        ),
+        product_search_mode="OFFLINE_KB",
     )
+    state = workflow.run(state, request)
     _require_completed(state)
     decision_support = build_decision_support(
         case_id=state.case_id,
@@ -321,6 +353,7 @@ def run_decision_support_demo(
         "validation": validation,
         "stage1_load": state.market_risk.data,
         "stage1": state.market_risk.data.scenario_set,
+        "market_integration": state.market_integration,
         "stage2_input": stage2_input,
         "stage2": state.cashflow.data,
         "stage3": state.hedge.data,
@@ -332,3 +365,16 @@ def run_decision_support_demo(
         "workflow_state": state,
         "trace": state.trace,
     }
+
+
+def run_integrated_decision_demo(
+    company_role: str = "BUYER",
+    orchestrator: Optional[WorkflowOrchestrator] = None,
+) -> Dict[str, Any]:
+    """Run the Stage 1 fixture through the complete decision workflow."""
+
+    return run_decision_support_demo(
+        company_role=company_role,
+        orchestrator=orchestrator,
+        use_stage1_web_fixture=True,
+    )

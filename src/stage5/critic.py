@@ -99,6 +99,100 @@ def _product_grounding_issues(
     return list(dict.fromkeys(issues))
 
 
+def _market_policy_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    integration = source_bundle.get("market_integration")
+    if not isinstance(integration, dict):
+        return []
+    issues: List[str] = []
+    forecast_load = integration.get("forecast_load") or {}
+    forecast = (
+        forecast_load.get("forecast", {})
+        if isinstance(forecast_load, dict)
+        else {}
+    )
+    direction = (
+        forecast.get("direction", {})
+        if isinstance(forecast, dict)
+        else {}
+    )
+    scenario_build = integration.get("scenario_build") or {}
+    market_context = (
+        forecast.get("market_context", {})
+        if isinstance(forecast, dict)
+        else {}
+    )
+
+    if re.search(
+        r"q90.{0,40}(?:90\s*%\s*(?:확률|가능성)|90퍼센트)",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        issues.append("q90을 90% 발생확률로 오해하게 표현했습니다.")
+    if (
+        isinstance(direction, dict)
+        and direction.get("calibrated_probability") is False
+    ):
+        for line in markdown.splitlines():
+            if (
+                re.search(
+                    r"(?:방향\s*점수|up_score|down_score).{0,80}"
+                    r"(?:실제\s*)?(?:발생)?확률",
+                    line,
+                    re.IGNORECASE,
+                )
+                and "보정된 실제 발생확률이 아닙니다" not in line
+            ):
+                issues.append(
+                    "미보정 방향 점수를 실제 발생확률로 표현했습니다."
+                )
+                break
+    if (
+        isinstance(scenario_build, dict)
+        and scenario_build.get("horizon_mismatch") is True
+    ):
+        for line in markdown.splitlines():
+            if (
+                re.search(
+                    r"(?:결제기간|결제일까지|90일).{0,40}"
+                    r"(?:예측|전망)",
+                    line,
+                    re.IGNORECASE,
+                )
+                and "예측하지" not in line
+                and "예측이 아닙니다" not in line
+            ):
+                issues.append(
+                    "21거래일 모델을 결제기간 밖으로 외삽했습니다."
+                )
+                break
+    if (
+        isinstance(market_context, dict)
+        and market_context.get("news_used_as_predictor") is False
+    ):
+        for line in markdown.splitlines():
+            if (
+                re.search(
+                    r"뉴스.{0,40}(?:환율|손실|결제액).{0,30}"
+                    r"(?:계산에 반영|수치를 변경|숫자를 변경)",
+                    line,
+                    re.IGNORECASE,
+                )
+                and "반영하지" not in line
+                and "변경하지" not in line
+            ):
+                issues.append(
+                    "설명용 뉴스를 금융 숫자 계산에 사용한 것처럼 "
+                    "표현했습니다."
+                )
+                break
+    return list(dict.fromkeys(issues))
+
+
 def critique_report(
     *,
     markdown: str,
@@ -223,6 +317,10 @@ def critique_report(
     for issue in _product_grounding_issues(markdown, source_bundle):
         issues.append(issue)
         evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
+    for issue in _market_policy_issues(markdown, source_bundle):
+        issues.append(issue)
         recommendation_issues.append(issue)
 
     unique_issues = list(dict.fromkeys(issues))

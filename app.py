@@ -41,8 +41,9 @@ from src.domain.consultation_models import (
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
+from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Input, Stage2Result
-from src.domain.stage3_models import Stage3Result
+from src.domain.stage3_models import Stage3Assumptions, Stage3Result
 from src.security.upload_guard import validate_upload
 from src.ui.components import (
     decimal_text,
@@ -1739,6 +1740,10 @@ with stage1_tab:
         st.session_state.setdefault(
             "stage1_mode_widget",
             (
+                "WEB_FORECAST"
+                if settings.stage1_mode
+                in {"web", "web_forecast", "stage1_web"}
+                else
                 "EXTERNAL_STAGE1"
                 if settings.stage1_mode in {"external", "external_stage1"}
                 else "MANUAL_STRESS"
@@ -1746,19 +1751,89 @@ with stage1_tab:
         )
         scenario_mode = st.radio(
             "환율 가정을 만드는 방법",
-            ["MANUAL_STRESS", "EXTERNAL_STAGE1"],
+            ["WEB_FORECAST", "MANUAL_STRESS", "EXTERNAL_STAGE1"],
             horizontal=True,
             format_func=lambda value: {
+                "WEB_FORECAST": "Stage 1 AI + 고정 스트레스",
                 "MANUAL_STRESS": "직접 스트레스 테스트",
-                "EXTERNAL_STAGE1": "외부 전망 연결",
+                "EXTERNAL_STAGE1": "기존 시나리오 JSON",
             }[value],
             key="stage1_mode_widget",
         )
+        stage1_provider: Optional[str] = None
+        spot_provider: Optional[str] = None
+        manual_spot_confirmed = False
+        if scenario_mode == "WEB_FORECAST":
+            st.markdown("#### Stage 1 시장 분석 연결")
+            provider_options = ["http", "file", "mock"]
+            default_provider = (
+                "mock"
+                if run_mode == "DEMO"
+                else settings.stage1_provider
+            )
+            stage1_provider = st.radio(
+                "Stage 1 공급자",
+                provider_options,
+                index=_safe_index(provider_options, default_provider),
+                horizontal=True,
+                format_func=lambda value: {
+                    "http": "로컬 HTTP",
+                    "file": "latest_forecast.json",
+                    "mock": "제공 fixture",
+                }[value],
+                key="stage1_provider_widget",
+            )
+            st.caption(
+                "HTTP 실패 시 file/mock 사용 여부와 `FALLBACK_USED`를 "
+                "결과에 표시합니다. 방향 score는 실제 발생확률로 쓰지 않습니다."
+            )
+            spot_options = ["fixture", "manual"]
+            if settings.koreaexim_key:
+                spot_options.insert(0, "koreaexim")
+            default_spot = (
+                "fixture"
+                if run_mode == "DEMO"
+                else settings.spot_rate_provider
+            )
+            if default_spot not in spot_options:
+                default_spot = "manual"
+            spot_provider = st.radio(
+                "절대 기준환율 출처",
+                spot_options,
+                index=_safe_index(spot_options, default_spot),
+                horizontal=True,
+                format_func=lambda value: {
+                    "koreaexim": "한국수출입은행 API",
+                    "manual": "사용자 확인 수동 입력",
+                    "fixture": "데모 1,400원",
+                }[value],
+                key="spot_provider_widget",
+            )
         base_rate = st.text_input(
             "검토 기준 환율 · 1 {}당 원화".format(trade["currency"]),
-            value="1400",
+            value=(
+                settings.manual_usdkrw_rate or "1400"
+            ),
+            disabled=(
+                scenario_mode == "WEB_FORECAST"
+                and spot_provider in {"fixture", "koreaexim"}
+            ),
             key="stage1_base_rate_widget",
         )
+        if scenario_mode == "WEB_FORECAST" and spot_provider == "manual":
+            manual_spot_confirmed = st.checkbox(
+                "위 기준환율의 값과 기준시점을 확인했습니다",
+                value=False,
+                key="spot_confirmed_widget",
+                help=(
+                    "Stage 1 JSON에는 절대환율이 없으므로 사용자가 확인한 "
+                    "환율만 계산에 사용할 수 있습니다."
+                ),
+            )
+        elif scenario_mode == "WEB_FORECAST" and spot_provider == "fixture":
+            st.warning(
+                "1,400원은 가상 데모 fixture이며 현재 시장환율이 아닙니다."
+            )
         payload: Optional[bytes] = None
         endpoint: Optional[str] = None
         if scenario_mode == "EXTERNAL_STAGE1":
@@ -1815,6 +1890,9 @@ with stage1_tab:
                     mode=scenario_mode,
                     payload=payload,
                     endpoint=endpoint,
+                    stage1_provider=stage1_provider,
+                    spot_provider=spot_provider,
+                    manual_spot_confirmed=manual_spot_confirmed,
                 )
                 if (
                     workflow.market_risk is None
@@ -1831,6 +1909,11 @@ with stage1_tab:
                     )
                 loaded = workflow.market_risk.data
                 _save_model("stage1_load", loaded)
+                if workflow.market_integration is not None:
+                    _save_model(
+                        "market_integration",
+                        workflow.market_integration,
+                    )
                 _save_workflow(workflow)
                 clear_downstream(st.session_state, 2)
                 st.success("환율 가정이 준비되었습니다. 현금 영향을 계산하세요.")
@@ -1842,10 +1925,16 @@ with stage1_tab:
             "stage1_load",
             Stage1LoadResult,
         )
+        market_integration = _model_from_state(
+            "market_integration",
+            MarketIntegrationResult,
+        )
         if stage1_load is not None:
             scenarios = stage1_load.scenario_set
             source_copy = (
-                "외부 전망"
+                "Stage 1 AI 경로위험 + 고정 스트레스"
+                if market_integration is not None
+                else "외부 전망"
                 if scenarios.kind == "FORECAST"
                 else "스트레스 테스트 · 예측 아님"
             )
@@ -1858,6 +1947,148 @@ with stage1_tab:
                 ),
                 unsafe_allow_html=True,
             )
+            if market_integration is not None:
+                quote = market_integration.spot_quote
+                integration_cols = st.columns(4)
+                integration_cols[0].metric(
+                    "Stage 1 연결",
+                    (
+                        market_integration.forecast_load.source
+                        if market_integration.forecast_load is not None
+                        else "고정 스트레스만"
+                    ),
+                )
+                integration_cols[1].metric(
+                    "확인된 기준환율",
+                    "{}원".format(
+                        format_decimal_display(quote.rate, 2)
+                    ),
+                )
+                integration_cols[2].metric(
+                    "환율 출처",
+                    quote.rate_type,
+                )
+                integration_cols[3].metric(
+                    "모델 적용 범위",
+                    (
+                        "초기 21일 문맥만"
+                        if market_integration.scenario_build.horizon_mismatch
+                        else "결제기간 내 21일"
+                    ),
+                )
+                forecast_load = market_integration.forecast_load
+                if forecast_load is not None:
+                    forecast = forecast_load.forecast
+                    st.markdown("#### 모델 기반 21일 경로위험")
+                    direction_cols = st.columns(4)
+                    direction_cols[0].metric(
+                        "방향 문맥",
+                        (
+                            "USD/KRW 하락 우세"
+                            if forecast.direction.label == "USD_KRW_DOWN"
+                            else "USD/KRW 상승 우세"
+                        ),
+                    )
+                    direction_cols[1].metric(
+                        "상승 score",
+                        format_ratio(forecast.direction.up_score),
+                    )
+                    direction_cols[2].metric(
+                        "하락 score",
+                        format_ratio(forecast.direction.down_score),
+                    )
+                    direction_cols[3].metric(
+                        "확률 보정",
+                        (
+                            "보정됨"
+                            if forecast.direction.calibrated_probability
+                            else "보정되지 않음"
+                        ),
+                    )
+                    st.caption(
+                        "상승·하락 값은 v25 모델 score이며 보정된 실제 "
+                        "발생확률이 아닙니다. 기대손실 가중치에 사용하지 않습니다."
+                    )
+                    adverse_direction = (
+                        "UP"
+                        if trade["trade_type"] == "IMPORT"
+                        else "DOWN"
+                    )
+                    model_rows = []
+                    for item in (
+                        market_integration.scenario_build.model_path_scenarios
+                    ):
+                        model_rows.append(
+                            {
+                                "기업 위험 방향": (
+                                    "불리한 방향"
+                                    if item.direction == adverse_direction
+                                    else "반대 방향 참고"
+                                ),
+                                "경로위험 분위수": item.id,
+                                "상대 변동": format_ratio(
+                                    str(abs(Decimal(item.move)))
+                                ),
+                                "절대 환율": "{}원".format(
+                                    format_decimal_display(item.rate, 2)
+                                ),
+                                "결제 계산": (
+                                    "포함"
+                                    if item.included_in_calculation
+                                    else "제외 · 초기 21일 문맥만"
+                                ),
+                            }
+                        )
+                    st.dataframe(
+                        model_rows,
+                        width="stretch",
+                        hide_index=True,
+                    )
+                    st.info(
+                        "q90은 ‘90% 확률로 발생’이 아니라 모델 "
+                        "예측분포의 상위 경로위험 분위수입니다."
+                    )
+
+                    st.markdown("#### 뉴스 기반 시장 문맥")
+                    st.write(forecast.market_context.summary)
+                    st.caption(
+                        "뉴스는 환율 숫자를 변경하지 않았습니다 · 중복 기사 "
+                        "{}건 제거 · 검색 오류 지역 {}".format(
+                            forecast.market_context.duplicate_news_removed,
+                            ", ".join(
+                                forecast.market_context.query_errors
+                            )
+                            or "없음",
+                        )
+                    )
+                    if forecast.market_context.news:
+                        news_rows = [
+                            {
+                                "지역": item.region,
+                                "범주": item.category,
+                                "요약": item.summary,
+                                "분석 신뢰": format_ratio(
+                                    item.analysis_confidence
+                                ),
+                            }
+                            for item in forecast.market_context.news
+                        ]
+                        st.dataframe(
+                            news_rows,
+                            width="stretch",
+                            hide_index=True,
+                        )
+                if market_integration.scenario_build.horizon_mismatch:
+                    st.warning(
+                        "HORIZON_MISMATCH · 결제일이 Stage 1의 21거래일 "
+                        "검증범위 밖입니다. 모델 환율은 계산에서 제외하고 "
+                        "±3/5/10% 고정 스트레스만 적용했습니다."
+                    )
+                st.markdown("#### 고정 스트레스 테스트")
+                st.caption(
+                    "아래 구간은 미래 예측이 아니라 전체 결제기간의 "
+                    "지급·수취 능력을 확인하는 결정론적 가정입니다."
+                )
             base_point = next(
                 (
                     item
@@ -1885,9 +2116,12 @@ with stage1_tab:
                         "성격": (
                             "기준"
                             if item.is_base
+                            else "모델 경로위험 분위수"
+                            if item.source_kind
+                            == "STAGE1_MODEL_QUANTILE"
                             else "외부 전망"
                             if scenarios.kind == "FORECAST"
-                            else "스트레스 가정"
+                            else "고정 스트레스 가정"
                         ),
                     }
                 )
@@ -1896,6 +2130,22 @@ with stage1_tab:
                 width="stretch",
                 hide_index=True,
             )
+            if stage1_load.warnings:
+                with st.expander(
+                    "Stage 1 품질·적용 경고",
+                    expanded=bool(
+                        market_integration is not None
+                        and (
+                            market_integration.scenario_build.horizon_mismatch
+                            or (
+                                market_integration.forecast_load is not None
+                                and market_integration.forecast_load.fallback_used
+                            )
+                        )
+                    ),
+                ):
+                    for warning in stage1_load.warnings:
+                        st.warning(warning)
             with st.expander("고급 · 환율 데이터 및 적용 규칙", expanded=False):
                 st.caption(
                     "{} · 적용 규칙: {} · 확률값 유효={}".format(
@@ -2591,7 +2841,7 @@ with stage3_tab:
             option_cols = st.columns(2)
             grid = option_cols[0].selectbox(
                 "전략 조합 간격",
-                [10, 5],
+                [5, 10],
                 format_func=lambda value: "{}%p 단위".format(value),
                 key="stage3_grid_widget",
             )
@@ -2603,6 +2853,43 @@ with stage3_tab:
                 step=0.1,
                 help="1에 가까울수록 비용보다 손실·유동성 방어를 우선합니다.",
                 key="stage3_stability_widget",
+            )
+            cost_cols = st.columns(2)
+            forward_fee_bps = cost_cols[0].number_input(
+                "선물환 비용 가정 (bps)",
+                min_value=0.0,
+                value=15.0,
+                step=1.0,
+                key="stage3_forward_fee_widget",
+            )
+            staged_fee_bps = cost_cols[1].number_input(
+                "분할환전 비용 가정 (bps)",
+                min_value=0.0,
+                value=5.0,
+                step=1.0,
+                key="stage3_staged_fee_widget",
+            )
+            constraint_cols = st.columns(2)
+            maximum_forward_ratio = constraint_cols[0].slider(
+                "신규 선물환 최대 비율",
+                min_value=0.0,
+                max_value=1.0,
+                value=1.0,
+                step=0.05,
+                key="stage3_max_forward_widget",
+            )
+            staged_risk_factor = constraint_cols[1].slider(
+                "분할환전 잔여위험 가정",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.5,
+                step=0.05,
+                key="stage3_staged_risk_widget",
+            )
+            forward_effective_rate = st.text_input(
+                "선물환 약정환율 가정 · 비우면 기준환율 사용",
+                value="",
+                key="stage3_forward_rate_widget",
             )
         if st.button(
             "대응 전략 3가지 비교하기",
@@ -2617,6 +2904,31 @@ with stage3_tab:
                 workflow,
                 grid_step_percent=int(grid),
                 stability_preference=format(Decimal(str(stability)), "f"),
+                assumptions=Stage3Assumptions(
+                    forward_effective_rate=(
+                        forward_effective_rate.strip() or None
+                    ),
+                    forward_fee_bps=format(
+                        Decimal(str(forward_fee_bps)),
+                        "f",
+                    ),
+                    staged_conversion_fee_bps=format(
+                        Decimal(str(staged_fee_bps)),
+                        "f",
+                    ),
+                    staged_risk_factor=format(
+                        Decimal(str(staged_risk_factor)),
+                        "f",
+                    ),
+                    risk_aversion_weight=format(
+                        Decimal(str(stability)),
+                        "f",
+                    ),
+                    maximum_forward_ratio=format(
+                        Decimal(str(maximum_forward_ratio)),
+                        "f",
+                    ),
+                ),
             )
             if workflow.hedge is None or workflow.hedge.data is None:
                 st.error(
@@ -2636,6 +2948,17 @@ with stage3_tab:
             st.rerun()
         stage3_result = _model_from_state("stage3_result", Stage3Result)
         if stage3_result is not None:
+            if not stage3_result.candidates:
+                st.error(
+                    "현재 입력과 제약을 모두 충족하는 헤지 후보가 없습니다. "
+                    "추가 자금, 결제조건 조정 또는 KB 상담이 필요합니다."
+                )
+                if stage3_result.infeasible_reasons:
+                    st.caption(
+                        "미충족 제약: {}".format(
+                            ", ".join(stage3_result.infeasible_reasons)
+                        )
+                    )
             st.markdown(
                 "<div class='state-banner'><span class='state-icon'>i</span>"
                 "<div><strong>검토 순서는 계산상 우선순위이며 금융 자문이 아닙니다</strong>"
@@ -2649,11 +2972,11 @@ with stage3_tab:
                 stage3_result.candidates,
             ):
                 with card:
-                    candidate_chip = (
-                        "우선 검토"
-                        if candidate.rank == 1
-                        else "비교 후보"
-                    )
+                    candidate_chip = {
+                        "STABILITY_FIRST": "안정성 우선",
+                        "BALANCED": "균형",
+                        "COST_FIRST": "비용 우선",
+                    }.get(candidate.profile, "비교 후보")
                     constraint_copy = (
                         "입력한 제약 충족"
                         if candidate.constraints_satisfied
@@ -2673,6 +2996,9 @@ with stage3_tab:
                         "<div><small>비용 가정</small><b>{}</b></div>"
                         "<div><small>유동성 영향</small><b>{}</b></div>"
                         "<div><small>보유외화 반영</small><b>{}</b></div>"
+                        "<div><small>q90 손실</small><b>{}</b></div>"
+                        "<div><small>±10% 불리방향 손실</small><b>{}</b></div>"
+                        "<div><small>최저 현금잔고</small><b>{}</b></div>"
                         "</div><div class='constraint'>{}</div></div>".format(
                             candidate.rank,
                             candidate_chip,
@@ -2685,6 +3011,18 @@ with stage3_tab:
                             format_krw(candidate.assumed_hedge_cost),
                             format_krw(candidate.liquidity_impact),
                             format_ratio(candidate.held_fx_ratio),
+                            (
+                                format_krw(candidate.q90_adverse_loss)
+                                if candidate.q90_adverse_loss is not None
+                                else "기간 외 · 미적용"
+                            ),
+                            (
+                                format_krw(candidate.fixed_10_adverse_loss)
+                                if candidate.fixed_10_adverse_loss
+                                is not None
+                                else "미확인"
+                            ),
+                            format_krw(candidate.minimum_cash_balance),
                             constraint_copy,
                         ),
                         unsafe_allow_html=True,
@@ -2721,16 +3059,20 @@ with stage4_tab:
             unsafe_allow_html=True,
         )
     else:
-        default_query = " ".join(
-            stage3_result.candidates[0].required_product_types
-            + [
-                "선물환",
-                "환변동보험",
-                "외화예금",
-                "수출입대출",
-                "정책자금",
-                "보증상품",
-            ]
+        default_query = (
+            " ".join(
+                stage3_result.candidates[0].required_product_types
+                + [
+                    "선물환",
+                    "환변동보험",
+                    "외화예금",
+                    "수출입대출",
+                    "정책자금",
+                    "보증상품",
+                ]
+            )
+            if stage3_result.candidates
+            else "수출입 결제자금 환율관리 운영자금 상담"
         )
         with st.expander("검색 범위와 출처 설정", expanded=False):
             query = st.text_input(

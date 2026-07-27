@@ -25,6 +25,7 @@ from src.stage2.metrics import (
 from src.stage2.scenarios import (
     adverse_loss_vs_base,
     applied_customer_rate,
+    signed_impact_vs_base,
 )
 
 
@@ -357,6 +358,13 @@ def _build_scenario_result(
         base_inflow=base_fx_inflow,
         base_outflow=base_fx_outflow,
     )
+    signed_impact = signed_impact_vs_base(
+        trade_type=computations[0].trade_type,
+        scenario_inflow=fx_inflow,
+        scenario_outflow=fx_outflow,
+        base_inflow=base_fx_inflow,
+        base_outflow=base_fx_outflow,
+    )
     return ScenarioResult(
         scenario_name=scenario.name,
         scenario_kind=scenarios.kind,
@@ -365,11 +373,15 @@ def _build_scenario_result(
         applied_rate=decimal_string(applied_rate),
         fx_krw_inflow=money_string(fx_inflow),
         fx_krw_outflow=money_string(fx_outflow),
+        signed_impact_vs_base=money_string(signed_impact),
         loss_vs_base=money_string(loss),
         ending_cash=money_string(cash_metrics["ending_cash"]),
         minimum_cash=money_string(cash_metrics["minimum_cash"]),
         first_buffer_shortfall_date=cash_metrics[
             "first_buffer_shortfall_date"
+        ],
+        first_cash_deficit_date=cash_metrics[
+            "first_cash_deficit_date"
         ],
         maximum_buffer_shortfall=money_string(
             cash_metrics["maximum_buffer_shortfall"]
@@ -380,6 +392,29 @@ def _build_scenario_result(
         ),
         acceptable_loss_exceeded=loss > acceptable_loss,
         ledger=ledger,
+        scenario_source_kind=scenario.source_kind,
+        horizon_trading_days=scenario.horizon_trading_days,
+        warnings=list(scenario.warnings),
+        source_paths={
+            "scenario_rate": (
+                "stage1.scenario_set.scenarios[{}].rate".format(
+                    scenario.name
+                )
+            ),
+            "applied_rate": (
+                "stage2.input.bank_spread_bps+stage1.scenario_rate"
+            ),
+            "loss_vs_base": (
+                "stage2.scenario_results[{}].loss_vs_base".format(
+                    scenario.name
+                )
+            ),
+            "ending_cash": (
+                "stage2.scenario_results[{}].ledger".format(
+                    scenario.name
+                )
+            ),
+        },
     )
 
 
@@ -434,6 +469,8 @@ def run_stage2(
         computation, exposure_warnings = compute_exposure(exposure)
         computations.append(computation)
         warnings.extend(exposure_warnings)
+    for scenario in scenarios.scenarios:
+        warnings.extend(scenario.warnings)
 
     base = _base_scenario(scenarios)
     base_inflow, base_outflow, unused_rate = _scenario_fx_flow(
@@ -513,6 +550,10 @@ def run_stage2(
         stage2_input.minimum_cash_buffer,
         "minimum_cash_buffer",
     )
+    credit_limit = decimal_value(
+        stage2_input.credit_limit,
+        "credit_limit",
+    )
 
     assumptions = [
         "환율은 KRW_PER_1_FC 기준입니다.",
@@ -562,7 +603,23 @@ def run_stage2(
             "base_rate": base.rate,
             "acceptable_fx_loss": decimal_string(acceptable_loss),
             "minimum_cash_buffer": decimal_string(minimum_buffer),
+            "credit_limit": decimal_string(credit_limit),
             "probability_valid": scenarios.probability_valid,
             "scenarios": scenario_constraints,
+        },
+        source_paths={
+            "total_foreign_amount": "stage2.input.exposures[].foreign_amount",
+            "natural_offset": (
+                "stage2.exposure_computations[].natural_offset"
+            ),
+            "hedged_amount": (
+                "stage2.exposure_computations[].hedged_amount"
+            ),
+            "open_exposure": (
+                "stage2.exposure_computations[].open_exposure"
+            ),
+            "base_required_or_proceeds_krw": (
+                "stage2.scenario_results[BASE].fx_krw_flow"
+            ),
         },
     )

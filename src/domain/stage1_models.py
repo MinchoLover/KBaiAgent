@@ -10,6 +10,15 @@ class ScenarioPoint(StrictModel):
     rate: str
     is_base: bool = False
     probability: Optional[str] = None
+    source_kind: Literal[
+        "LEGACY",
+        "MANUAL_STRESS",
+        "SPOT_BASE",
+        "STAGE1_MODEL_QUANTILE",
+        "DETERMINISTIC_STRESS",
+    ] = "LEGACY"
+    horizon_trading_days: Optional[int] = Field(default=None, gt=0)
+    warnings: List[str] = Field(default_factory=list)
 
 
 class Stage1ScenarioSet(StrictModel):
@@ -30,6 +39,12 @@ class NormalizedScenarioSet(Stage1ScenarioSet):
 
 
 class Stage1LoadResult(StrictModel):
-    source: Literal["MANUAL", "EXTERNAL", "MANUAL_FALLBACK"]
+    source: Literal[
+        "MANUAL",
+        "EXTERNAL",
+        "MANUAL_FALLBACK",
+        "STAGE1_MODEL",
+        "STAGE1_MODEL_FALLBACK",
+    ]
     scenario_set: NormalizedScenarioSet
     warnings: List[str] = Field(default_factory=list)

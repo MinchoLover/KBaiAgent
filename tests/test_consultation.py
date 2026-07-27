@@ -40,11 +40,11 @@ class DecisionSupportImportTests(unittest.TestCase):
         )
         self.assertEqual(
             packet.risk_summary.cash_after_settlement_krw,
-            "9400000.00",
+            "7400000.00",
         )
         self.assertEqual(
             packet.risk_summary.buffer_shortfall_krw,
-            "600000.00",
+            "2600000.00",
         )
         self.assertEqual(packet.risk_summary.payment_gap_krw, "0.00")
 

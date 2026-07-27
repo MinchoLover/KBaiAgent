@@ -1,5 +1,6 @@
 .env
 .env.*
+!.env.example
 .venv/
 __pycache__/
 *.pyc
@@ -18,3 +19,4 @@ tmp/
 predictions/*.json
 dataset/predictions/live/
 artifacts/*.jsonl
+.streamlit/secrets.toml

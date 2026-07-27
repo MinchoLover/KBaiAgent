@@ -9,6 +9,7 @@ from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import NormalizedScenarioSet
+from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Result
 from src.domain.stage3_models import Stage3Result
 from src.stage5.critic import critique_report
@@ -22,6 +23,9 @@ REPORT_INSTRUCTIONS = """
 제공된 JSON의 숫자를 절대 재계산하거나 수정하지 말고 한국어 보고서를 작성하라.
 각 핵심 숫자 뒤에 [source: JSON.path]를 표시하라.
 STRESS를 예측이라 부르지 말고, probability_valid=false이면 확률을 만들지 마라.
+q90은 90% 발생확률이 아니라 모델 예측분포의 상위 경로위험 분위수다.
+HORIZON_MISMATCH이면 모델 분위수를 결제기간 예측처럼 표현하지 마라.
+뉴스는 시장 설명용이며 환율·손실 숫자를 변경한 것처럼 쓰지 마라.
 상품은 stage4.candidates에 있는 공식 근거 후보만 후보/상담 필요로 표현하라.
 stage4.candidates가 비어 있으면 상품명이나 기관을 만들지 말고 공식 후보가 없다고 밝혀라.
 승인·수익·손실회피를 보장하지 마라.
@@ -38,6 +42,7 @@ def generate_report(
     stage2: Stage2Result,
     stage3: Stage3Result,
     stage4: Stage4Result,
+    market_integration: Optional[MarketIntegrationResult] = None,
     settings: Optional[Settings] = None,
     client: Optional[Any] = None,
     max_revisions: int = 1,
@@ -53,6 +58,7 @@ def generate_report(
         stage2=stage2,
         stage3=stage3,
         stage4=stage4,
+        market_integration=market_integration,
     )
     if not stage4.candidates:
         return fallback.model_copy(
@@ -62,6 +68,15 @@ def generate_report(
                     "공식 근거 상품이 없어 LLM 상품 생성을 차단하고 "
                     "결정론 보고서를 사용했습니다."
                 ],
+                "fallback_reason": "DETERMINISTIC_POLICY",
+                "revision_count": 0,
+            }
+        )
+    if not effective_settings.enable_llm_report:
+        return fallback.model_copy(
+            update={
+                "warnings": fallback.warnings
+                + ["ENABLE_LLM_REPORT=false로 결정론 보고서를 사용했습니다."],
                 "fallback_reason": "DETERMINISTIC_POLICY",
                 "revision_count": 0,
             }
@@ -81,6 +96,7 @@ def generate_report(
         stage2=stage2,
         stage3=stage3,
         stage4=stage4,
+        market_integration=market_integration,
     )
     revision_count = 0
     try:

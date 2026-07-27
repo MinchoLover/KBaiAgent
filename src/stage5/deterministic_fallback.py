@@ -1,11 +1,12 @@
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from schemas import TradeDocumentExtraction
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import NormalizedScenarioSet
+from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Result
 from src.domain.stage3_models import Stage3Result
 from src.stage5.critic import critique_report
@@ -27,6 +28,13 @@ def _product_lines(stage4: Stage4Result) -> List[str]:
 
 
 def _strategy_lines(stage3: Stage3Result) -> List[str]:
+    if not stage3.candidates:
+        return [
+            "- 현재 입력과 제약을 모두 충족하는 시뮬레이션 후보가 "
+            "없습니다. 추가 자금·결제조건 조정·은행 상담이 필요합니다. "
+            "[source: stage3.status] "
+            "[source: stage3.infeasible_reasons]"
+        ]
     lines: List[str] = []
     for index, item in enumerate(stage3.candidates):
         expected_text = (
@@ -64,17 +72,53 @@ def build_report_source_bundle(
     stage2: Stage2Result,
     stage3: Stage3Result,
     stage4: Stage4Result,
+    market_integration: Optional[MarketIntegrationResult] = None,
 ) -> Dict[str, Any]:
-    return {
+    confirmed_values = {
+        key: confirmation.confirmed_values.get(key)
+        for key in (
+            "trade_type",
+            "currency",
+            "amount_due",
+            "settlement_date",
+            "installment_due_dates",
+        )
+        if key in confirmation.confirmed_values
+    }
+    bundle: Dict[str, Any] = {
         "stage0": {
-            "extraction": extraction.model_dump(),
-            "confirmation": confirmation.model_dump(),
+            "extraction": {
+                "document_type": extraction.document_type,
+                "document_number": extraction.document_number,
+                "company_role": extraction.company_role,
+                "trade_type": extraction.trade_type,
+                "currency": extraction.currency,
+                "amount_due": extraction.amount_due,
+                "payment_terms": extraction.payment_terms,
+                "incoterm": extraction.incoterm,
+                "evidence_ids": [
+                    "stage0.extraction.evidence.{}".format(item.field)
+                    for item in extraction.evidence
+                ],
+            },
+            "confirmation": {
+                "source_filename": confirmation.source_filename,
+                "source_sha256": confirmation.source_sha256,
+                "confirmed_at": confirmation.confirmed_at,
+                "company_role": confirmation.company_role,
+                "company_country": confirmation.company_country,
+                "confirmed_values": confirmed_values,
+                "checks": confirmation.checks.model_dump(),
+            },
         },
         "stage1": stage1.model_dump(),
         "stage2": stage2.model_dump(),
         "stage3": stage3.model_dump(),
         "stage4": stage4.model_dump(),
     }
+    if market_integration is not None:
+        bundle["market_integration"] = market_integration.model_dump()
+    return bundle
 
 
 def generate_deterministic_report(
@@ -85,6 +129,7 @@ def generate_deterministic_report(
     stage2: Stage2Result,
     stage3: Stage3Result,
     stage4: Stage4Result,
+    market_integration: Optional[MarketIntegrationResult] = None,
 ) -> ReportResult:
     bundle = build_report_source_bundle(
         extraction=extraction,
@@ -93,6 +138,7 @@ def generate_deterministic_report(
         stage2=stage2,
         stage3=stage3,
         stage4=stage4,
+        market_integration=market_integration,
     )
     worst = max(
         stage2.scenario_results,
@@ -124,6 +170,32 @@ def generate_deterministic_report(
         )
     product_lines = "\n".join(_product_lines(stage4))
     strategy_lines = "\n".join(_strategy_lines(stage3))
+    market_context_lines = ""
+    if (
+        market_integration is not None
+        and market_integration.forecast_load is not None
+    ):
+        forecast = market_integration.forecast_load.forecast
+        mismatch_text = (
+            "결제일은 모델 검증범위 밖이므로 모델 분위수 환율은 "
+            "결제기간 계산에서 제외했습니다."
+            if market_integration.scenario_build.horizon_mismatch
+            else "결제일이 모델 검증범위 안이어서 경로위험 분위수를 "
+            "시나리오 계산에 포함했습니다."
+        )
+        market_context_lines = """
+
+- 방향 점수: {direction} (상승 {up_score}, 하락 {down_score}). 이 값은 보정된 실제 발생확률이 아닙니다. [source: market_integration.forecast_load.forecast.direction]
+- 모델 검증범위: {horizon_days}거래일. {mismatch_text} [source: market_integration.forecast_load.forecast.horizon] [source: market_integration.scenario_build.horizon_mismatch]
+- q90은 발생확률이 아니라 모델 예측분포의 상위 경로위험 분위수입니다. [source: market_integration.scenario_build.model_path_scenarios]
+- 뉴스는 시장 문맥 설명에만 사용했고 환율·손실 숫자를 변경하지 않았습니다. [source: market_integration.forecast_load.forecast.market_context]
+""".format(
+            direction=forecast.direction.label,
+            up_score=forecast.direction.up_score,
+            down_score=forecast.direction.down_score,
+            horizon_days=forecast.horizon.trading_days,
+            mismatch_text=mismatch_text,
+        )
     markdown = """# 환율·현금흐름 리스크 검토 보고서
 
 ## 1. 거래 요약
@@ -141,6 +213,7 @@ def generate_deterministic_report(
 ## 3. 환율 시나리오 성격
 
 {scenario_nature} 적용 규칙: {application_rule} [source: stage1.kind] [source: stage1.application_rule]
+{market_context_lines}
 
 ## 4. 현금흐름 영향
 
@@ -191,6 +264,7 @@ def generate_deterministic_report(
         filename=confirmation.source_filename,
         scenario_nature=scenario_nature,
         application_rule=stage1.application_rule,
+        market_context_lines=market_context_lines,
         base_flow=stage2.base_required_or_proceeds_krw,
         worst_name=worst.scenario_name,
         worst_loss=worst.loss_vs_base,

@@ -21,7 +21,6 @@ from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.stage2.metrics import money_string
 
 
-CALCULATION_VERSION = "stage2-decimal-1.0+risk-classifier-1.0"
 DISCLAIMER = (
     "본 결과는 금융상품 가입, 대출 승인 또는 헤지 실행을 결정하지 않습니다. "
     "환율 시나리오는 미래 환율의 확정 예측이 아닙니다. 실제 이용 가능 여부와 "
@@ -268,7 +267,10 @@ def build_consultation_packet(
     )
     packet = ConsultationPacket(
         case_id=case_id,
-        calculation_version=CALCULATION_VERSION,
+        calculation_version="{}+{}".format(
+            stage2_result.calculation_version,
+            assessment.calculation_version,
+        ),
         generated_at=generated_at or datetime.now(timezone.utc).isoformat(),
         input_hash=_input_hash(
             confirmation=confirmation,

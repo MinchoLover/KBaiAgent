@@ -358,6 +358,19 @@ class Stage1Tests(unittest.TestCase):
             ("ksure.or.kr", "kibo.or.kr"),
         )
 
+    def test_legacy_openai_key_and_document_switch_are_normalized(self):
+        with patch.dict(
+            os.environ,
+            {
+                "OPEN_AI_API_KEY": "test-only-key",
+                "ENABLE_DOCUMENT_AI": "false",
+            },
+            clear=True,
+        ):
+            settings = Settings.from_env()
+        self.assertEqual(settings.openai_api_key, "test-only-key")
+        self.assertFalse(settings.enable_live_document_extraction)
+
 
 if __name__ == "__main__":
     unittest.main()
