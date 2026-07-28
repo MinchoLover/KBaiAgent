@@ -1,5 +1,25 @@
 # AI Use Log
 
+## 2026-07-29 Baseline v1/v2 country canonicalization evidence
+
+Codex가 기존 Live run 원본 JSON과 Markdown에서 V1/V2 수치를 다시 읽고 제출용
+직접 비교를 작성했습니다. 두 run의 model, evaluator, prompt와 manifest hash가
+같고 의도된 차이가 country canonicalization commit `9bdffd9`임을 확인했습니다.
+seller country 4/8 → 8/8, buyer country 3/8 → 8/8과 canonical 국가에서
+결정론적으로 파생되는 trade type 2/8 → 8/8만 직접 효과로 분류했습니다.
+
+`document_type`·전체 document match·token·latency·법인명 표현은 LLM 재호출
+변동일 수 있어 canonicalization 성과에서 제외했습니다. 국가 정규화 전후 금액,
+통화, 날짜, payment terms와 installments가 사례별로 동일하고 abstention 30/30,
+hallucination 0이 유지됐음을 확인했습니다.
+
+8건은 독립 텍스트 레이어가 없는 이미지형 합성문서이므로 모델 evidence를 자동
+수용하지 않았고 validation·Stage 2 전달 0/8을 fail-closed 결과로 기록했습니다.
+Evidence coverage 0%를 OCR 정확도 0%로 표현하지 않았습니다. cached token이
+수집되지 않아 실제 비용은 `UNKNOWN`이며 비캐시 비용 상한만 사후 추정으로
+분리했습니다. Sanitized 집계 외 raw extraction, API key, 전체 prompt·payload·문서,
+raw API response는 Git에 추가하지 않았고 Live API를 다시 호출하지 않았습니다.
+
 ## 2026-07-29 P1-A guarded Live benchmark evidence
 
 Codex가 기존 evaluator를 교체하지 않고 Live 실행에 양수 `--max-cases`,

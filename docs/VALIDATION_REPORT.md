@@ -96,46 +96,54 @@ fixture는 label 복사로 evaluator 동작만 검증하므로 위 일치율은 
 확인했습니다. 최초 생성 사진의 원근 좌표 순서 오류로 90도 회전하던 결함은
 수정 후 전건 재생성·재검수했습니다. 반복 생성 byte hash, upload guard, 이미지형
 PDF 무텍스트, 정답 schema/evidence, 분할합계, fine-tuning 영구 제외도 자동
-테스트로 확인했습니다. 데이터셋 생성 당시 실제 OpenAI live 평가는 실행하지
-않았고, 아래 P1-A guarded smoke에서 별도 run으로 2건을 실행했습니다.
+테스트로 확인했습니다. 데이터셋 생성 당시에는 OpenAI Live 평가를 실행하지
+않았고, 이후 승인된 P1-A Baseline v1/v2에서 별도 immutable run으로 8건씩
+실행했습니다.
 
-## P1-A guarded Live 추출 smoke
+## P1-A guarded Live Baseline v1/v2
 
-API-free compile, 394개 unittest, country fixture 평가, regression과
-`scripts/verify.py`가 모두 통과한 뒤 사용자가 승인한 합성문서 2건만 실행했습니다.
+사용자가 승인한 합성 country validation test split 8건을 Baseline v1과 v2로 각각
+실행했습니다. 두 run 모두 `gpt-4o-mini` API/structured output 8건 성공,
+실패·timeout 0건이었습니다.
 
-```text
-run ID: baseline-v1-smoke-20260729-0341-kst
-model: gpt-4o-mini
-executed: 2
-API/structured success: 2
-failed: 0
-timeout: 0
-automatic document pass: 0/2
-Stage 2 allowed: 0/2
-average latency: 9.46 seconds
-input/output tokens: 77,623 / 1,254
-estimated cost: UNKNOWN
-```
+| 검증 | Baseline v1 | Baseline v2 |
+| --- | ---: | ---: |
+| run ID | `baseline-v1-full-20260729-0404-kst` | `baseline-v2-full-20260729-0443-kst` |
+| seller_country | 4/8 | 8/8 |
+| buyer_country | 3/8 | 8/8 |
+| trade_type | 2/8 | 8/8 |
+| currency·amount_due·explicit/derived due date | 각 8/8 | 각 8/8 |
+| installment 금액·합계 | 6/6·3/3 | 6/6·3/3 |
+| event condition·unknown due abstention | 2/2·3/3 | 2/2·3/3 |
+| 전체 abstention·hallucination | 30/30·0 | 30/30·0 |
+| validation PASS·Stage 2 allowed | 0/8·0/8 | 0/8·0/8 |
+| accepted evidence coverage | 0% | 0% |
 
-통화·금액·문서유형·회사역할·명시/파생 날짜는 2/2, buyer country는 1/2,
-seller country는 0/2, trade type은 0/2가 label과 일치했습니다. 분할금액 4/4,
-분할합계 2/2, 선지급 식별 2/2가 일치했고 문서에 없는 통화·날짜·금액 추측은
-관측되지 않았습니다.
+Model, evaluator, prompt, manifest, extraction schema, evidence·confirmation
+policy와 timeout 정책은 동결했습니다. V1/V2의 의도된 차이는 국가 canonicalization
+commit `9bdffd9`뿐입니다. seller/buyer 국가와 그 결과인 trade type 개선만 직접
+효과로 기록합니다. `document_type` 7/8 → 8/8, 전체 document match 1/8 → 3/8,
+token·latency와 법인명 표현 변화는 LLM 재호출 변동 가능성이 있어 인과 효과로
+주장하지 않습니다.
 
-미국 사례의 `United States (US)`·`Republic of Korea (KR)`, 브라질 사례의
-`Brazil`이 canonical ISO 국가로 정규화되지 않아 거래방향이 `UNKNOWN`으로
-남았습니다. 두 문서는 독립 OCR text layer가 없으므로 accepted evidence coverage는
-0%이고 `OCR_REQUIRED`, `EVIDENCE_UNVERIFIABLE`과 사용자 확인 gate로 계산 전달을
-차단했습니다. 이는 API 실패가 아니라 의도된 fail-closed 상태입니다.
+8건 모두 이미지형 PDF 또는 JPG이고 독립적으로 검증 가능한 텍스트 레이어가
+없습니다. 모델 인용을 자동 수용하지 않아 `OCR_REQUIRED`,
+`EVIDENCE_UNVERIFIABLE`, `MISSING_CORE_EVIDENCE`와 사용자 확인 gate로 전부
+Stage 2 전달을 차단했습니다. Evidence coverage 0%는 OCR 정확도 0%가 아니라
+“독립 검증되어 자동 수용된 evidence 없음”입니다.
 
-실행 당시 Git HEAD는 `0a53847`, tracked worktree는 dirty였으므로 evaluator
-`ac0aa62a...2e89`, prompt `39693763...eef5`, manifest
-`be472519...0792` hash를 함께 기록했습니다. raw response·전체 prompt·문서·key는
-기록하지 않았고 Live artifact 경로는 Git에서 제외했습니다.
+금액·통화·모든 날짜·payment terms·installments는 국가 정규화 전후 사례별로
+동일했습니다. 통화 누락과 사건 기준일은 추측하지 않았습니다. 남은 명확한 오류는
+`us_import_split_scan_001` contract date가 label보다 하루 늦은 1건입니다.
 
-전체 8건은 별도 승인 전 실행하지 않았습니다. 상세 사례·token·주장 범위는
-`docs/LIVE_BENCHMARK_RESULTS.md`를 따릅니다.
+V2 input/output token은 310,495/4,660이고 평균 latency는 8.836초입니다. cached
+input token을 수집하지 않아 실제 비용은 `UNKNOWN`이며, 비캐시 가정 사후 상한
+USD 0.04937025를 실제 청구액으로 표현하지 않습니다.
+
+원본 Run ID, 전체 hash, 직접 비교, 보안 경계와 주장 한계는
+`docs/LIVE_BENCHMARK_RESULTS.md`와 sanitized
+`docs/evidence/country_benchmark_v1_v2_summary.json`에 기록했습니다. Raw response,
+전체 prompt·payload·문서와 API key는 제출 문서에 저장하지 않았습니다.
 
 ## Stage 0 매매계약 회귀
 

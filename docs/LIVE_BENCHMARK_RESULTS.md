@@ -1,180 +1,176 @@
-# Live Benchmark Results
+# Country Validation Live Benchmark Results
 
-## 실행 식별
+검증일: 2026-07-29 KST
 
-- run ID: `baseline-v1-smoke-20260729-0341-kst`
-- baseline: `baseline-v1`
-- 실행 시각: 2026-07-29 03:40:52~03:41:11 KST
-- Git HEAD:
-  `0a53847549683059e533b0fdf7b1496596dc897f`
-- 실행 당시 tracked worktree: dirty
-- Python: 3.9.6
-- evaluator version/hash:
-  `2.0` /
+## 제출용 결론
+
+동일한 합성 test split 8건, `gpt-4o-mini`, evaluator, extraction prompt,
+manifest, schema와 안전 정책으로 Baseline v1과 v2를 실행했습니다. 의도된 차이는
+국가 canonicalization commit `9bdffd9` 적용 여부입니다.
+
+- `seller_country`: 4/8 → 8/8
+- `buyer_country`: 3/8 → 8/8
+- `trade_type`: 2/8 → 8/8
+- 통화·금액·명시/파생 결제일·분할결제 결과: 불변
+- 문서에 없는 값의 hallucination: 0 → 0
+- 필요한 null/UNKNOWN abstention: 30/30 → 30/30
+
+위 세 국가·거래방향 개선만 canonicalization의 직접 효과로 주장합니다.
+`document_type`, 전체 document match, token, latency와 법인명 표현 차이는
+LLM 재호출 변동 가능성이 있어 인과 효과로 주장하지 않습니다.
+
+이 결과는 제한된 합성문서 8건의 Live baseline이며 실제 고객문서, OCR 또는 전체
+무역문서 성능으로 일반화할 수 없습니다.
+
+## 실행 식별과 동결 조건
+
+| 항목 | Baseline v1 | Baseline v2 |
+| --- | --- | --- |
+| Run ID | `baseline-v1-full-20260729-0404-kst` | `baseline-v2-full-20260729-0443-kst` |
+| Git SHA | `0a53847549683059e533b0fdf7b1496596dc897f` | `9bdffd91becca3fe8546d8a16186f0469cfdb948` |
+| tracked worktree | dirty | clean |
+| model | `gpt-4o-mini` | `gpt-4o-mini` |
+| cases | 8 | 8 |
+| API 성공/실패/timeout | 8/0/0 | 8/0/0 |
+
+공통 동결값:
+
+- evaluator `2.0`:
   `ac0aa62a5a4aefa275f425f90556eb690f3e9f50695de312e9f776b4e8542e89`
-- extraction prompt version/hash:
-  `1.6.0` /
+- extraction prompt `1.6.0`:
   `396937636dfd843d242f2c7d3a2ec1634ef950bb0795b60e07e72ba1a403eef5`
-- manifest hash:
+- manifest:
   `be472519866db43f3e907da45da8ab95dd50ef594201374895846672f6ce0792`
-- 요청·실제 사용 model: `gpt-4o-mini`
-- fallback model: `gpt-4o` 미사용
+- extraction schema, evidence/confirmation policy, timeout과 호출 옵션
+- 미국 4건·브라질 4건, 수입 4건·수출 4건의 합성 test split
 
-Git SHA는 기준 T4 commit이고 `git_worktree_dirty=true`였습니다. 따라서 정확한 실행
-코드는 위 evaluator hash, prompt hash와 manifest hash를 함께 사용해 식별합니다.
-API key 값, `.env`, 전체 prompt·문서·payload·raw response는 기록하지 않았습니다.
+V1은 기준 T4 SHA에서 benchmark 코드가 tracked dirty 상태였으므로 SHA만으로 실행
+코드를 식별하지 않습니다. 위 evaluator/prompt/manifest hash와 run metadata를 함께
+사용합니다. V2 metadata의 `git_worktree_dirty=false`는 tracked 변경 기준이며,
+실행 당시 보호 대상 사용자 미추적 파일은 별도로 보존했습니다.
 
-## 데이터셋과 실행 사례
+## V1/V2 직접 비교
 
-전체 합성 validation manifest 8건 중 처음 2건만 실행했습니다.
+| 항목 | Baseline v1 | Baseline v2 | 해석 |
+| --- | ---: | ---: | --- |
+| seller_country | 4/8 | 8/8 | canonicalization 직접 효과 |
+| buyer_country | 3/8 | 8/8 | canonicalization 직접 효과 |
+| trade_type | 2/8 | 8/8 | 정규화 국가 기반 결정론 파생 |
+| document_type | 7/8 | 8/8 | LLM 재호출 변동 가능 |
+| 전체 document match | 1/8 | 3/8 | canonicalization 단독 효과로 주장 금지 |
+| currency | 8/8 | 8/8 | 불변 |
+| amount_due | 8/8 | 8/8 | 불변 |
+| explicit_due_date | 8/8 | 8/8 | 불변 |
+| derived_due_date | 8/8 | 8/8 | 불변 |
+| contract_date | 7/8 | 7/8 | 하루 차이 오류 유지 |
+| installment 금액 | 6/6 | 6/6 | 불변 |
+| installment 합계 | 3/3 | 3/3 | 불변 |
+| event 조건 보존 | 2/2 | 2/2 | 불변 |
+| unknown due-date abstention | 3/3 | 3/3 | 불변 |
+| 전체 abstention | 30/30 | 30/30 | 불변 |
+| hallucination | 0 | 0 | 불변 |
+| validation PASS | 0/8 | 0/8 | fail closed |
+| Stage 2 전달 허용 | 0/8 | 0/8 | 사용자 확인 전 전부 차단 |
+| accepted evidence coverage | 0% | 0% | 독립 검증 근거 없음 |
 
-| 사례 | 범위 |
-| --- | --- |
-| `us_import_split_scan_001` | 미국 수입, 이미지형 PDF, 30/70 분할결제 |
-| `br_import_advance_photo_002` | 브라질 수입, JPG 사진, 20% 선지급·80% 잔금 |
+국가 정규화 전후 각 사례의 `currency`, `grand_total`, `amount_due`, 모든 날짜,
+`payment_terms`, `installments`가 문자 단위로 동일했습니다. 통화 누락 사례는
+USD로 보정되지 않고 null을 유지했고, 사건 기준 결제조건은 날짜로 변환되지
+않았습니다.
 
-두 사례 모두 합성문서이고 실제 고객문서는 없습니다. 이 smoke run에는 수출,
-의도적 차단, 통화 누락, 사건 기준일 미확정 사례가 포함되지 않았습니다.
+## 사례별 국가 정규화
 
-## 실행 결과
+| 사례 | V1 seller/buyer/trade | V2 seller/buyer/trade |
+| --- | --- | --- |
+| `us_import_split_scan_001` | `US/KR/IMPORT` | `US/KR/IMPORT` |
+| `br_import_advance_photo_002` | `Brazil/KR/UNKNOWN` | `BR/KR/IMPORT` |
+| `us_export_net60_scan_003` | `KR/US/EXPORT` | `KR/US/EXPORT` |
+| `br_export_bl_event_photo_004` | `KR/Brazil/UNKNOWN` | `KR/BR/EXPORT` |
+| `us_import_balance_scan_005` | `United States (US)/Republic of Korea (KR)/UNKNOWN` | `US/KR/IMPORT` |
+| `br_export_mixed_split_scan_006` | `Republic of Korea (KR)/Brazil (BR)/UNKNOWN` | `KR/BR/EXPORT` |
+| `us_import_missing_currency_photo_007` | `United States (US)/Republic of Korea (KR)/UNKNOWN` | `US/KR/IMPORT` |
+| `br_export_occluded_due_photo_008` | `KR/Brazil/UNKNOWN` | `KR/BR/EXPORT` |
 
-| 구분 | 결과 |
-| --- | ---: |
-| 선택·실행 건수 | 2 |
-| API/구조화 응답 성공 | 2 |
-| API 실패 | 0 |
-| timeout | 0 |
-| 자동 document PASS | 0/2 |
-| Stage 2 전달 허용 | 0/2 |
-| 사용자 확인 필요 식별 | 2/2 |
+`br_export_bl_event_photo_004`의 `document_type`은 V1 `UNKNOWN`에서 V2
+`SALES_CONTRACT`로 달라졌지만 국가 정규화 코드가 document type을 변경하지 않으므로
+canonicalization 성과에 포함하지 않습니다.
 
-`API 성공 2건`은 모델 호출과 schema parsing이 완료됐다는 뜻입니다. 자동 document
-PASS 0건은 이미지 evidence가 독립 검증되지 않았고 국가 정규화·거래방향 오류가
-남아 계산 전달이 차단됐다는 뜻입니다. 두 값을 섞어 성공률로 표현하지 않습니다.
+## Evidence와 fail-closed 정책
 
-## 핵심 필드
+8건은 모두 이미지형 PDF 또는 JPG이며 독립적으로 검증 가능한 텍스트 레이어가
+없습니다. Vision 모델이 반환한 인용은 자기 증명이 아니므로 자동으로 신뢰하지
+않았습니다.
 
-| 필드 | 정확 |
-| --- | ---: |
-| currency | 2/2 |
-| amount_due | 2/2 |
-| document_type | 2/2 |
-| company_role | 2/2 |
-| explicit_due_date | 2/2 |
-| derived_due_date | 2/2 |
-| buyer_country | 1/2 |
-| seller_country | 0/2 |
-| trade_type | 0/2 |
+- `OCR_REQUIRED`
+- `EVIDENCE_UNVERIFIABLE`
+- `MISSING_CORE_EVIDENCE`
+- 사용자 확인 필요: 8/8
+- 이미지 evidence 안전 차단: 8/8
+- accepted evidence 없는 확정값: 42
+- accepted source text 없는 확정값: 42
+- `validation_pass=false`: 8/8
+- `stage2_allowed=false`: 8/8
 
-기존 core 계산 기준의 required date, 전체 due-date 표현, 통화와 금액은 두 사례 모두
-label과 일치했습니다. 분할금액은 4/4, installment 합계는 2/2, 선지급 식별은
-2/2가 일치했습니다.
+Evidence coverage 0%는 OCR 정확도 0%가 아니라 “독립적으로 검증되어 자동 수용된
+field evidence가 없음”을 뜻합니다. 추출값은 사람이 원문과 확인하기 전 금융
+계산으로 전달되지 않았습니다.
 
-## Abstention과 추측
+## Abstention과 hallucination
 
 - 문서에 없는 통화 추측: 0
 - 문서에 없는 날짜 추측: 0
 - 문서에 없는 금액 추측: 0
 - false-positive field: 0
-- 적용 가능한 null field abstention: 8/8
-- 사건 기준일 미확정 사례: 이번 2건에는 없어 평가 불가
-- manifest상 차단 사례: 이번 2건에는 없어 평가 불가
+- null/UNKNOWN이 필요한 field abstention: 30/30
+- 사용자 확인 필요 식별: 8/8
+- 의도적 차단 사례 차단: 3/3
 
-따라서 이 run은 통화 누락을 USD로 보정하는지, 가려진 due date를 만드는지,
-B/L·final acceptance 조건을 날짜로 만드는지는 아직 검증하지 않았습니다.
+한 사례 `us_import_split_scan_001`의 contract date는 label `2026-08-05`에
+대해 `2026-08-06`으로 추출되어 하루 차이 오류가 V1과 V2 모두 남았습니다.
 
-## Evidence와 사용자 확인
+## Token, latency와 비용
 
-| 항목 | 결과 |
-| --- | ---: |
-| 자동으로 수용된 핵심 evidence coverage | 0% |
-| 자동으로 수용된 evidence field-link consistency | 0% |
-| 수용 evidence가 없는 확정값 | 10 |
-| 수용 source_text가 없는 확정값 | 10 |
-| 이미지 evidence 안전 차단 | 2/2 |
+| 항목 | Baseline v1 | Baseline v2 |
+| --- | ---: | ---: |
+| input tokens | 310,495 | 310,495 |
+| output tokens | 4,539 | 4,660 |
+| cached input tokens | UNKNOWN | UNKNOWN |
+| 평균 latency | 11.776초 | 8.836초 |
+| 비캐시 비용 상한 | USD 0.04929765 | USD 0.04937025 |
 
-저장된 Live prediction은 raw model response가 아니라 결정론 validator를 통과한
-normalized extraction입니다. 두 문서 모두 독립 OCR text layer가 없으므로 모델이
-제시한 인용을 자동 신뢰하지 않고 제거했으며 `OCR_REQUIRED`,
-`EVIDENCE_UNVERIFIABLE`, `MISSING_CORE_EVIDENCE`로 Stage 2를 차단했습니다.
-따라서 evidence 0%는 OCR 실패율이 아니라 “자동 검증된 evidence가 없음”을
-뜻합니다. 사람이 원문을 field별로 확인해야 합니다.
+비용 상한은 input USD 0.15/1M, output USD 0.60/1M을 사용한 사후 추정입니다.
+cached input token을 evaluator가 수집하지 않았으므로 실제 비용은 `UNKNOWN`입니다.
+상한은 실제 청구액이 아닙니다. 출력 token과 latency 변화도 canonicalization
+효과로 해석하지 않습니다.
 
-## 사례별 오류
+## 보안과 산출물 경계
 
-### `us_import_split_scan_001`
+Run metadata는 API key 값, Authorization header, 전체 prompt·payload·문서,
+raw model response를 기록하지 않습니다. Live prediction과 report 원본은
+`.gitignore` 경로에서 보존하며 제출 문서에는 집계와 필요한 식별 hash만 옮겼습니다.
+실제 고객문서와 파인튜닝 데이터는 사용하지 않았습니다.
 
-- 성공: 문서유형, USD 120,000, 계약일, 30/70 금액·결제일
-- seller country: label `US`, 결과 `United States (US)`
-- buyer country: label `KR`, 결과 `Republic of Korea (KR)`
-- trade type: label `IMPORT`, 결과 `UNKNOWN`
-- 결과: `needs_human_review=true`, Stage 2 차단
-- 안전 issue:
-  `EVIDENCE_UNVERIFIABLE`, `MISSING_CORE_EVIDENCE`,
-  `MISSING_REQUIRED_FIELD`, `OCR_REQUIRED`, `UNKNOWN_COUNTRY_ALIAS`
+Sanitized machine-readable 제출 요약은
+[`docs/evidence/country_benchmark_v1_v2_summary.json`](evidence/country_benchmark_v1_v2_summary.json)
+에 있습니다. 이 파일에는 raw extraction이나 문서 원문이 없습니다.
 
-### `br_import_advance_photo_002`
+## 제출 가능한 주장
 
-- 성공: 문서유형, USD 84,000, 계약일, 20/80 금액·결제일, 선지급 조건
-- seller country: label `BR`, 결과 `Brazil`
-- buyer country: label·결과 `KR`
-- trade type: label `IMPORT`, 결과 `UNKNOWN`
-- 결과: `needs_human_review=true`, Stage 2 차단
-- 안전 issue:
-  `EVIDENCE_UNVERIFIABLE`, `MISSING_CORE_EVIDENCE`,
-  `MISSING_REQUIRED_FIELD`, `OCR_REQUIRED`, `UNKNOWN_COUNTRY_ALIAS`
+- 제한된 합성 무역문서 8건을 같은 evaluator와 model로 V1/V2 비교했습니다.
+- 검증된 국가 별칭 정규화로 seller/buyer 국가와 그에 따른 거래방향 결과가
+  개선됐습니다.
+- 금액·통화·결제일·분할결제와 abstention/hallucination 결과는 유지됐습니다.
+- 독립 검증할 수 없는 스캔형 입력은 사용자 확인 전 Stage 2로 전달하지 않았습니다.
+- Fixture pipeline 검증과 실제 Live model baseline을 분리했습니다.
 
-두 사례 모두 자연어·괄호 포함 국가 표현이 canonical ISO alpha-2로 정규화되지 않아
-거래방향을 확정하지 못했습니다. Baseline 결과를 수정하거나 덮어쓰지 않았습니다.
+## 제출하면 안 되는 주장
 
-## Latency, token과 비용
+- 실제 고객문서, OCR 또는 전체 무역문서 정확도 100%
+- `document_type`, 전체 document match, latency 개선이 canonicalization의 효과
+- evidence coverage 0%가 OCR 정확도 0%라는 해석
+- 합성 8건을 운영 환경으로 일반화
+- 비용 상한이 실제 청구액이라는 표현
+- 금융기관 공식 국가신용등급·상품 승인·실거래 자동화 성능
 
-| 사례 | latency | input tokens | output tokens | total |
-| --- | ---: | ---: | ---: | ---: |
-| `us_import_split_scan_001` | 9.58초 | 33,163 | 633 | 33,796 |
-| `br_import_advance_photo_002` | 9.34초 | 44,460 | 621 | 45,081 |
-| 합계·평균 | 평균 9.46초 | 77,623 | 1,254 | 78,877 |
-
-실행 시점 공식 token 단가를 evaluator에 입력하지 않았으므로 추정 비용은
-`UNKNOWN`입니다. 두 사례의 관측 token을 단순 확장하면 전체 8건은 문서 복잡도에
-따라 크게 달라질 수 있으며, 비용 상한으로 간주할 수 없습니다.
-
-## 전체 8건 실행 권고
-
-API 오류와 timeout이 없고 latency가 안정적이어서 동일 prompt·model·baseline
-정책으로 전체 8건을 실행해 누락된 수출·차단·통화 누락·사건 기준 사례를 측정하는
-것을 권고합니다. 다만 다음 조건을 지켜야 합니다.
-
-1. 사용자의 두 번째 명시적 비용 승인
-2. 새 run ID 사용과 기존 2건 run 보존
-3. prompt·model·국가 정규화 로직을 Baseline v1 전체 실행 전에 변경하지 않음
-4. 예상 비용은 `UNKNOWN`이며 실행 후 실제 token만 기록
-
-전체 8건 실행은 아직 승인받지 않았고 실행하지 않았습니다.
-
-## 후속 개선 우선순위
-
-1. Baseline v1 8건을 먼저 동결한 뒤, 괄호 포함 미국 표기와 브라질 국가 별칭의
-   ISO 정규화를 별도 commit·별도 비교 run으로 검증
-2. 통화 누락·가려진 날짜·B/L·final acceptance 사례의 abstention 확인
-3. 이미지 evidence는 독립 OCR 또는 사람 확인 없이는 계속 fail closed 유지
-4. 공식 단가를 실행 시점에 확인할 수 있을 때만 비용 산식 입력
-
-추출 prompt나 model은 이 baseline 전에 변경하지 않았습니다.
-
-## 주장 범위와 한계
-
-말할 수 있는 내용:
-
-- 합성 이미지형 문서 2건에서 OpenAI 구조화 호출이 모두 완료됐습니다.
-- 통화·금액·분할 금액·결제일은 2건에서 label과 일치했습니다.
-- 국가 canonicalization과 거래방향은 두 사례에서 실패했습니다.
-- 독립 OCR evidence가 없어 두 사례 모두 사용자 확인 전 계산을 차단했습니다.
-- 문서에 없는 통화·날짜·금액 추측은 이 2건에서 관측되지 않았습니다.
-
-말할 수 없는 내용:
-
-- 실제 고객문서, OCR 또는 전체 무역문서 정확도
-- “AI 추출 성공률 100%” 또는 “문서 인식률 100%”
-- 2건 결과의 통계적 일반화
-- 국가 신용등급·상품 승인·실거래 자동화 성능
+Baseline smoke와 full 원본은 기존 run ID 경로에 그대로 보존되며, 이 제출 문서는
+원본을 수정하거나 덮어쓰지 않습니다.

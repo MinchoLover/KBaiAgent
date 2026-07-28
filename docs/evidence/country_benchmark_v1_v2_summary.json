@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "dataset": {
+    "synthetic": true,
+    "real_customer_documents": false,
+    "case_count": 8,
+    "statistical_generalization_allowed": false
+  },
+  "frozen_inputs": {
+    "model": "gpt-4o-mini",
+    "evaluator_sha256": "ac0aa62a5a4aefa275f425f90556eb690f3e9f50695de312e9f776b4e8542e89",
+    "extraction_prompt_sha256": "396937636dfd843d242f2c7d3a2ec1634ef950bb0795b60e07e72ba1a403eef5",
+    "manifest_sha256": "be472519866db43f3e907da45da8ab95dd50ef594201374895846672f6ce0792"
+  },
+  "baseline_v1": {
+    "run_id": "baseline-v1-full-20260729-0404-kst",
+    "git_sha": "0a53847549683059e533b0fdf7b1496596dc897f",
+    "api_success_count": 8,
+    "api_failed_count": 0,
+    "timeout_count": 0,
+    "field_correct_counts": {
+      "seller_country": 4,
+      "buyer_country": 3,
+      "trade_type": 2,
+      "document_type": 7,
+      "currency": 8,
+      "amount_due": 8,
+      "explicit_due_date": 8,
+      "derived_due_date": 8
+    },
+    "document_match_count": 1,
+    "validation_pass_count": 0,
+    "stage2_allowed_count": 0,
+    "abstention_correct_count": 30,
+    "abstention_field_count": 30,
+    "hallucination_count": 0,
+    "evidence_coverage": 0.0,
+    "average_latency_seconds": "11.7760006196249995",
+    "input_tokens": 310495,
+    "output_tokens": 4539,
+    "cached_input_tokens": null,
+    "actual_cost_usd": null,
+    "no_cache_cost_upper_bound_usd": "0.04929765"
+  },
+  "baseline_v2": {
+    "run_id": "baseline-v2-full-20260729-0443-kst",
+    "git_sha": "9bdffd91becca3fe8546d8a16186f0469cfdb948",
+    "api_success_count": 8,
+    "api_failed_count": 0,
+    "timeout_count": 0,
+    "field_correct_counts": {
+      "seller_country": 8,
+      "buyer_country": 8,
+      "trade_type": 8,
+      "document_type": 8,
+      "currency": 8,
+      "amount_due": 8,
+      "explicit_due_date": 8,
+      "derived_due_date": 8
+    },
+    "document_match_count": 3,
+    "validation_pass_count": 0,
+    "stage2_allowed_count": 0,
+    "abstention_correct_count": 30,
+    "abstention_field_count": 30,
+    "hallucination_count": 0,
+    "evidence_coverage": 0.0,
+    "average_latency_seconds": "8.836069708374999375",
+    "input_tokens": 310495,
+    "output_tokens": 4660,
+    "cached_input_tokens": null,
+    "actual_cost_usd": null,
+    "no_cache_cost_upper_bound_usd": "0.04937025"
+  },
+  "causal_claims_allowed": [
+    "seller_country canonicalization improvement",
+    "buyer_country canonicalization improvement",
+    "trade_type improvement derived from canonical countries"
+  ],
+  "causal_claims_not_allowed": [
+    "document_type improvement",
+    "document_match improvement",
+    "output token change",
+    "latency change",
+    "legal entity suffix variation"
+  ],
+  "known_limits": [
+    "Eight synthetic documents are not statistically generalizable.",
+    "The scanned PDFs and JPGs have no independently verifiable text layer.",
+    "Evidence coverage zero does not mean OCR accuracy zero.",
+    "One contract date remained one day different from the label.",
+    "Fixture metrics are evaluator-pipeline validation, not model accuracy.",
+    "Actual API cost is unknown because cached input tokens were not collected."
+  ]
+}
