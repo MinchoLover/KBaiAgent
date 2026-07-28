@@ -304,6 +304,10 @@ def run_offline_demo(
         official_candidate_shortlist=official_candidate_shortlist,
         generated_at="2026-07-23T09:00:00+09:00",
     )
+    state = workflow.run_report(
+        state,
+        consultation_packet=decision_support.consultation_packet.packet,
+    )
     return {
         "extraction": extraction,
         "confirmation": record,
@@ -455,6 +459,10 @@ def run_decision_support_demo(
         trade_settlement_risk=trade_risk_assessment,
         official_candidate_shortlist=official_candidate_shortlist,
         generated_at="2026-07-23T09:00:00+09:00",
+    )
+    state = workflow.run_report(
+        state,
+        consultation_packet=decision_support.consultation_packet.packet,
     )
     return {
         "extraction": extraction,

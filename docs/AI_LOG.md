@@ -1,5 +1,20 @@
 # AI Use Log
 
+## 2026-07-29 Trade-risk final report grounding
+
+Codex가 기존 Stage 5 생성·critic·1회 수정·결정론 fallback 구조를 유지하면서
+상담 패킷을 확장 보고서의 추가 근거로 연결했습니다. 패킷이 있으면 거래·결제 위험,
+금융 대응과 공식 후보는 `consultation.*` 경로만 사용하며, Stage 4 원시 후보의
+이름·기관·URL은 LLM 입력에서 제거했습니다. 화면과 보고서의 공식 후보는 같은
+shortlist 최대 3개입니다.
+
+critic은 shortlist 밖 Stage 4 인용, 공식 후보명·기관명·URL 변조, 이용 자격·승인
+확정, 근거 없는 거래위험·대응, 공식 심사등급·부도확률 표현, 결제위험에 따른
+환헤지 비율 변경을 거부합니다. 수입·수출 fixture, 빈 shortlist, LLM mock과
+결정론 fallback을 API-free 테스트로 검증했습니다. 문서 원문·비밀값은 보고서
+bundle이나 trace에 추가하지 않았고 실제 OpenAI 보고서 호출·외부 메시지·배포·
+Git push는 수행하지 않았습니다.
+
 ## 2026-07-28 P0 source-grounded evidence gate
 
 Codex가 Stage 0의 evidence 존재 여부만 보던 검증을 원문 기반 검증으로 강화했습니다.

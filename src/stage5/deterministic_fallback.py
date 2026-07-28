@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from schemas import TradeDocumentExtraction
 from src.document_intake.confirmation import ConfirmationRecord
+from src.domain.consultation_models import ConsultationPacket
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import NormalizedScenarioSet
@@ -12,19 +13,142 @@ from src.domain.stage3_models import Stage3Result
 from src.stage5.critic import critique_report
 
 
-def _product_lines(stage4: Stage4Result) -> List[str]:
-    if not stage4.candidates:
-        return ["- 공식 출처가 확인된 후보가 없습니다."]
+def _product_lines(
+    *,
+    stage4: Stage4Result,
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if consultation_packet is not None:
+        shortlist = consultation_packet.official_candidate_shortlist
+        candidates = shortlist.candidates if shortlist is not None else []
+        source_prefix = (
+            "consultation.official_candidate_shortlist.candidates"
+        )
+    else:
+        candidates = stage4.candidates
+        source_prefix = "stage4.candidates"
+    if not candidates:
+        return [
+            "- 공식 출처가 확인된 후보가 없습니다. 현재 상담 항목과 "
+            "직접 연결되지 않은 상품을 임의로 만들지 않았습니다."
+        ]
     return [
         "- {} — {} ([공식 출처]({})); 자격·승인 조건은 상담 필요 "
-        "[source: stage4.candidates.{}]".format(
+        "[source: {}.{}]".format(
             item.name,
             item.institution,
             item.source.url,
+            source_prefix,
             index,
         )
-        for index, item in enumerate(stage4.candidates)
+        for index, item in enumerate(candidates)
     ]
+
+
+def _trade_risk_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or consultation_packet.trade_settlement_risk is None
+    ):
+        return ["- 거래·결제조건의 별도 위험평가 결과가 없습니다."]
+    assessment = consultation_packet.trade_settlement_risk
+    risk_type_labels = {
+        "IMPORT_PREPAYMENT_PERFORMANCE_RISK": (
+            "수입 선지급·계약이행 위험"
+        ),
+        "EXPORT_RECEIVABLE_COLLECTION_RISK": (
+            "수출대금 회수 위험"
+        ),
+    }
+    priority_labels = {
+        "STANDARD_REVIEW": "일반 검토",
+        "ELEVATED_REVIEW": "추가 검토 필요",
+        "HIGH_REVIEW": "우선 검토 필요",
+        "UNKNOWN": "정보 확인 필요",
+    }
+    lines = [
+        "- 위험 유형은 **{}**, 검토 우선도는 **{}**입니다. "
+        "[source: consultation.trade_settlement_risk]".format(
+            risk_type_labels[assessment.risk_type],
+            priority_labels[assessment.review_priority],
+        )
+    ]
+    lines.extend(
+        "- {} [source: consultation.trade_settlement_risk.factors.{}]".format(
+            factor.reason,
+            index,
+        )
+        for index, factor in enumerate(assessment.factors)
+    )
+    return lines
+
+
+def _consultation_topic_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or not consultation_packet.consultation_topics
+    ):
+        return ["- 별도로 구조화된 금융 상담 항목이 없습니다."]
+    return [
+        "- **{}**: {} [source: consultation.consultation_topics.{}]".format(
+            topic.title,
+            topic.explanation,
+            index,
+        )
+        for index, topic in enumerate(
+            consultation_packet.consultation_topics
+        )
+    ]
+
+
+def _missing_information_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or not consultation_packet.missing_information
+    ):
+        return ["- 현재 보고서에 등록된 미확인 항목이 없습니다."]
+    return [
+        "- {} [source: consultation.missing_information.{}]".format(
+            item,
+            index,
+        )
+        for index, item in enumerate(
+            consultation_packet.missing_information
+        )
+    ]
+
+
+def _question_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if consultation_packet is None:
+        return [
+            "- 실제 이용 가능 조건과 추가 확인사항은 무엇인가?",
+        ]
+    rows: List[str] = []
+    seen = set()
+    for topic_index, topic in enumerate(
+        consultation_packet.consultation_topics
+    ):
+        for question in topic.questions:
+            if question in seen:
+                continue
+            seen.add(question)
+            rows.append(
+                "- {} [source: consultation.consultation_topics.{}]".format(
+                    question,
+                    topic_index,
+                )
+            )
+            if len(rows) == 5:
+                return rows
+    return rows or ["- 실제 이용 가능 조건과 추가 확인사항은 무엇인가?"]
 
 
 def _strategy_lines(stage3: Stage3Result) -> List[str]:
@@ -73,6 +197,7 @@ def build_report_source_bundle(
     stage3: Stage3Result,
     stage4: Stage4Result,
     market_integration: Optional[MarketIntegrationResult] = None,
+    consultation_packet: Optional[ConsultationPacket] = None,
 ) -> Dict[str, Any]:
     confirmed_values = {
         key: confirmation.confirmed_values.get(key)
@@ -85,6 +210,20 @@ def build_report_source_bundle(
         )
         if key in confirmation.confirmed_values
     }
+    stage4_bundle: Dict[str, Any]
+    if consultation_packet is None:
+        stage4_bundle = stage4.model_dump()
+    else:
+        stage4_bundle = {
+            "schema_version": stage4.schema_version,
+            "mode": stage4.mode,
+            "query": stage4.query,
+            "retrieval_candidate_count": len(stage4.candidates),
+            "warnings": stage4.warnings,
+            "user_facing_candidates": (
+                "consultation.official_candidate_shortlist.candidates"
+            ),
+        }
     bundle: Dict[str, Any] = {
         "stage0": {
             "extraction": {
@@ -114,10 +253,12 @@ def build_report_source_bundle(
         "stage1": stage1.model_dump(),
         "stage2": stage2.model_dump(),
         "stage3": stage3.model_dump(),
-        "stage4": stage4.model_dump(),
+        "stage4": stage4_bundle,
     }
     if market_integration is not None:
         bundle["market_integration"] = market_integration.model_dump()
+    if consultation_packet is not None:
+        bundle["consultation"] = consultation_packet.model_dump()
     return bundle
 
 
@@ -130,6 +271,7 @@ def generate_deterministic_report(
     stage3: Stage3Result,
     stage4: Stage4Result,
     market_integration: Optional[MarketIntegrationResult] = None,
+    consultation_packet: Optional[ConsultationPacket] = None,
 ) -> ReportResult:
     bundle = build_report_source_bundle(
         extraction=extraction,
@@ -139,6 +281,7 @@ def generate_deterministic_report(
         stage3=stage3,
         stage4=stage4,
         market_integration=market_integration,
+        consultation_packet=consultation_packet,
     )
     worst = max(
         stage2.scenario_results,
@@ -168,7 +311,24 @@ def generate_deterministic_report(
         due_source = (
             "stage0.confirmation.confirmed_values.installment_due_dates"
         )
-    product_lines = "\n".join(_product_lines(stage4))
+    product_lines = "\n".join(
+        _product_lines(
+            stage4=stage4,
+            consultation_packet=consultation_packet,
+        )
+    )
+    trade_risk_lines = "\n".join(
+        _trade_risk_lines(consultation_packet)
+    )
+    consultation_topic_lines = "\n".join(
+        _consultation_topic_lines(consultation_packet)
+    )
+    missing_information_lines = "\n".join(
+        _missing_information_lines(consultation_packet)
+    )
+    question_lines = "\n".join(
+        _question_lines(consultation_packet)
+    )
     strategy_lines = "\n".join(_strategy_lines(stage3))
     market_context_lines = ""
     if (
@@ -196,7 +356,7 @@ def generate_deterministic_report(
             horizon_days=forecast.horizon.trading_days,
             mismatch_text=mismatch_text,
         )
-    markdown = """# 환율·현금흐름 리스크 검토 보고서
+    markdown = """# 수출입 금융 리스크 검토 보고서
 
 ## 1. 거래 요약
 
@@ -222,36 +382,45 @@ def generate_deterministic_report(
 - BASE 대비 손실: {worst_loss} [source: stage2.scenario_results]
 - 결제 후 잔고: {ending_cash} [source: stage2.scenario_results]
 
-## 5. 위험 경보
+## 5. 환율·유동성 위험 경보
 
 - 최초 최소운영자금 부족일: {shortfall_date} [source: stage2.scenario_results]
 - 최대 최소운영자금 부족액: {buffer_shortfall} [source: stage2.scenario_results]
 - 대출한도 반영 후 부족액: {credit_shortfall} [source: stage2.scenario_results]
 
-## 6. 전략 후보
+## 6. 거래·결제조건 위험
+
+{trade_risk_lines}
+
+이 결과는 금융기관의 공식 심사등급·부도확률·보험 인수판단이 아닙니다.
+
+## 7. 환헤지 시뮬레이션 후보
 
 {strategy_lines}
 
 위 후보는 확정 자문이 아니라 입력 가정 아래 계산된 검토안입니다.
 [source: stage3.status]
 
-## 7. 금융상품·제도 후보와 출처
+## 8. 검토할 금융 대응
+
+{consultation_topic_lines}
+
+결제·회수 위험이 환헤지 비율을 직접 변경하지 않으며, 최종 판단은 사용자와
+거래은행·보험기관 담당자가 합니다.
+
+## 9. 공식 출처 상담 후보
 
 {product_lines}
 
-## 8. 필요한 추가 정보
+## 10. 아직 확인할 정보
 
-- 실제 은행 스프레드·수수료와 선물환 견적
-- 기관별 최신 자격·한도·신청기간
-- 확정된 원화 입출금 일정과 기존 헤지 계약서
+{missing_information_lines}
 
-## 9. 은행 상담 시 질문 목록
+## 11. 은행·보험기관 상담 시 질문
 
-- 결제일과 통화 기준으로 가능한 선물환 한도와 전체 비용은 무엇인가?
-- 중도 변경·조기결제·over-hedge 발생 시 조건은 무엇인가?
-- 외화예금 및 환변동보험과 조합할 때 중복 노출은 없는가?
+{question_lines}
 
-## 10. 가정·한계·면책
+## 12. 가정·한계·면책
 
 본 결과는 제공된 입력의 결정론적 계산과 공식자료 후보 정리이며 금융자문·승인·보장을
 의미하지 않습니다. 실제 거래 전 은행·보험기관·전문가 확인이 필요합니다.
@@ -272,8 +441,12 @@ def generate_deterministic_report(
         shortfall_date=worst.first_buffer_shortfall_date or "없음",
         buffer_shortfall=worst.maximum_buffer_shortfall,
         credit_shortfall=worst.post_credit_shortfall,
+        trade_risk_lines=trade_risk_lines,
         strategy_lines=strategy_lines,
+        consultation_topic_lines=consultation_topic_lines,
         product_lines=product_lines,
+        missing_information_lines=missing_information_lines,
+        question_lines=question_lines,
     )
     critique = critique_report(
         markdown=markdown,

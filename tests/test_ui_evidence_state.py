@@ -228,6 +228,15 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             ),
             3,
         )
+        self.assertIn("report_result", app.session_state)
+        self.assertIn(
+            "consultation",
+            app.session_state["report_result"]["report_json"],
+        )
+        self.assertIn(
+            "수입 선지급·계약이행 위험",
+            app.session_state["report_result"]["markdown"],
+        )
         stage3_before = app.session_state["stage3_result"]
 
         relationship = next(

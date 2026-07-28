@@ -4283,27 +4283,34 @@ with stage5_tab:
     stage2_result = _model_from_state("stage2_result", Stage2Result)
     stage3_result = _model_from_state("stage3_result", Stage3Result)
     stage4_result = _model_from_state("stage4_result", Stage4Result)
+    official_candidate_shortlist = _model_from_state(
+        "official_candidate_shortlist",
+        OfficialCandidateShortlist,
+    )
     all_ready = all(
         item is not None
         for item in (
+            consultation_packet,
             extraction,
             confirmation,
             stage1_load,
             stage2_result,
             stage3_result,
             stage4_result,
+            official_candidate_shortlist,
         )
     )
     st.divider()
     st.markdown("### 선택 · 대응안과 공식자료까지 포함하기")
     if not all_ready:
         st.info(
-            "기본 상담 패킷은 위에서 이미 완성됩니다. 대응 시뮬레이션과 공식 "
-            "상담 정보를 실행하면 출처를 포함한 확장 리포트도 만들 수 있습니다."
+            "기본 상담 패킷은 위에서 이미 완성됩니다. 대응 시뮬레이션과 "
+            "공식 후보 연결을 실행하면 거래·결제 위험까지 포함한 통합 "
+            "리포트도 만들 수 있습니다."
         )
     else:
         if st.button(
-            "확장 상담 리포트 만들기",
+            "통합 상담 리포트 만들기",
             type="primary",
             key="generate_report",
         ):
@@ -4311,7 +4318,10 @@ with stage5_tab:
             if workflow is None:
                 st.error("분석 세션이 없습니다. 거래 확인부터 다시 시작하세요.")
                 st.stop()
-            workflow = orchestrator.run_report(workflow)
+            workflow = orchestrator.run_report(
+                workflow,
+                consultation_packet=consultation_packet.packet,
+            )
             if workflow.final_report is None:
                 st.error(
                     "보고서 생성에 실패했습니다: {}".format(
@@ -4334,15 +4344,15 @@ with stage5_tab:
         if report_result is not None:
             st.markdown(
                 "<div class='state-banner'><span class='state-icon'>✓</span>"
-                "<div><strong>확장 상담 리포트가 완성되었습니다</strong>"
+                "<div><strong>통합 상담 리포트가 완성되었습니다</strong>"
                 "<p>수치와 출처를 다시 확인한 뒤 거래은행 또는 보험기관과 "
                 "공유하세요.</p></div></div>",
                 unsafe_allow_html=True,
             )
             st.download_button(
-                "확장 상담 리포트 다운로드",
+                "통합 상담 리포트 다운로드",
                 data=report_result.markdown,
-                file_name="fx_cashflow_risk_report.md",
+                file_name="trade_finance_decision_report.md",
                 mime="text/markdown",
                 key="download_report_md",
                 type="primary",
@@ -4352,7 +4362,7 @@ with stage5_tab:
                 json_download(
                     label="근거 데이터 JSON",
                     value=report_result.report_json,
-                    filename="fx_cashflow_risk_report.json",
+                    filename="trade_finance_decision_report.json",
                     key="download_report_json",
                 )
             st.divider()

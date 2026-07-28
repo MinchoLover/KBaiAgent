@@ -6,6 +6,7 @@ from openai import OpenAI
 from schemas import TradeDocumentExtraction
 from src.config import Settings
 from src.document_intake.confirmation import ConfirmationRecord
+from src.domain.consultation_models import ConsultationPacket
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import NormalizedScenarioSet
@@ -26,11 +27,16 @@ STRESS를 예측이라 부르지 말고, probability_valid=false이면 확률을
 q90은 90% 발생확률이 아니라 모델 예측분포의 상위 경로위험 분위수다.
 HORIZON_MISMATCH이면 모델 분위수를 결제기간 예측처럼 표현하지 마라.
 뉴스는 시장 설명용이며 환율·손실 숫자를 변경한 것처럼 쓰지 마라.
-상품은 stage4.candidates에 있는 공식 근거 후보만 후보/상담 필요로 표현하라.
-stage4.candidates가 비어 있으면 상품명이나 기관을 만들지 말고 공식 후보가 없다고 밝혀라.
+consultation이 있으면 거래·결제 위험과 상담 항목은 그 경로만 근거로 사용하라.
+consultation이 있으면 상품은 consultation.official_candidate_shortlist.candidates만
+후보/상담 필요로 표현하고 stage4 원시 검색 목록을 사용자용 후보로 쓰지 마라.
+shortlist가 없거나 비어 있으면 상품명이나 기관을 만들지 말고 공식 후보가 없다고 밝혀라.
+거래·결제 위험을 공식 심사등급·부도확률·보험 인수판단으로 표현하지 마라.
+결제·회수 위험 때문에 환헤지 비율을 직접 높이거나 낮추지 마라.
 승인·수익·손실회피를 보장하지 마라.
 보고서 섹션은 거래 요약, 데이터 출처, 시나리오 성격, 현금흐름 영향,
-위험 경보, 전략 후보, 상품 후보와 출처, 추가 정보, 상담 질문, 면책 순서다.
+환율·유동성 위험, 거래·결제조건 위험, 환헤지 시뮬레이션, 검토할 금융 대응,
+공식 후보와 출처, 추가 정보, 상담 질문, 면책 순서다.
 """.strip()
 
 
@@ -43,6 +49,7 @@ def generate_report(
     stage3: Stage3Result,
     stage4: Stage4Result,
     market_integration: Optional[MarketIntegrationResult] = None,
+    consultation_packet: Optional[ConsultationPacket] = None,
     settings: Optional[Settings] = None,
     client: Optional[Any] = None,
     max_revisions: int = 1,
@@ -59,13 +66,27 @@ def generate_report(
         stage3=stage3,
         stage4=stage4,
         market_integration=market_integration,
+        consultation_packet=consultation_packet,
     )
-    if not stage4.candidates:
+    authoritative_candidates = (
+        (
+            consultation_packet.official_candidate_shortlist.candidates
+            if (
+                consultation_packet.official_candidate_shortlist
+                is not None
+            )
+            else []
+        )
+        if consultation_packet is not None
+        else stage4.candidates
+    )
+    if not authoritative_candidates:
         return fallback.model_copy(
             update={
                 "warnings": fallback.warnings
                 + [
-                    "공식 근거 상품이 없어 LLM 상품 생성을 차단하고 "
+                    "상담 항목과 직접 연결된 공식 후보가 없어 LLM 상품 "
+                    "생성을 차단하고 "
                     "결정론 보고서를 사용했습니다."
                 ],
                 "fallback_reason": "DETERMINISTIC_POLICY",
@@ -97,6 +118,7 @@ def generate_report(
         stage3=stage3,
         stage4=stage4,
         market_integration=market_integration,
+        consultation_packet=consultation_packet,
     )
     revision_count = 0
     try:

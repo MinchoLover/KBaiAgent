@@ -11,6 +11,7 @@ from src.application.market_integration_service import (
     integrate_stage1_market,
 )
 from src.document_intake.confirmation import ConfirmationRecord
+from src.domain.consultation_models import ConsultationPacket
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
@@ -816,18 +817,32 @@ class WorkflowOrchestrator:
         self._record(state, "product_search", result)
         return state
 
-    def _fallback_report(self, state: WorkflowState) -> ReportResult:
-        return self.fallback_report_generator(
-            extraction=state.extracted_trade,
-            confirmation=state.confirmation,
-            stage1=state.market_risk.data.scenario_set,
-            stage2=state.cashflow.data,
-            stage3=state.hedge.data,
-            stage4=state.product_search.data,
-            market_integration=state.market_integration,
-        )
+    def _fallback_report(
+        self,
+        state: WorkflowState,
+        consultation_packet: Optional[ConsultationPacket] = None,
+    ) -> ReportResult:
+        report_kwargs = {
+            "extraction": state.extracted_trade,
+            "confirmation": state.confirmation,
+            "stage1": state.market_risk.data.scenario_set,
+            "stage2": state.cashflow.data,
+            "stage3": state.hedge.data,
+            "stage4": state.product_search.data,
+            "market_integration": state.market_integration,
+        }
+        if consultation_packet is not None:
+            report_kwargs["consultation_packet"] = consultation_packet
+        return self.fallback_report_generator(**report_kwargs)
 
-    def run_report(self, state: WorkflowState) -> WorkflowState:
+    def run_report(
+        self,
+        state: WorkflowState,
+        *,
+        consultation_packet: Optional[ConsultationPacket] = None,
+    ) -> WorkflowState:
+        if state.trace and state.trace[-1].stage == "report":
+            state.trace.pop()
         started_at, started_ns = self._started()
         required = (
             state.extracted_trade,
@@ -860,19 +875,25 @@ class WorkflowOrchestrator:
             return state
 
         try:
-            report = self.report_generator(
-                extraction=state.extracted_trade,
-                confirmation=state.confirmation,
-                stage1=state.market_risk.data.scenario_set,
-                stage2=state.cashflow.data,
-                stage3=state.hedge.data,
-                stage4=state.product_search.data,
-                market_integration=state.market_integration,
-                settings=self.settings,
-                max_revisions=self.max_report_revisions,
-            )
+            report_kwargs = {
+                "extraction": state.extracted_trade,
+                "confirmation": state.confirmation,
+                "stage1": state.market_risk.data.scenario_set,
+                "stage2": state.cashflow.data,
+                "stage3": state.hedge.data,
+                "stage4": state.product_search.data,
+                "market_integration": state.market_integration,
+                "settings": self.settings,
+                "max_revisions": self.max_report_revisions,
+            }
+            if consultation_packet is not None:
+                report_kwargs["consultation_packet"] = consultation_packet
+            report = self.report_generator(**report_kwargs)
         except Exception as exc:
-            report = self._fallback_report(state)
+            report = self._fallback_report(
+                state,
+                consultation_packet=consultation_packet,
+            )
             report = report.model_copy(
                 update={
                     "warnings": report.warnings
@@ -907,7 +928,17 @@ class WorkflowOrchestrator:
                 "report.report_json.stage2",
                 "report.report_json.stage3",
                 "report.report_json.stage4",
-            ],
+            ]
+            + (
+                [
+                    "report.report_json.consultation."
+                    "trade_settlement_risk",
+                    "report.report_json.consultation."
+                    "official_candidate_shortlist",
+                ]
+                if consultation_packet is not None
+                else []
+            ),
             started_at=started_at,
             finished_at=datetime.now(timezone.utc),
             duration_ms=self._duration_ms(started_ns),

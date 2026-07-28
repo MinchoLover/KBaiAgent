@@ -445,6 +445,9 @@ class Stage5Tests(unittest.TestCase):
             stage2=self.demo["stage2"],
             stage3=self.demo["stage3"],
             stage4=self.demo["stage4"],
+            consultation_packet=self.demo[
+                "consultation_packet"
+            ].packet,
             settings=Settings(openai_api_key="test-only"),
             client=client,
         )
@@ -474,6 +477,9 @@ class Stage5Tests(unittest.TestCase):
             stage2=self.demo["stage2"],
             stage3=self.demo["stage3"],
             stage4=self.demo["stage4"],
+            consultation_packet=self.demo[
+                "consultation_packet"
+            ].packet,
             settings=Settings(openai_api_key="test-only"),
             client=client,
             max_revisions=1,

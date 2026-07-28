@@ -482,7 +482,7 @@ class EndToEndTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                "환율·현금흐름 리스크 검토 보고서" in item.value
+                "수출입 금융 리스크 검토 보고서" in item.value
                 for item in app.markdown
             )
         )

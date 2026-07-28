@@ -1,6 +1,6 @@
 # Validation Report
 
-검증일: 2026-07-28 KST
+검증일: 2026-07-29 KST
 환경: macOS, Python 3.9.6, Streamlit 1.50.0, Pydantic 2.13.4
 
 ## 최종 결과
@@ -9,8 +9,9 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 320/320 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 333/333 PASS |
 | 거래·결제 위험·상담·공식 후보 연결 P0 | `python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 58/58 PASS |
+| T7 통합 보고서·critic | `python -m unittest tests.test_stage5_decision_report tests.test_stage3_4_5.Stage5Tests -v` | 25/25 PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
@@ -203,6 +204,14 @@ K-SURE 공식 페이지는 제도의 위험보호 구조를 확인하는 근거�
 - 보고서 숫자·JSON path 일치
 - q90 확률 오용, 미보정 방향 점수 확률 오용, horizon 외삽, 뉴스 숫자 반영,
   비공식 상품 근거를 critic이 차단
+- 상담 패킷이 있으면 거래·결제 위험·금융 대응·공식 후보를
+  `consultation.*` 근거로만 인용
+- Stage 4 원시 후보명·기관·URL은 최종 보고서 LLM bundle에서 제외
+- 수입 선지급·계약이행 위험과 수출대금 회수 위험을 방향별로 최종 보고서에 표시
+- shortlist 최대 3개만 표시하고 빈 shortlist에서는 LLM 상품 생성 호출을 차단
+- shortlist 밖 Stage 4 인용, 상품명·기관명·URL 변조, 자격·승인 확정을 critic이 차단
+- 거래위험 우선도와 금융 대응 제목을 인용한 구조화 값과 다르게 쓰는 경우 차단
+- 공식 심사등급·부도확률·보험 인수판단 주장과 결제위험→환헤지 비율 변경을 차단
 - LLM API 없음/실패/critic 재실패 시 결정론 template
 
 ## 실패와 해결 기록

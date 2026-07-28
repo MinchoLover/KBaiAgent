@@ -307,3 +307,40 @@ Trade-off: 공식 snapshot은 자료 확인일 이후 조건 변경을 자동 �
 Revisit condition: T7 최종 보고서 통합 시에도 raw retrieval 목록이 아니라 이
 shortlist만 사용자용 보고서에 전달하고, 공식 출처의 갱신 주기·만료 정책을 별도
 운영 기준으로 정합니다.
+
+## 25. The consultation packet is authoritative for the final report
+
+Context: T6 이후 기본 상담 패킷과 Streamlit 후보 화면은 최대 3개 shortlist를
+사용하지만, 기존 Stage 5 확장 보고서는 Stage 4의 원시 검색 후보 최대 8건을 직접
+LLM과 template에 전달했습니다. 이 상태에서는 같은 case에서 화면·상담 패킷·확장
+보고서의 상품 수가 다르고, 거래·결제 위험과 대응 근거도 확장 보고서에서
+누락됩니다.
+
+Decision: 기존 Stage 0~4 bundle과 Stage 5 생성·critic·1회 수정·fallback 구조는
+유지하고 `ConsultationPacket`을 선택적 추가 입력으로 전달합니다. 패킷이 있으면
+거래·결제 위험, 상담 항목과 공식 후보는 `consultation.*` 경로만 사용자용 근거로
+사용합니다. Stage 4는 mode·query·원시 후보 수 등 retrieval audit metadata만
+보고서 bundle에 남기고 원시 후보 이름·기관·URL은 제거합니다. 상품 섹션은
+`consultation.official_candidate_shortlist.candidates`의 최대 3개만 인용합니다.
+
+critic은 다음을 추가로 거부합니다.
+
+- 패킷이 있는데 `stage4.candidates`를 상품 근거로 사용
+- 공식 후보와 다른 상품명·기관명·URL
+- shortlist가 비었는데 상품을 생성
+- 상품 이용 자격이나 승인 가능성 확정
+- 근거 없는 거래·결제 위험 또는 금융 대응
+- 검토 우선도를 공식 심사등급·부도확률·보험 인수판단으로 표현
+- 결제·회수 위험 때문에 환헤지 비율을 직접 변경
+
+Rationale: 보고서가 T2~T6의 결정론적 근거를 그대로 이어받고, LLM은 숫자·위험·
+상품을 새로 선택하지 않는 설명 계층으로만 남습니다. 상담 패킷이 없는 기존 호출은
+Stage 4 legacy 계약으로 계속 동작해 하위 호환성을 유지합니다.
+
+Trade-off: Stage 4 원시 후보를 보고서 JSON에서 직접 감사할 수는 없지만 workflow의
+Stage 4 결과와 trace에는 그대로 남습니다. 보고서에는 사용자가 실제로 보게 되는
+shortlist만 보존하는 편이 오해 가능성이 낮습니다.
+
+Revisit condition: 별도 case 저장소를 도입하면 report가 참조한 packet hash와 Stage 4
+retrieval artifact ID를 영속적으로 연결하고, 보고서 재생성 이력을 case audit으로
+관리합니다.

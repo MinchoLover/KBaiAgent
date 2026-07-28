@@ -350,6 +350,63 @@ def _check_demo(errors: List[str]) -> None:
         import_demo["consultation_packet"].markdown
     ):
         errors.append("consultation markdown lost official shortlist")
+    for label, demo, expected_risk_label in (
+        (
+            "import",
+            import_demo,
+            "수입 선지급·계약이행 위험",
+        ),
+        (
+            "export",
+            export_demo,
+            "수출대금 회수 위험",
+        ),
+    ):
+        report = demo["report"]
+        consultation_bundle = report.report_json.get("consultation")
+        if not isinstance(consultation_bundle, dict):
+            errors.append(
+                "{} final report lost consultation bundle".format(
+                    label
+                )
+            )
+            continue
+        shortlist_bundle = consultation_bundle.get(
+            "official_candidate_shortlist",
+            {},
+        )
+        report_candidates = (
+            shortlist_bundle.get("candidates", [])
+            if isinstance(shortlist_bundle, dict)
+            else []
+        )
+        if not report_candidates or len(report_candidates) > 3:
+            errors.append(
+                "{} final report shortlist is invalid".format(label)
+            )
+        if expected_risk_label not in report.markdown:
+            errors.append(
+                "{} final report lost trade risk".format(label)
+            )
+        if (
+            report_candidates
+            and report_candidates[0]["name"] not in report.markdown
+        ):
+            errors.append(
+                "{} final report lost first official candidate".format(
+                    label
+                )
+            )
+        if "candidates" in report.report_json.get("stage4", {}):
+            errors.append(
+                "{} final report exposed raw Stage 4 candidates".format(
+                    label
+                )
+            )
+        if not report.critique.passed:
+            errors.append(
+                "{} final decision report critic failed".format(label)
+            )
 
     integrated_import = run_integrated_decision_demo("BUYER")
     integrated_export = run_integrated_decision_demo("SELLER")
