@@ -1,6 +1,6 @@
 # Submission Readiness
 
-상태: `SUBMISSION_EVIDENCE_READY_GOLDEN_LIVE_NOT_RUN`
+상태: `GOLDEN_LIVE_V1_EVIDENCE_BLOCKED_AWAITING_REVALIDATION`
 
 ## 기준 상태
 
@@ -10,7 +10,8 @@
 - Golden text-layer 자료: `73e457f`, `e466912`
 - Python: 3.9 호환
 - 실제 고객문서 사용: 없음
-- 이번 Golden 작업의 OpenAI Live 호출: 없음
+- 승인된 Golden Live v1: API 성공 1건, evidence 검증 차단
+- 이번 evidence 복구 작업의 OpenAI Live 호출: 없음
 - Git push: 최종 사용자 지시 전 수행하지 않음
 
 기존 T1~T7, T4, Stage 1 JSON/REST adapter, Stage 2 현금흐름, Stage 3 환헤지,
@@ -82,16 +83,20 @@ Golden의 API-free 확인 결과:
 - 사용자 확인 후 `validation_pass=true`, `stage2_allowed=true`: PASS
 - Stage 1 21거래일 종료 2026-08-25 안에 잔금일 2026-08-20: PASS
 - Golden 전용 API-free tests: 14/14 PASS
+- Text-PDF amount/date recovery tests: 18/18 PASS
 
-Golden PDF의 OpenAI Live 추출은 아직 실행하지 않았습니다. 따라서 Golden expected
-data를 모델 정확도라고 말하지 않습니다.
+Golden Live v1은 핵심값과 installment 합계가 expected와 일치했지만
+`EVIDENCE_VALUE_MISMATCH:amount_due`,
+`EVIDENCE_NOT_IN_SOURCE:explicit_due_date`로 `validation_pass=false`,
+`stage2_allowed=false`였습니다. 복구 수정은 API-free로만 검증했으므로 수정 후
+Live end-to-end 성공을 아직 주장하지 않습니다.
 
 ## 검증 상태
 
 | 항목 | 상태 | 근거 |
 | --- | --- | --- |
 | compile | PASS | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q app.py src scripts tests` |
-| 전체 API-free suite | 416/416 PASS | `python -m unittest discover -s tests -v` |
+| 전체 API-free suite | 434/434 PASS | `python -m unittest discover -s tests -v` |
 | Golden 전용 | 14/14 PASS | `python -m unittest tests.test_golden_trade_demo -v` |
 | country canonicalization | 8/8 PASS | `python -m unittest tests.test_country_canonicalization -v` |
 | Stage 1~5 통합 회귀 | PASS | 전체 suite와 `python scripts/run_regression.py` |
@@ -99,7 +104,8 @@ data를 모델 정확도라고 말하지 않습니다.
 | country fixture | 8건 evaluator pipeline 검증 | `reports/country_validation/eval_summary.json` |
 | fixture 모델 정확도 주장 | 금지 | `evaluation_mode=FIXTURE` |
 | V1/V2 합성 Live | 각 8건 완료 | `docs/LIVE_BENCHMARK_RESULTS.md` |
-| Golden Live | 미실행 | 별도 승인 필요 |
+| Golden Live v1 | API 1건 성공, evidence 차단 | `docs/VALIDATION_REPORT.md` |
+| 수정 후 Golden Live 재검증 | 미실행 | 별도 승인 필요 |
 | 실제 고객문서 benchmark | 미실행·범위 밖 | 운영 개인정보 통제 필요 |
 
 ## 심사위원에게 말할 수 있는 주장
@@ -111,6 +117,7 @@ data를 모델 정확도라고 말하지 않습니다.
 - 독립 검증할 수 없는 스캔형 문서는 사용자 확인 전 금융 계산으로 보내지 않습니다.
 - 텍스트 레이어 Golden 계약서의 expected evidence와 기존 도메인 입력·계산을
   API-free로 검증했습니다.
+- Golden Live v1은 값이 맞아도 근거가 틀리면 Stage 2를 차단했습니다.
 - OECD·World Bank·WTO는 자체 국가 신용점수로 합치지 않습니다.
 - 같은 확인 입력과 규칙의 금융 계산은 `Decimal` 기반으로 결정론적입니다.
 
@@ -130,7 +137,8 @@ data를 모델 정확도라고 말하지 않습니다.
 - 스캔형 평가문서에는 독립 OCR verifier가 없습니다.
 - 한 사례에 contract date 하루 차이 오류가 남았습니다.
 - Cached input token 미수집으로 Baseline 실제 API 비용은 `UNKNOWN`입니다.
-- Golden expected data는 API-free이며 Golden Live model 추출은 미검증입니다.
+- Golden Live v1은 단일 합성문서이며 evidence 차단 상태였습니다.
+- 수정된 recovery의 Live end-to-end 결과는 아직 미검증입니다.
 - 실제 배포에는 인증·tenant 분리, malware scan, sandbox rendering, 동의·보존·
   삭제, secret manager, rate limit, 중앙 감사와 은행 내부 계약이 필요합니다.
 
@@ -144,8 +152,9 @@ python scripts/run_decision_demo.py --company-role SELLER --format summary
 python -m streamlit run app.py
 ```
 
-실제 Golden Live를 사용하려면 별도 승인 후 새 immutable Run ID로 먼저 dry-run하고,
-실패하면 `docs/DEMO_SCRIPT_KO.md`의 API-free fallback을 사용합니다.
+수정된 Golden Live를 사용하려면 별도 승인 후 현재 commit과 새 실행 식별값을
+기록해 재검증하고, 실패하면 `docs/DEMO_SCRIPT_KO.md`의 API-free fallback을
+사용합니다.
 
 ## API 없는 fallback
 

@@ -1,5 +1,20 @@
 # AI Use Log
 
+## 2026-07-29 Golden source-grounded evidence recovery
+
+Codex가 승인된 Golden 1건 Live 결과의 값 성공·evidence 실패를 재현 가능한
+API-free fixture로 옮기고, 텍스트 레이어 PDF 전용 amount/due-date evidence
+recovery를 구현했습니다. 모델 quote를 실제 페이지에서 먼저 검증하고 폐기한 뒤,
+문서유형 문맥·통화·`Decimal`/`date`·installment aggregate와 가장 강한 유일 후보를
+모두 만족할 때만 PDF의 실제 한 줄을 evidence로 연결합니다.
+
+Recovery evidence와 audit에는 실제 page, canonical parsed value,
+`UNIQUE_SEMANTIC_TEXT_LINE` method와 기존 모델 evidence 폐기 사유를 보존합니다.
+계약 총액·잔금, 계약일·지급일, 여러 강한 후보 또는 통화가 충돌하면 복구하지
+않습니다. Textless PDF/JPG의 `EVIDENCE_UNVERIFIABLE`, `OCR_REQUIRED`와 명시적
+사용자 override는 유지했습니다. Prompt/schema, 국가 canonicalization, Stage 1~5,
+Golden PDF·expected data는 변경하지 않았고 실제 OpenAI API는 호출하지 않았습니다.
+
 ## 2026-07-29 Text-layer Golden trade demo
 
 Codex가 메인 발표 성공 흐름용 2페이지 영문 합성 수출계약서를 결정론 PDF 생성기로

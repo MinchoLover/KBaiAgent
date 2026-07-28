@@ -9,8 +9,9 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 416/416 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 434/434 PASS |
 | Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
+| Text-PDF amount/date evidence recovery | `python -m unittest tests.test_source_evidence_recovery -v` | 18/18 PASS |
 | T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 58/58 PASS |
 | 거래·결제 위험·상담·공식 후보 연결 P0 | `.venv/bin/python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 60/60 PASS |
 | T7 통합 보고서·critic | 전체 unittest 내 실행 | 34/34 PASS |
@@ -183,8 +184,43 @@ Golden 전용 14개 API-free 테스트는 다음을 검증했습니다.
 - 기존 Stage 2 계산으로 기준 수취 140,000,000원, -5% 수취 133,000,000원,
   수취 감소 7,000,000원, buffer shortfall 2,000,000원
 
-Golden PDF에 대한 OpenAI Live 추출은 실행하지 않았습니다. Expected data와
-14/14 결과는 모델 정확도가 아니라 API-free 성공 경로 검증입니다.
+Golden 자료 생성 시점의 Expected data와 14/14 결과는 모델 정확도가 아니라
+API-free 성공 경로 검증입니다.
+
+### Golden 1건 Live evidence 실패와 API-free 복구 검증
+
+이후 별도 승인된 `gpt-4o-mini` 단일 Live 호출에서 핵심 값과 installment 합계는
+정답과 일치했지만 다음 evidence 오류로 안전하게 차단됐습니다.
+
+```text
+EVIDENCE_VALUE_MISMATCH: amount_due
+EVIDENCE_NOT_IN_SOURCE: explicit_due_date
+validation_pass: false
+stage2_allowed: false
+```
+
+`amount_due`는 분할결제 합계 USD 100,000과 같은 계약 총노출액인데 모델 evidence가
+canonical 금액을 뒷받침하지 못했습니다. 결제일 값 `2026-08-20`은 맞지만 모델
+quote가 PDF의 실제 `20 August 2026` 표현과 일치하지 않았습니다. 단순 사용자
+확인으로 두 오류를 제거하지 않았고, USD 80,000 잔금 조항을 총노출액 evidence로
+사용하지 않습니다.
+
+수정된 API-free 경로는 먼저 잘못된 모델 evidence를 같은 사유로 폐기한 뒤 실제
+텍스트 레이어에서 다음 원문을 복구합니다.
+
+```text
+page 1: The total Contract Price is one hundred thousand United States dollars (USD 100,000).
+page 2: The remaining eighty percent (80%), equal to USD 80,000, shall be paid by T/T remittance on or before 20 August 2026 (Payment Due Date).
+```
+
+금액은 `Decimal("100000.00")`, 날짜는 `date(2026, 8, 20)`과 대조하며 canonical
+값을 source quote로 만들지 않습니다. 다른 의미의 동일 금액, 복수의 강한 지급일,
+통화 충돌, 값 불일치와 textless 문서는 계속 차단합니다. 신규
+`tests.test_source_evidence_recovery` 18개가 이 정책과 Golden Live-like 실패
+재현 후 사용자 확인 경로를 API 없이 검증합니다.
+
+이 결과는 코드 수정 후 API-free 검증입니다. 수정된 코드로 Golden Live를 다시
+실행하기 전에는 end-to-end 추출 성공으로 주장하지 않습니다.
 
 ## Stage 0 매매계약 회귀
 

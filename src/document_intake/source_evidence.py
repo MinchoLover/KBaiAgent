@@ -3,7 +3,7 @@ import re
 import unicodedata
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from pypdf import PdfReader
 
@@ -60,7 +60,9 @@ DATE_CONTEXT_PATTERNS = {
     ),
     "explicit_due_date": re.compile(
         r"\b(?:payment\s+)?due(?:\s+date)?\b|\bpay\s+by\b|"
-        r"\bsettlement\s+date\b|결제일|지급일|납기일",
+        r"\bsettlement\s+date\b|\bon\s+or\s+before\b|"
+        r"\bno\s+later\s+than\b|\bpayment\s+shall\s+be\s+made\s+by\b|"
+        r"\bshall\s+be\s+paid\b.{0,80}\bby\b|결제일|지급일|납기일",
         re.IGNORECASE,
     ),
 }
@@ -68,6 +70,106 @@ PARTY_LABEL_PATTERNS = {
     "seller": re.compile(r"\bseller\b|판매자", re.IGNORECASE),
     "buyer": re.compile(r"\bbuyer\b|구매자", re.IGNORECASE),
 }
+KNOWN_CURRENCY_CODES = {
+    "AUD",
+    "BRL",
+    "CAD",
+    "CHF",
+    "CNY",
+    "EUR",
+    "GBP",
+    "HKD",
+    "INR",
+    "JPY",
+    "KRW",
+    "MXN",
+    "SGD",
+    "USD",
+}
+CURRENCY_NAME_PATTERNS = {
+    "USD": re.compile(
+        r"\b(?:United\s+States|U\.?S\.?)\s+dollars?\b",
+        re.IGNORECASE,
+    ),
+}
+CONTRACT_TOTAL_CONTEXT_RE = re.compile(
+    r"\b(?:total\s+)?contract\s+(?:price|value)\b",
+    re.IGNORECASE,
+)
+INVOICE_TOTAL_CONTEXT_RE = re.compile(
+    r"\b(?:invoice|grand)\s+total\b|\btotal\s+invoice\s+amount\b",
+    re.IGNORECASE,
+)
+ORDER_TOTAL_CONTEXT_RE = re.compile(
+    r"\b(?:purchase\s+order|order)\s+total\b|\btotal\s+order\s+amount\b",
+    re.IGNORECASE,
+)
+EXPLICIT_AMOUNT_DUE_CONTEXT_RE = re.compile(
+    r"\b(?:amount|balance|total)\s+due\b|\bnet\s+payable\b|"
+    r"\bpayable\s+amount\b",
+    re.IGNORECASE,
+)
+STRONG_DUE_DATE_CONTEXT_RE = re.compile(
+    r"\b(?:payment\s+)?due\s+date\b|\bsettlement\s+date\b|"
+    r"\bdue\s+no\s+later\s+than\b",
+    re.IGNORECASE,
+)
+PAYMENT_DUE_ACTION_CONTEXT_RE = re.compile(
+    r"\bpayment\s+shall\s+be\s+made\s+by\b|"
+    r"\bshall\s+be\s+paid\b.{0,80}\bon\s+or\s+before\b|"
+    r"\bpay\s+by\b",
+    re.IGNORECASE,
+)
+WEAK_DUE_DATE_CONTEXT_RE = re.compile(
+    r"\bon\s+or\s+before\b|\bno\s+later\s+than\b",
+    re.IGNORECASE,
+)
+NON_DUE_DATE_CONTEXT_RE = re.compile(
+    r"\b(?:contract|agreement|shipment|shipping|issue|invoice)\s+date\b",
+    re.IGNORECASE,
+)
+MONTH_NUMBERS = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sept": 9,
+    "sep": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+MONTH_PATTERN = "|".join(
+    sorted(MONTH_NUMBERS, key=len, reverse=True)
+)
+DAY_MONTH_YEAR_RE = re.compile(
+    r"\b([0-3]?[0-9])(?:st|nd|rd|th)?\s+({})[,]?\s+"
+    r"([12][0-9]{{3}})\b".format(MONTH_PATTERN),
+    re.IGNORECASE,
+)
+MONTH_DAY_YEAR_RE = re.compile(
+    r"\b({})\s+([0-3]?[0-9])(?:st|nd|rd|th)?[,]?\s+"
+    r"([12][0-9]{{3}})\b".format(MONTH_PATTERN),
+    re.IGNORECASE,
+)
+ISO_DATE_IN_TEXT_RE = re.compile(
+    r"(?<![0-9])([12][0-9]{3})-([01]?[0-9])-([0-3]?[0-9])(?![0-9])"
+)
 
 
 def extract_pdf_page_texts(file_bytes: bytes) -> List[str]:
@@ -98,6 +200,53 @@ def _contains_value(source_text: str, value: Optional[str]) -> bool:
     if not source_key or not value_key:
         return False
     return " {} ".format(value_key) in " {} ".format(source_key)
+
+
+def _normalized_whitespace(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _contains_exact_quote(source_text: str, quote: str) -> bool:
+    """Match a verbatim quote while tolerating PDF line-wrap whitespace only."""
+
+    normalized_source = _normalized_whitespace(source_text)
+    normalized_quote = _normalized_whitespace(quote)
+    return bool(
+        normalized_quote
+        and normalized_quote in normalized_source
+    )
+
+
+def _currency_codes_in_source(source_text: str) -> Set[str]:
+    codes = {
+        item
+        for item in re.findall(
+            r"(?<![A-Za-z])([A-Z]{3})(?![A-Za-z])",
+            source_text,
+        )
+        if item in KNOWN_CURRENCY_CODES
+    }
+    for code, pattern in CURRENCY_NAME_PATTERNS.items():
+        if pattern.search(source_text):
+            codes.add(code)
+    return codes
+
+
+def _source_currency_is_consistent(
+    source_text: str,
+    expected_currency: Optional[str],
+    *,
+    require_presence: bool,
+) -> bool:
+    if not expected_currency:
+        return not require_presence
+    currency = expected_currency.strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}", currency):
+        return False
+    detected = _currency_codes_in_source(source_text)
+    if not detected:
+        return not require_presence
+    return detected == {currency}
 
 
 def _source_contains_currency(source_text: str, value: Optional[str]) -> bool:
@@ -131,6 +280,50 @@ def _source_contains_amount(source_text: str, value: Optional[str]) -> bool:
         if candidate == expected:
             return True
     return False
+
+
+def _amount_values(source_text: str) -> List[Decimal]:
+    values: List[Decimal] = []
+    for match in AMOUNT_TOKEN_RE.finditer(source_text.upper()):
+        try:
+            value = Decimal(match.group(1).replace(",", ""))
+        except (InvalidOperation, ValueError):
+            continue
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def _date_values(source_text: str) -> List[date]:
+    values: List[date] = []
+
+    def append_value(year: int, month: int, day: int) -> None:
+        try:
+            value = date(year, month, day)
+        except ValueError:
+            return
+        if value not in values:
+            values.append(value)
+
+    for match in ISO_DATE_IN_TEXT_RE.finditer(source_text):
+        append_value(
+            int(match.group(1)),
+            int(match.group(2)),
+            int(match.group(3)),
+        )
+    for match in DAY_MONTH_YEAR_RE.finditer(source_text):
+        append_value(
+            int(match.group(3)),
+            MONTH_NUMBERS[match.group(2).lower()],
+            int(match.group(1)),
+        )
+    for match in MONTH_DAY_YEAR_RE.finditer(source_text):
+        append_value(
+            int(match.group(3)),
+            MONTH_NUMBERS[match.group(1).lower()],
+            int(match.group(2)),
+        )
+    return values
 
 
 def _source_contains_date(source_text: str, value: Optional[str]) -> bool:
@@ -258,17 +451,31 @@ def _source_supports_field(
         return (
             _source_contains_amount(source_text, extraction.grand_total)
             and bool(AMOUNT_CONTEXT_RE.search(source_text))
+            and _source_currency_is_consistent(
+                source_text,
+                extraction.currency,
+                require_presence=False,
+            )
         )
     if field == "amount_due":
         return (
             _source_contains_amount(source_text, extraction.amount_due)
             and bool(AMOUNT_CONTEXT_RE.search(source_text))
+            and _source_currency_is_consistent(
+                source_text,
+                extraction.currency,
+                require_presence=False,
+            )
+        )
+    if field == "explicit_due_date":
+        return (
+            _source_contains_date(source_text, extraction.explicit_due_date)
+            and _due_date_context_rank(source_text) is not None
         )
     if field in {
         "issue_date",
         "contract_date",
         "shipment_date",
-        "explicit_due_date",
     }:
         return (
             _source_contains_date(source_text, getattr(extraction, field))
@@ -476,7 +683,7 @@ def _evidence_source_page(
     )
     for page_number in page_numbers:
         page_text = " ".join(pages[page_number])
-        if _contains_value(page_text, evidence.source_text):
+        if _contains_exact_quote(page_text, evidence.source_text):
             return page_number
     return None
 
@@ -591,6 +798,334 @@ def _generated_evidence(
             "대조해 evidence를 연결했습니다.".format(source_kind)
         ),
     )
+
+
+def _source_lines(
+    source_page_texts: Sequence[str],
+) -> List[Tuple[int, str]]:
+    lines: List[Tuple[int, str]] = []
+    for page_number, page_text in enumerate(source_page_texts, start=1):
+        for source_line in page_text.splitlines():
+            line = source_line.strip()
+            if line:
+                lines.append((page_number, line))
+    return lines
+
+
+def _has_verified_field_evidence(
+    extraction: TradeDocumentExtraction,
+    field: str,
+) -> bool:
+    return any(
+        item.field == field
+        and item.extraction_type != "INFERRED"
+        and item.source_text.strip()
+        for item in extraction.evidence
+    )
+
+
+def _discarded_evidence_reason(
+    field: str,
+    evidence_audit: Sequence[NormalizationAuditEntry],
+) -> str:
+    priority = {
+        "EVIDENCE_VALUE_MISMATCH": 3,
+        "EVIDENCE_NOT_IN_SOURCE": 2,
+        "EVIDENCE_UNVERIFIABLE": 1,
+    }
+    statuses = [
+        item.status
+        for item in evidence_audit
+        if item.field == field and item.status in priority
+    ]
+    if not statuses:
+        return "MISSING_MODEL_EVIDENCE"
+    return max(statuses, key=lambda item: priority[item])
+
+
+def _installment_total_matches_amount_due(
+    extraction: TradeDocumentExtraction,
+) -> bool:
+    if not extraction.installments or not extraction.amount_due:
+        return False
+    try:
+        amount_due = Decimal(extraction.amount_due)
+        amounts = [
+            Decimal(item.amount)
+            for item in extraction.installments
+            if item.amount is not None
+        ]
+    except (InvalidOperation, ValueError):
+        return False
+    return (
+        len(amounts) == len(extraction.installments)
+        and sum(amounts, Decimal("0")) == amount_due
+    )
+
+
+def _amount_context_rank(
+    line: str,
+    extraction: TradeDocumentExtraction,
+) -> Optional[Tuple[int, str]]:
+    explicit_due = bool(EXPLICIT_AMOUNT_DUE_CONTEXT_RE.search(line))
+    contract_total = bool(CONTRACT_TOTAL_CONTEXT_RE.search(line))
+    invoice_total = bool(INVOICE_TOTAL_CONTEXT_RE.search(line))
+    order_total = bool(ORDER_TOTAL_CONTEXT_RE.search(line))
+
+    if extraction.document_type == "SALES_CONTRACT":
+        if _installment_total_matches_amount_due(extraction):
+            if contract_total:
+                return 0, "SALES_CONTRACT_AGGREGATE"
+            if explicit_due:
+                return 1, "EXPLICIT_BALANCE_OR_AMOUNT_DUE"
+            return None
+        if explicit_due:
+            return 0, "EXPLICIT_BALANCE_OR_AMOUNT_DUE"
+        if (
+            contract_total
+            and extraction.grand_total == extraction.amount_due
+        ):
+            return 1, "SALES_CONTRACT_TOTAL_WITHOUT_SCHEDULE"
+        return None
+
+    if extraction.document_type == "COMMERCIAL_INVOICE":
+        if explicit_due:
+            return 0, "INVOICE_EXPLICIT_BALANCE"
+        if invoice_total and extraction.grand_total == extraction.amount_due:
+            return 1, "INVOICE_TOTAL_EQUALS_AMOUNT_DUE"
+        return None
+
+    if extraction.document_type == "PURCHASE_ORDER":
+        if explicit_due:
+            return 0, "ORDER_EXPLICIT_AMOUNT_DUE"
+        if order_total and extraction.grand_total == extraction.amount_due:
+            return 1, "ORDER_TOTAL_EQUALS_AMOUNT_DUE"
+        return None
+
+    if explicit_due:
+        return 0, "EXPLICIT_BALANCE_OR_AMOUNT_DUE"
+    return None
+
+
+def _amount_recovery_candidate(
+    extraction: TradeDocumentExtraction,
+    lines: Sequence[Tuple[int, str]],
+) -> Tuple[Optional[Tuple[int, str]], Optional[str]]:
+    if not extraction.amount_due:
+        return None, None
+    try:
+        expected = Decimal(extraction.amount_due)
+    except (InvalidOperation, ValueError):
+        return None, None
+
+    candidates: List[
+        Tuple[int, str, int, str, List[Decimal], bool]
+    ] = []
+    for page, line in lines:
+        context = _amount_context_rank(line, extraction)
+        if context is None:
+            continue
+        rank, semantic = context
+        values = _amount_values(line)
+        currency_matches = _source_currency_is_consistent(
+            line,
+            extraction.currency,
+            require_presence=True,
+        )
+        if not currency_matches and expected not in values:
+            continue
+        candidates.append(
+            (rank, semantic, page, line, values, currency_matches)
+        )
+    if not candidates:
+        return None, None
+
+    best_rank = min(item[0] for item in candidates)
+    strongest = [item for item in candidates if item[0] == best_rank]
+    if len(strongest) != 1:
+        return None, "MULTIPLE_STRONG_AMOUNT_CANDIDATES"
+
+    matching = [
+        item
+        for item in candidates
+        if item[5] and item[4] == [expected]
+    ]
+    if len({item[1] for item in matching}) > 1:
+        return None, "SAME_AMOUNT_IN_MULTIPLE_SEMANTIC_FIELDS"
+
+    selected = strongest[0]
+    if not selected[5]:
+        return None, "AMOUNT_CURRENCY_CONFLICT_OR_MISSING"
+    if selected[4] != [expected]:
+        return None, "AMOUNT_CANDIDATE_VALUE_MISMATCH"
+    return (selected[2], selected[3]), None
+
+
+def _due_date_context_rank(line: str) -> Optional[int]:
+    if STRONG_DUE_DATE_CONTEXT_RE.search(line):
+        return 0
+    if PAYMENT_DUE_ACTION_CONTEXT_RE.search(line):
+        return 1
+    if (
+        WEAK_DUE_DATE_CONTEXT_RE.search(line)
+        and re.search(r"\bpayment(?:\s+terms)?\b|지급|결제", line, re.IGNORECASE)
+    ):
+        return 2
+    if NON_DUE_DATE_CONTEXT_RE.search(line):
+        return None
+    return None
+
+
+def _due_date_recovery_candidate(
+    extraction: TradeDocumentExtraction,
+    lines: Sequence[Tuple[int, str]],
+) -> Tuple[Optional[Tuple[int, str]], Optional[str]]:
+    if not extraction.explicit_due_date:
+        return None, None
+    try:
+        expected = date.fromisoformat(extraction.explicit_due_date)
+    except ValueError:
+        return None, None
+
+    candidates: List[Tuple[int, int, str, List[date]]] = []
+    for page, line in lines:
+        rank = _due_date_context_rank(line)
+        if rank is None:
+            continue
+        values = _date_values(line)
+        if values:
+            candidates.append((rank, page, line, values))
+    if not candidates:
+        return None, None
+
+    best_rank = min(item[0] for item in candidates)
+    strongest = [item for item in candidates if item[0] == best_rank]
+    if len(strongest) != 1:
+        return None, "MULTIPLE_STRONG_DUE_DATE_CANDIDATES"
+
+    selected = strongest[0]
+    if selected[3] != [expected]:
+        return None, "DUE_DATE_CANDIDATE_VALUE_MISMATCH"
+    return (selected[1], selected[2]), None
+
+
+def _recovery_failure_audit(
+    *,
+    field: str,
+    canonical_value: Optional[str],
+    reason: str,
+    discarded_reason: str,
+) -> NormalizationAuditEntry:
+    return NormalizationAuditEntry(
+        field=field,
+        raw_value=discarded_reason,
+        normalized_value=canonical_value,
+        status="EVIDENCE_RECOVERY_AMBIGUOUS",
+        message=(
+            "recovery_method=UNIQUE_SEMANTIC_TEXT_LINE; "
+            "discarded_model_evidence={}; recovery_blocked={}; "
+            "모호하거나 불일치한 원문 후보를 임의 선택하지 않았습니다.".format(
+                discarded_reason,
+                reason,
+            )
+        ),
+    )
+
+
+def recover_source_grounded_evidence(
+    extraction: TradeDocumentExtraction,
+    *,
+    source_page_texts: Optional[Sequence[str]],
+    evidence_audit: Sequence[NormalizationAuditEntry],
+) -> Tuple[TradeDocumentExtraction, List[NormalizationAuditEntry]]:
+    """Recover amount/due evidence only from a unique text-PDF source line."""
+
+    if source_page_texts is None or not any(
+        page_text.strip() for page_text in source_page_texts
+    ):
+        return extraction, []
+
+    lines = _source_lines(source_page_texts)
+    recovered: List[FieldEvidence] = []
+    audit: List[NormalizationAuditEntry] = []
+    finders = {
+        "amount_due": _amount_recovery_candidate,
+        "explicit_due_date": _due_date_recovery_candidate,
+    }
+
+    for field, finder in finders.items():
+        if not getattr(extraction, field):
+            continue
+        if _has_verified_field_evidence(
+            extraction.model_copy(
+                update={"evidence": list(extraction.evidence) + recovered}
+            ),
+            field,
+        ):
+            continue
+        discarded_reason = _discarded_evidence_reason(
+            field,
+            evidence_audit,
+        )
+        candidate, blocked_reason = finder(extraction, lines)
+        if candidate is None:
+            if blocked_reason:
+                audit.append(
+                    _recovery_failure_audit(
+                        field=field,
+                        canonical_value=getattr(extraction, field),
+                        reason=blocked_reason,
+                        discarded_reason=discarded_reason,
+                    )
+                )
+            continue
+
+        page, source_text = candidate
+        canonical_value = getattr(extraction, field)
+        recovery_method = "UNIQUE_SEMANTIC_TEXT_LINE"
+        recovered.append(
+            FieldEvidence(
+                field=field,
+                page=page,
+                source_text=source_text,
+                extraction_type="EXPLICIT",
+                confidence_reason=(
+                    "recovery_method={}; parsed_value={}; "
+                    "discarded_model_evidence={}; 실제 PDF page {} 원문을 "
+                    "결정론적으로 파싱해 canonical value와 일치함을 "
+                    "확인했습니다.".format(
+                        recovery_method,
+                        canonical_value,
+                        discarded_reason,
+                        page,
+                    )
+                ),
+            )
+        )
+        audit.append(
+            NormalizationAuditEntry(
+                field=field,
+                raw_value=discarded_reason,
+                normalized_value=canonical_value,
+                status="EVIDENCE_RECOVERED_FROM_TEXT",
+                message=(
+                    "recovery_method={}; page={}; parsed_value={}; "
+                    "discarded_model_evidence={}; 원문 quote를 그대로 "
+                    "보존했습니다.".format(
+                        recovery_method,
+                        page,
+                        canonical_value,
+                        discarded_reason,
+                    )
+                ),
+            )
+        )
+
+    if not recovered:
+        return extraction, audit
+    return extraction.model_copy(
+        update={"evidence": list(extraction.evidence) + recovered}
+    ), audit
 
 
 def augment_party_evidence(

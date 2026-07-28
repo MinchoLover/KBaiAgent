@@ -7,10 +7,11 @@
 합성 구매자에게 USD 100,000의 장비를 수출하고 20% 선지급·80% T/T 잔금을 받는
 2페이지 영문 텍스트 레이어 계약서입니다.
 
-이 PDF의 expected data는 API-free 검증을 통과했지만 Golden PDF 자체의 OpenAI Live
-추출은 아직 실행하지 않았습니다. 실제 문서 분석을 메인 무대에서 사용할 때는 별도
-승인 Live dry-run을 먼저 완료해야 합니다. 승인 결과가 없거나 호출이 불안정하면
-아래 API-free fallback을 사용하며 모델 정확도 데모라고 말하지 않습니다.
+이 PDF의 Golden Live v1은 핵심값이 맞았지만 amount/due-date evidence 검증에서
+차단됐습니다. 결정론 recovery 수정은 API-free 테스트만 통과했으므로 실제 문서
+분석을 메인 무대에서 사용하기 전에 수정 commit으로 별도 승인 Live 재검증이
+필요합니다. 재검증 결과가 없거나 호출이 불안정하면 아래 fallback을 사용하며
+모델 end-to-end 성공 데모라고 말하지 않습니다.
 
 ## 발표 전 API-free 확인
 
@@ -75,8 +76,8 @@ Country validation의 스캔형 8건은 메인 성공 데모에 사용하지 않
 
 | 단계 | 클릭·입력 | 강조할 결과 | 발표자 한 문장 | 실패 시 fallback |
 | --- | --- | --- | --- | --- |
-| 1. Golden 계약서 업로드 | 사이드바 `데모 및 연결 설정` → `실제 문서 분석`; 역할 `판매자 · SELLER`; 회사국가 `KR`; Golden PDF 업로드; `문서 분석하고 거래정보 채우기` | 2페이지 텍스트 PDF와 합성·법적 효력 없음 표시 | “실제 고객정보가 없는 합성 계약서 한 장으로 시작합니다.” | PDF와 `expected_extraction.json`을 나란히 보여주고 Live가 미실행임을 밝힘 |
-| 2. 텍스트 evidence 확인 | `1 문서 확인`에서 판매자·구매자·금액·결제일의 원문 근거 펼치기 | 각 exact quote의 page 1/2 연결 | “텍스트 레이어의 짧은 인용이 실제 페이지에 있는지 일반 코드가 대조합니다.” | `python -m unittest tests.test_golden_trade_demo -v`의 evidence 테스트 결과 제시 |
+| 1. Golden 계약서 업로드 | 사이드바 `데모 및 연결 설정` → `실제 문서 분석`; 역할 `판매자 · SELLER`; 회사국가 `KR`; Golden PDF 업로드; `문서 분석하고 거래정보 채우기` | 2페이지 텍스트 PDF와 합성·법적 효력 없음 표시 | “실제 고객정보가 없는 합성 계약서 한 장으로 시작합니다.” | PDF와 `expected_extraction.json`을 나란히 보여주고 수정 후 Live가 미검증임을 밝힘 |
+| 2. 텍스트 evidence 확인 | `1 문서 확인`에서 판매자·구매자·금액·결제일의 원문 근거 펼치기 | 각 exact quote의 page 1/2 연결 | “텍스트 레이어의 짧은 인용이 실제 페이지에 있는지 일반 코드가 대조합니다.” | `python -m unittest tests.test_source_evidence_recovery -v` 결과 제시 |
 | 3. 핵심 거래값 사용자 확인 | `KR/BR`, `EXPORT`, `USD`, `100000.00`, `2026-08-20` 확인 후 확인 버튼 | `Republic of Korea (KR)→KR`, `Brazil (BR)→BR`, `EXPORT` | “AI 값은 evidence와 규칙 검증 뒤에도 사람이 확인해야 계산으로 넘어갑니다.” | expected data를 읽어 설명하고 앱의 `수출기업 대표 데모`로 계산 화면 전환 |
 | 4. 거래·회수 조건 확인 | `2 위험 진단` → 거래처 `기존`, 선지급 `비율 확인 20%`, 잔금 `Open Account`, 기간 22일, 보호수단 `없음 확인` | `EXPORT_RECEIVABLE_COLLECTION_RISK`, `ELEVATED_REVIEW` | “기존 거래처라도 Open Account이고 적용 가능한 보호수단이 없으면 회수보호 상담을 추가 검토합니다.” | `demo_inputs.json`과 Golden domain test 결과 제시 |
 | 5. 환율 시장 문맥 확인 | 같은 탭의 환율 상세 펼치기 | 하락 0.712·상승 0.288, q90 하락 3.6%, `보정확률 아님` | “방향점수와 q90은 실제 발생확률이 아니며 뉴스도 금융 숫자를 바꾸지 않습니다.” | Stage 1 fixture JSON의 hash·고정 값을 표시 |

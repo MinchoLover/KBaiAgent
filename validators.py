@@ -20,6 +20,7 @@ from src.document_intake.normalization import (
 )
 from src.document_intake.source_evidence import (
     augment_party_evidence,
+    recover_source_grounded_evidence,
     verify_core_evidence_against_source,
 )
 
@@ -326,6 +327,14 @@ def _prepare_extraction_for_validation(
         source_page_texts=source_page_texts,
     )
     audit.extend(source_evidence_audit)
+    normalized, recovered_evidence_audit = (
+        recover_source_grounded_evidence(
+            normalized,
+            source_page_texts=source_page_texts,
+            evidence_audit=source_evidence_audit,
+        )
+    )
+    audit.extend(recovered_evidence_audit)
     normalized, party_evidence_audit = augment_party_evidence(
         normalized,
         source_page_texts=source_page_texts,

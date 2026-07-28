@@ -25,6 +25,20 @@
 evidence는 field, 1부터 시작하는 page, 짧은 source_text, `EXPLICIT/DERIVED/INFERRED`,
 confidence_reason을 가집니다.
 
+### 금액 Domain 계약
+
+- `grand_total`: 문서의 액면 총액
+- `amount_due`: Stage 2 현금흐름으로 전달할 실제 미지급·미수 노출액
+- Invoice: 명시된 `Balance Due` 또는 `Amount Due`가 우선하며
+  `grand_total`보다 작을 수 있음
+- SALES_CONTRACT: 아직 지급됐다고 표시되지 않은 지급 예정 회차를 모두 추출한
+  경우 `amount_due`는 회차 합계이며 `sum(installments) == amount_due`
+- Purchase Order: 명시 amount due가 없으면 order total과 amount_due가 같은
+  경우에만 총액 문맥을 사용할 수 있음
+
+계약 총액과 잔금이 서로 다르거나 일부 회차의 지급 완료 여부를 문서에서 확정할 수
+없으면 한 금액을 임의 선택하지 않고 사람 검토로 보냅니다.
+
 문서 모델은 국가를 자연어로 반환할 수 있습니다. 검증 전에
 `src/document_intake/normalization.py`가 판매자·구매자·사용자 회사 국가를 같은
 별칭 규칙으로 ISO alpha-2에 정규화합니다. 원래 모델값은 confirmation 원본 snapshot과
@@ -49,6 +63,20 @@ field로 연결합니다. 상대 당사자 이름·라벨이 섞인 인용문은
 `date`로 대조합니다. 페이지가 틀렸지만 다른 실제 페이지에서 인용문을 찾으면 그
 페이지로 정정합니다. 인용문이 없거나 값이 다르면 canonical extraction에서 제거하고
 `EVIDENCE_NOT_IN_SOURCE` 또는 `EVIDENCE_VALUE_MISMATCH`로 Stage 2를 막습니다.
+
+`amount_due` 또는 `explicit_due_date` 모델 evidence가 폐기되더라도 텍스트 PDF의
+실제 원문 줄에서 문서유형에 맞는 후보가 하나로 확정되면 결정론적으로 복구할 수
+있습니다. 금액은 통화·문맥·`Decimal` 값과 installment aggregate를 함께 검사하고,
+날짜는 `Payment Due Date`, `Settlement Date`, `on or before`,
+`no later than`, `payment shall be made by` 같은 지급 문맥에서 실제 날짜 표현을
+`date`로 파싱합니다. Source quote에는 `2026-08-20` 같은 canonical 값을 새로
+만들지 않고 `20 August 2026`처럼 PDF에 있는 원문을 그대로 보존합니다.
+
+같은 강도의 후보가 둘 이상이거나 같은 금액이 계약 총액·잔금 등 여러 의미로
+등장하거나 지급일과 계약일·선적일을 구분할 수 없으면
+`EVIDENCE_RECOVERY_AMBIGUOUS`로 fail closed합니다. Recovery audit에는 실제 page,
+canonical parsed value, `UNIQUE_SEMANTIC_TEXT_LINE` method와 기존 모델 evidence
+폐기 사유를 남깁니다. 이 경로는 문자열 유사도를 사용하지 않습니다.
 
 파일이나 원문은 저장·로그하지 않습니다. 이미지·스캔 PDF는 독립 텍스트 레이어가
 없으므로 모든 핵심 evidence를 `EVIDENCE_UNVERIFIABLE`로 취급하고

@@ -440,3 +440,53 @@ Trade-off: 실패 run을 같은 ID로 resume하지 못하고 새 ID로 재실행
 
 Revisit condition: 승인된 운영 benchmark 저장소와 접근통제·보존정책이 생기면
 immutable artifact ID, 중앙 cost ledger와 승인 audit을 별도 서비스로 이동합니다.
+
+## 29. Text-PDF amount and due-date evidence recovery is semantic and unique
+
+Context: Golden 텍스트 레이어 계약서 1건의 승인된 Live 추출에서
+`amount_due=100000.00`, `explicit_due_date=2026-08-20` 값은 정답과
+일치했지만 모델 evidence가 각각 canonical 금액을 뒷받침하지 못하거나 PDF에 없는
+ISO 날짜 문구로 반환됐습니다. 기존 validator는 이를 올바르게
+`EVIDENCE_VALUE_MISMATCH`, `EVIDENCE_NOT_IN_SOURCE`로 폐기했고 단순 사용자
+확인 뒤에도 Stage 2를 차단했습니다.
+
+Decision: `grand_total`은 문서의 액면 총액이고 `amount_due`는 Stage 2로 전달할
+실제 미지급·미수 노출액입니다. Invoice의 명시 `Balance Due`는
+`grand_total`보다 작을 수 있습니다. SALES_CONTRACT에서 문서가 지급 완료를
+표시하지 않고 모든 지급 예정 회차가 추출된 경우에는 회차 합계를
+`amount_due`로 사용하며 기존 validator의
+`sum(installments) == amount_due` 계약을 유지합니다. Golden에서는
+USD 20,000 + USD 80,000 = USD 100,000이므로 총 계약금액 조항이
+`amount_due` 근거이고 USD 80,000 잔금 조항은 그 근거가 아닙니다.
+
+텍스트 레이어 PDF에 한해 모델 quote를 실제 페이지의 대소문자·문장부호를 보존한
+문구와 먼저 대조합니다. Quote가 없거나 값이 다르면 다음 조건을 모두 만족할 때만
+실제 PDF 한 줄을 evidence로 복구합니다.
+
+- 금액: document type에 맞는 `Amount/Balance Due`, invoice/order total 또는
+  SALES_CONTRACT 총 계약금액 문맥
+- 통화: 원문 코드·통화명이 canonical currency와 일치
+- 날짜: `Payment Due Date`, `Settlement Date`, 지급행위 문맥에서 파싱
+- canonical `Decimal`/`date`와 정확히 일치
+- 가장 강한 의미 후보가 하나이고 다른 의미의 같은 값이 없음
+
+복구된 `FieldEvidence.source_text`에는 PDF 원문 줄을 그대로 저장하고
+`confidence_reason`과 `normalization_audit`에
+`UNIQUE_SEMANTIC_TEXT_LINE`, canonical parsed value, page와 폐기된 모델 evidence
+상태를 남깁니다. 계약 총액·잔금, 계약일·선적일·지급일이 충돌하거나 같은 강도의
+후보가 둘 이상이면 `EVIDENCE_RECOVERY_AMBIGUOUS`로 남기고 자동 복구하지 않습니다.
+텍스트가 없는 PDF/JPG에는 이 경로를 실행하지 않으며 기존
+`EVIDENCE_UNVERIFIABLE`, `OCR_REQUIRED`, 명시적 사용자 override 정책을 유지합니다.
+
+Rationale: 모델을 다시 호출하거나 문자열 유사도·정규화된 값을 source quote로
+조작하지 않고, 이미 업로드된 독립 텍스트 원문과 기존 Domain 제약만으로 오류를
+교정할 수 있습니다. 값이 맞더라도 근거가 모호하면 계속 차단합니다.
+
+Trade-off: 의미 label이 없는 표, 한 줄에 여러 통화·금액·날짜가 섞인 문서와
+동일한 강도의 후보가 반복되는 문서는 자동 복구하지 못합니다. 사용자는 원문을
+직접 대조한 필드에만 기존 명시적 evidence override를 기록해야 합니다.
+
+Revisit condition: 별도 OCR 결과를 독립적으로 검증하는 provenance 계약이 생기거나
+다국어 날짜·금액 label 지원 범위를 승인할 때 새 parser와 모호성 회귀 테스트를
+추가합니다. Golden 수정 후 Live 추출은 별도 승인으로 다시 측정하기 전까지
+end-to-end 성공으로 주장하지 않습니다.

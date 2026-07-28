@@ -94,9 +94,11 @@ Baseline을 지우거나 label을 낮추지 않았습니다. 운영 흐름에서
 
 ## 16. Golden 계약서는 Live 정확도 증거인가요?
 
-아닙니다. 현재 Golden PDF는 텍스트 레이어·expected evidence·도메인 입력의
-API-free 성공 경로를 검증한 발표 자산입니다. 실제 OpenAI Live 추출은 아직 하지
-않았고 별도 승인·새 Run ID로 평가하기 전까지 모델 정확도 주장을 하지 않습니다.
+단일 문서 정확도를 일반화할 수 없습니다. Golden Live v1은 핵심값이 expected와
+일치했지만 amount/due-date evidence 검증에서 차단됐습니다. 이는 값이 맞아도
+근거가 틀리면 금융 계산에 보내지 않는 정책을 보여줍니다. 결정론 recovery 수정은
+API-free 검증만 완료했으며, 수정 후 별도 승인 Live 재실행 전에는 end-to-end
+성공을 주장하지 않습니다.
 
 ## 17. 왜 Golden 계약서와 스캔 평가문서를 분리했나요?
 

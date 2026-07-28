@@ -136,7 +136,9 @@ python -m unittest tests.test_golden_trade_demo -v
 `dataset/golden_demo/golden_export_contract.pdf`는 KR 판매자·BR 구매자,
 USD 100,000, 20/80 분할결제와 2026-08-20 잔금일을 가진 합성 계약서입니다.
 Expected evidence와 사용자 입력은 같은 디렉터리의 JSON에 있으며 Golden Live
-추출은 별도 승인 전 실행하지 않습니다. 발표 순서는
+v1은 핵심값 일치 후 amount/due-date evidence 검증에서 차단됐습니다. 결정론
+복구 수정은 API-free 검증만 완료했으며 별도 승인 재실행 전까지 end-to-end
+성공으로 주장하지 않습니다. 발표 순서는
 [docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md)를 따릅니다.
 
 ## 9. 실행 방법
@@ -185,7 +187,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-29 기준 416개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-29 기준 434개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
