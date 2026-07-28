@@ -16,6 +16,9 @@ from src.domain.consultation_models import (
     RiskAssessment,
     SourceDocumentReference,
 )
+from src.domain.country_environment_models import (
+    CountryTradeEnvironmentAssessment,
+)
 from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
@@ -40,6 +43,9 @@ def _input_hash(
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
     ] = None,
+    country_environment: Optional[
+        CountryTradeEnvironmentAssessment
+    ] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
     ] = None,
@@ -56,6 +62,10 @@ def _input_hash(
     if trade_settlement_risk is not None:
         canonical["trade_risk_input_fingerprint"] = (
             trade_settlement_risk.input_fingerprint
+        )
+    if country_environment is not None:
+        canonical["country_environment_input_fingerprint"] = (
+            country_environment.input_fingerprint
         )
     if official_candidate_shortlist is not None:
         canonical["official_candidate_shortlist"] = {
@@ -149,6 +159,101 @@ def _questions(topics: List[ConsultationTopic]) -> List[str]:
     )
 
 
+def _country_environment_lines(
+    assessment: Optional[CountryTradeEnvironmentAssessment],
+) -> str:
+    if assessment is None:
+        return "- 사용자 확인 국가에 대한 별도 공식자료 검토 결과가 없습니다."
+    priority_labels = {
+        "STANDARD_REVIEW": "통상 검토",
+        "ELEVATED_REVIEW": "추가 검토",
+        "HIGH_REVIEW": "우선 검토",
+        "INSUFFICIENT_INFORMATION": "정보 부족",
+    }
+    references = {
+        item.source_record_id: item
+        for item in assessment.official_source_references
+    }
+    oecd = assessment.oecd_payment_transfer
+    if oecd.status == "CLASSIFIED":
+        oecd_value = (
+            "OECD 공식 원자료 분류: {} · 자체 국가등급 아님".format(
+                oecd.raw_classification
+            )
+        )
+    elif oecd.status == "HIGH_INCOME_OECD_UNCLASSIFIED":
+        oecd_value = (
+            "고소득 OECD 회원국 미분류 · 0 또는 낮은 위험으로 변환하지 않음"
+        )
+    else:
+        oecd_value = "OECD 원자료 확인 불가"
+    oecd_reference = references.get(oecd.source_record_id or "")
+    oecd_url = (
+        oecd_reference.official_url
+        if oecd_reference is not None
+        else ""
+    )
+    lines = [
+        "- 거래국: **{}**".format(assessment.country),
+        "- 거래 검토 우선순위: **{}** · 국가 신용등급이 아님".format(
+            priority_labels[assessment.review_priority]
+        ),
+        "- 지급·이전 환경 — OECD: {} · 기준일 {} · [{}]({})  \n"
+        "  해석: {}  \n"
+        "  한계: {}".format(
+            oecd_value,
+            oecd.as_of_date,
+            "공식 출처",
+            oecd_url,
+            oecd.interpretation,
+            oecd.limitations,
+        ),
+    ]
+    for item in assessment.world_bank_macro_environment.observations:
+        reference = references[item.source_record_id]
+        raw = (
+            item.raw_value
+            if item.raw_value is not None
+            else item.raw_status or "자료 없음"
+        )
+        lines.append(
+            "- 거시환경 — World Bank `{}`: {} {} · 관측 {} · "
+            "[공식 출처]({})  \n"
+            "  해석: {}  \n"
+            "  한계: {}".format(
+                item.indicator_code,
+                raw,
+                item.raw_unit,
+                item.observation_period,
+                reference.official_url,
+                item.interpretation,
+                item.limitations,
+            )
+        )
+    for item in assessment.wto_trade_market_access.observations:
+        reference = references[item.source_record_id]
+        raw = (
+            item.raw_value
+            if item.raw_value is not None
+            else item.raw_status or "자료 없음"
+        )
+        lines.append(
+            "- 무역·시장접근 — WTO `{}`: {} {} · 자료기간 {} · "
+            "[공식 출처]({})  \n"
+            "  해석: {}  \n"
+            "  한계: {}".format(
+                item.indicator_code,
+                raw,
+                item.raw_unit,
+                item.observation_period,
+                reference.official_url,
+                item.interpretation,
+                item.limitations,
+            )
+        )
+    return "\n".join(lines)
+
+
 def _markdown(packet: ConsultationPacket) -> str:
     risk_lines = (
         "\n".join(
@@ -212,6 +317,9 @@ def _markdown(packet: ConsultationPacket) -> str:
             )
             or "- 별도 수치 가정 없음"
         )
+    country_environment_lines = _country_environment_lines(
+        packet.country_environment
+    )
     topic_lines = "\n".join(
         "- **{}**: {} 최종 판단은 사용자와 KB 담당자가 합니다.".format(
             item.title,
@@ -295,6 +403,10 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 {trade_risk_assumptions}
 
+## 4A. 국가·무역환경 검토
+
+{country_environment_lines}
+
 ## 5. 검토할 금융 대응
 
 {topic_lines}
@@ -351,6 +463,7 @@ def _markdown(packet: ConsultationPacket) -> str:
         risk_lines=risk_lines,
         trade_risk_lines=trade_risk_lines,
         trade_risk_assumptions=trade_risk_assumptions,
+        country_environment_lines=country_environment_lines,
         topic_lines=topic_lines,
         official_candidate_lines=official_candidate_lines,
         missing_lines=missing_lines,
@@ -378,6 +491,9 @@ def build_consultation_packet(
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
     ] = None,
+    country_environment: Optional[
+        CountryTradeEnvironmentAssessment
+    ] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
     ] = None,
@@ -404,6 +520,14 @@ def build_consultation_packet(
                 gaps + trade_settlement_risk.information_gaps
             )
         )
+    if (
+        country_environment is not None
+        and country_environment.review_priority
+        == "INSUFFICIENT_INFORMATION"
+    ):
+        gaps = list(
+            dict.fromkeys(gaps + country_environment.reasons)
+        )
     calculation_versions = [
         stage2_result.calculation_version,
         assessment.calculation_version,
@@ -412,6 +536,8 @@ def build_consultation_packet(
         calculation_versions.append(
             trade_settlement_risk.calculation_version
         )
+    if country_environment is not None:
+        calculation_versions.append(country_environment.rule_version)
     packet = ConsultationPacket(
         case_id=case_id,
         calculation_version="+".join(calculation_versions),
@@ -421,6 +547,7 @@ def build_consultation_packet(
             stage1=stage1,
             stage2_input=stage2_input,
             trade_settlement_risk=trade_settlement_risk,
+            country_environment=country_environment,
             official_candidate_shortlist=official_candidate_shortlist,
         ),
         exchange_rate_as_of=stage1.as_of,
@@ -452,6 +579,7 @@ def build_consultation_packet(
         ),
         risk_findings=assessment.findings,
         trade_settlement_risk=trade_settlement_risk,
+        country_environment=country_environment,
         consultation_topics=consultation_topics,
         official_candidate_shortlist=official_candidate_shortlist,
         missing_information=gaps,

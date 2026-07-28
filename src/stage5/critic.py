@@ -34,6 +34,12 @@ TRADE_RISK_PRIORITY_LABELS = {
     "HIGH_REVIEW": "우선 검토 필요",
     "UNKNOWN": "정보 확인 필요",
 }
+COUNTRY_REVIEW_PRIORITY_LABELS = {
+    "STANDARD_REVIEW": "통상 검토",
+    "ELEVATED_REVIEW": "추가 검토",
+    "HIGH_REVIEW": "우선 검토",
+    "INSUFFICIENT_INFORMATION": "정보 부족",
+}
 
 
 def _normalized_number(token: str) -> str:
@@ -76,6 +82,7 @@ def _missing_sections(
         isinstance(source_bundle, dict)
         and isinstance(source_bundle.get("consultation"), dict)
     ):
+        consultation = source_bundle["consultation"]
         required.extend(
             [
                 (
@@ -88,6 +95,16 @@ def _missing_sections(
                 ),
             ]
         )
+        if isinstance(
+            consultation.get("country_environment"),
+            dict,
+        ):
+            required.append(
+                (
+                    "국가·무역환경 검토",
+                    ("국가·무역환경 검토",),
+                )
+            )
     return [
         label
         for label, aliases in required
@@ -394,6 +411,212 @@ def _risk_boundary_issues(markdown: str) -> List[str]:
     return list(dict.fromkeys(issues))
 
 
+def _country_environment_grounding_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    country_environment = consultation.get("country_environment")
+    section = re.search(
+        r"(?is)##[^\n]*국가·무역환경 검토[^\n]*\n"
+        r"(.*?)(?=\n##|\Z)",
+        markdown,
+    )
+    if not isinstance(country_environment, dict):
+        if re.search(
+            r"\[source:\s*consultation\.country_environment",
+            markdown,
+        ):
+            return [
+                "국가·무역환경 결과가 없는데 해당 근거를 인용했습니다."
+            ]
+        return []
+    issues: List[str] = []
+    if (
+        section is None
+        or not any(
+            item.startswith("consultation.country_environment")
+            for item in SOURCE_TAG_RE.findall(section.group(1))
+        )
+    ):
+        issues.append(
+            "국가·무역환경 주장에 구조화된 T4 근거가 없습니다."
+        )
+        return issues
+    text = section.group(1)
+    country = str(country_environment.get("country", ""))
+    if country and country not in text:
+        issues.append("거래국이 T4 구조화 결과와 일치하지 않습니다.")
+    priority = str(
+        country_environment.get("review_priority", "")
+    )
+    priority_label = COUNTRY_REVIEW_PRIORITY_LABELS.get(priority)
+    if priority_label and priority_label not in text:
+        issues.append(
+            "국가·무역환경 검토 우선순위가 구조화 결과와 일치하지 않습니다."
+        )
+
+    references = country_environment.get(
+        "official_source_references",
+        [],
+    )
+    official_urls = {
+        str(item.get("official_url", ""))
+        for item in references
+        if isinstance(item, dict)
+    }
+    for url in URL_RE.findall(text):
+        if url not in official_urls:
+            issues.append(
+                "국가·무역환경 URL이 snapshot 공식 출처와 일치하지 않습니다."
+            )
+
+    oecd = country_environment.get("oecd_payment_transfer", {})
+    if isinstance(oecd, dict):
+        status = str(oecd.get("status", ""))
+        raw = oecd.get("raw_classification")
+        if status == "CLASSIFIED" and raw == 4:
+            if re.search(
+                r"(?:KBaiAgent\s*)?(?:국가|위험|신용)\s*등급"
+                r".{0,12}(?<![0-9])4(?![0-9])",
+                text,
+                re.IGNORECASE,
+            ):
+                issues.append(
+                    "Brazil OECD raw 4를 자체 국가등급으로 표현했습니다."
+                )
+        if status == "HIGH_INCOME_OECD_UNCLASSIFIED":
+            for line in text.splitlines():
+                if "미분류" not in line:
+                    continue
+                affirmative_low_claim = re.search(
+                    r"미분류.{0,35}"
+                    r"(?:\bLOW\b|(?<![0-9])0(?![0-9])|안전|"
+                    r"낮은\s*위험).{0,12}"
+                    r"(?:입니다|이다|로\s*(?:판정|분류|간주)|"
+                    r"으로\s*(?:판정|분류|간주))",
+                    line,
+                    re.IGNORECASE,
+                )
+                if (
+                    affirmative_low_claim
+                    or (
+                        re.search(
+                            r"(?:\bLOW\b|(?<![0-9])0(?![0-9])|"
+                            r"안전|낮은\s*위험)",
+                            line,
+                            re.IGNORECASE,
+                        )
+                        and not re.search(
+                            r"(?:아니|않|금지|변환하지|의미하지)",
+                            line,
+                        )
+                    )
+                ):
+                    issues.append(
+                        "US OECD 미분류를 LOW·0·안전으로 표현했습니다."
+                    )
+                if (
+                    re.search(r"(?:자료\s*없음|정보\s*부족)", line)
+                    and not re.search(r"(?:아니|구분)", line)
+                ):
+                    issues.append(
+                        "US OECD 미분류를 DATA_UNAVAILABLE과 혼동했습니다."
+                    )
+
+    if (
+        re.search(
+            r"(?:OECD|World Bank|WTO).{0,80}"
+            r"(?:합산|가중평균|종합).{0,30}"
+            r"(?:0\s*[~～-]\s*100|100\s*점|점수)",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        and not re.search(
+            r"(?:합산|가중평균|종합).{0,20}"
+            r"(?:않|아니|금지|만들지)",
+            text,
+        )
+    ):
+        issues.append("세 국가 신호를 하나의 숫자 점수로 합산했습니다.")
+
+    world_bank = country_environment.get(
+        "world_bank_macro_environment",
+        {},
+    )
+    observations = (
+        world_bank.get("observations", [])
+        if isinstance(world_bank, dict)
+        else []
+    )
+    periods = {
+        str(item.get("observation_period", ""))
+        for item in observations
+        if isinstance(item, dict)
+    }
+    if len(periods) > 1:
+        for line in text.splitlines():
+            if (
+                re.search(
+                    r"(?:모든|세)\s*지표.{0,25}"
+                    r"(?:같은\s*시점|동일\s*연도|2025년)",
+                    line,
+                )
+                and not re.search(r"(?:아니|않|다르)", line)
+            ):
+                issues.append(
+                    "서로 다른 World Bank 관측연도를 같은 시점으로 표현했습니다."
+                )
+    return list(dict.fromkeys(issues))
+
+
+def _country_policy_boundary_issues(markdown: str) -> List[str]:
+    issues: List[str] = []
+    for line in markdown.splitlines():
+        if (
+            re.search(
+                r"(?:국가|OECD|World Bank|WTO).{0,35}"
+                r"(?:신용등급|부도확률|공식\s*심사등급)",
+                line,
+                re.IGNORECASE,
+            )
+            and not re.search(
+                r"(?:아니|않|금지|제공하지|만들지|변환하지)",
+                line,
+            )
+        ):
+            issues.append(
+                "국가 신호를 국가 신용등급·부도확률·공식 심사등급으로 표현했습니다."
+            )
+        if (
+            re.search(
+                r"(?:국가|OECD|World Bank|WTO).{0,45}"
+                r"(?:환헤지|선물환).{0,20}(?:비율|비중).{0,20}"
+                r"(?:변경|조정|높|낮|늘|줄)",
+                line,
+                re.IGNORECASE,
+            )
+            and not re.search(r"(?:않|아니|금지)", line)
+        ):
+            issues.append("국가 신호로 환헤지 비율을 변경했습니다.")
+        if (
+            re.search(
+                r"(?:국가|OECD|World Bank|WTO).{0,45}"
+                r"(?:Stage\s*2|현금흐름|현금).{0,20}"
+                r"(?:변경|조정|증가|감소)",
+                line,
+                re.IGNORECASE,
+            )
+            and not re.search(r"(?:않|아니|금지)", line)
+        ):
+            issues.append("국가 신호로 Stage 2 현금흐름을 변경했습니다.")
+    return list(dict.fromkeys(issues))
+
+
 def _market_policy_issues(
     markdown: str,
     source_bundle: Any,
@@ -622,7 +845,20 @@ def critique_report(
         evidence_issues.append(issue)
         recommendation_issues.append(issue)
 
+    for issue in _country_environment_grounding_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
     for issue in _risk_boundary_issues(markdown):
+        issues.append(issue)
+        recommendation_issues.append(issue)
+        prohibited_claims.append(issue)
+
+    for issue in _country_policy_boundary_issues(markdown):
         issues.append(issue)
         recommendation_issues.append(issue)
         prohibited_claims.append(issue)

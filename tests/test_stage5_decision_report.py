@@ -1,7 +1,11 @@
 import unittest
 from types import SimpleNamespace
 
+from src.application.consultation_service import build_decision_support
 from src.config import Settings
+from src.country_environment.assessment import (
+    assess_country_trade_environment,
+)
 from src.demo import run_decision_support_demo
 from src.stage5.critic import critique_report
 from src.stage5.report_agent import generate_report
@@ -12,6 +16,39 @@ class Stage5DecisionReportTests(unittest.TestCase):
     def setUpClass(cls):
         cls.import_demo = run_decision_support_demo("BUYER")
         cls.export_demo = run_decision_support_demo("SELLER")
+        cls.br_assessment = assess_country_trade_environment(
+            cls.export_demo[
+                "country_environment_input"
+            ].model_copy(update={"counterparty_country": "BR"})
+        )
+        cls.br_decision = build_decision_support(
+            case_id=cls.export_demo["workflow_state"].case_id,
+            extraction=cls.export_demo["extraction"],
+            confirmation=cls.export_demo["confirmation"],
+            stage1=cls.export_demo["stage1"],
+            stage2_input=cls.export_demo["stage2_input"],
+            stage2_result=cls.export_demo["stage2"],
+            trade_settlement_risk=cls.export_demo[
+                "trade_risk_assessment"
+            ],
+            country_environment=cls.br_assessment,
+            official_candidate_shortlist=cls.export_demo[
+                "official_candidate_shortlist"
+            ],
+            generated_at="2026-07-23T09:00:00+09:00",
+        )
+        cls.br_report = generate_report(
+            extraction=cls.export_demo["extraction"],
+            confirmation=cls.export_demo["confirmation"],
+            stage1=cls.export_demo["stage1"],
+            stage2=cls.export_demo["stage2"],
+            stage3=cls.export_demo["stage3"],
+            stage4=cls.export_demo["stage4"],
+            consultation_packet=(
+                cls.br_decision.consultation_packet.packet
+            ),
+            settings=Settings(enable_llm_report=False),
+        )
 
     def _critique(self, markdown):
         report = self.import_demo["report"]
@@ -21,6 +58,16 @@ class Stage5DecisionReportTests(unittest.TestCase):
             scenario_kind=self.import_demo["stage1"].kind,
             probability_valid=(
                 self.import_demo["stage1"].probability_valid
+            ),
+        )
+
+    def _critique_brazil(self, markdown):
+        return critique_report(
+            markdown=markdown,
+            source_bundle=self.br_report.report_json,
+            scenario_kind=self.export_demo["stage1"].kind,
+            probability_valid=(
+                self.export_demo["stage1"].probability_valid
             ),
         )
 
@@ -57,6 +104,39 @@ class Stage5DecisionReportTests(unittest.TestCase):
                 "official_candidate_shortlist"
             ].candidates[0].name,
             report.markdown,
+        )
+
+    def test_country_report_has_separate_axes_and_provenance(self):
+        report = self.import_demo["report"]
+        self.assertTrue(report.critique.passed)
+        self.assertIn("국가·무역환경 검토", report.markdown)
+        self.assertIn("지급·이전 환경", report.markdown)
+        self.assertIn("거시환경", report.markdown)
+        self.assertIn("무역·시장접근", report.markdown)
+        self.assertIn("관측기간", report.markdown)
+        self.assertIn("한계:", report.markdown)
+        for reference in self.import_demo[
+            "country_environment_assessment"
+        ].official_source_references:
+            self.assertIn(reference.official_url, report.markdown)
+
+    def test_brazil_fallback_preserves_raw_policy(self):
+        self.assertTrue(self.br_report.critique.passed)
+        self.assertEqual(
+            self.br_report.fallback_reason,
+            "DETERMINISTIC_POLICY",
+        )
+        self.assertIn(
+            "OECD 공식 원자료 분류는 4",
+            self.br_report.markdown,
+        )
+        self.assertIn(
+            "KBaiAgent 자체 국가등급이 아닙니다",
+            self.br_report.markdown,
+        )
+        self.assertIn(
+            "합산 점수로 만들지 않았고",
+            self.br_report.markdown,
         )
 
     def test_report_uses_at_most_three_shortlist_candidates(self):
@@ -270,6 +350,119 @@ class Stage5DecisionReportTests(unittest.TestCase):
             "결제·회수 위험이 환헤지 비율을 직접 변경한다고 "
             "표현했습니다.",
             critique.issues,
+        )
+
+    def test_critic_rejects_brazil_raw_as_internal_rating(self):
+        unsafe = self.br_report.markdown.replace(
+            "OECD 공식 원자료 분류는 4이며 KBaiAgent 자체 국가등급이 "
+            "아닙니다",
+            "KBaiAgent 국가등급 4입니다",
+            1,
+        )
+        critique = self._critique_brazil(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "Brazil OECD raw 4를 자체 국가등급으로 표현했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_us_unclassified_as_low_or_zero(self):
+        report = self.import_demo["report"]
+        unsafe = report.markdown.replace(
+            "고소득 OECD 회원국 미분류이며 0 또는 낮은 위험으로 "
+            "변환하지 않았습니다",
+            "고소득 OECD 회원국 미분류이므로 LOW 0 안전입니다",
+            1,
+        )
+        critique = self._critique(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "US OECD 미분류를 LOW·0·안전으로 표현했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_country_composite_score(self):
+        report = self.import_demo["report"]
+        unsafe = report.markdown.replace(
+            "OECD·World Bank·WTO는 합산 점수로 만들지 않았고",
+            "OECD·World Bank·WTO를 합산해 0~100 종합점수 73점을 "
+            "만들었고",
+            1,
+        )
+        critique = self._critique(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "세 국가 신호를 하나의 숫자 점수로 합산했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_country_signal_changing_hedge(self):
+        unsafe = (
+            "{}\n국가 신호로 환헤지 비율을 높여 조정했습니다. "
+            "[source: consultation.country_environment]"
+        ).format(self.import_demo["report"].markdown)
+        critique = self._critique(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "국가 신호로 환헤지 비율을 변경했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_country_signal_changing_cashflow(self):
+        unsafe = (
+            "{}\nOECD 신호로 Stage 2 현금흐름을 감소시켰습니다. "
+            "[source: consultation.country_environment]"
+        ).format(self.import_demo["report"].markdown)
+        critique = self._critique(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "국가 신호로 Stage 2 현금흐름을 변경했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_country_based_product_approval(self):
+        unsafe = (
+            "{}\n국가 신호로 이 보험 가입은 승인됩니다. "
+            "[source: consultation.country_environment]"
+        ).format(self.import_demo["report"].markdown)
+        critique = self._critique(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertTrue(
+            any(
+                "승인" in item
+                for item in critique.issues
+            )
+        )
+
+    def test_critic_rejects_changed_country_source_url_and_value(self):
+        report = self.import_demo["report"]
+        oecd_url = self.import_demo[
+            "country_environment_assessment"
+        ].official_source_references[0].official_url
+        unsafe_url = report.markdown.replace(
+            oecd_url,
+            "https://example.com/fake-country-source",
+            1,
+        )
+        url_critique = self._critique(unsafe_url)
+        self.assertFalse(url_critique.passed)
+        self.assertIn(
+            "국가·무역환경 URL이 snapshot 공식 출처와 일치하지 않습니다.",
+            url_critique.issues,
+        )
+
+        unsafe_value = report.markdown.replace(
+            "원값/status 3.4 %",
+            "원값/status 99.9 %",
+            1,
+        )
+        value_critique = self._critique(unsafe_value)
+        self.assertFalse(value_critique.passed)
+        self.assertTrue(
+            any(
+                "근거 JSON에 없는 숫자" in item
+                for item in value_critique.issues
+            )
         )
 
 

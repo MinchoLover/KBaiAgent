@@ -202,3 +202,30 @@ gate를 유지하면서 Streamlit 정보 구조를 네 개의 사용자 업무 �
 Streamlit AppTest로 수입·수출 원클릭 데모, 네 탭, 사용자 수정 후 confirmation 무효화와
 쉬운 evidence 안내를 검증했습니다. 실제 금융 숫자와 JSON/REST 계약은 변경하지
 않았습니다.
+
+## 2026-07-29 T4 country and trade environment review
+
+Codex가 OECD, World Bank, WTO의 공개 1차 공식 자료를 사람이 검토할 수 있는
+versioned offline snapshot으로 정리했습니다. snapshot에는 미국·브라질의 필요한
+공개 원값, 기준일·관측기간, 공식 URL, 제한적 해석과 한계만 저장했으며 전체
+페이지·PDF 응답, 문서 원문, 기업정보, 비밀값은 저장하지 않았습니다. runtime과
+테스트는 외부 API를 호출하지 않습니다.
+
+국가환경 엔진은 사용자 확인된 거래 상대국과 거래·결제조건만 입력받습니다.
+OECD 지급·이전, World Bank 거시환경, WTO 무역·시장접근을 별도 축으로 보존하고
+숫자 점수·가중치·국가 신용등급·부도확률을 만들지 않습니다. 미국 미분류는
+`HIGH_INCOME_OECD_UNCLASSIFIED`와 raw null로, 브라질은 OECD 공식 원값 `4`와
+보호수단 검토 행동 신호로 보존했습니다.
+
+기존 `ConsultationPacket`, workflow auxiliary step, T5 topic, T7 critic·결정론
+fallback과 Streamlit에 optional 연결했습니다. Stage 1 환율, Stage 2 Decimal
+현금흐름, Stage 3 헤지 후보, runtime Stage 4 공식 검색과 상품 자격·승인은
+변경하지 않았습니다. critic은 브라질 원값의 자체등급화, 미국 미분류의
+LOW·0 변환, 세 축 합산점수, 공식 source 변조, 국가 신호에 따른 환헤지·현금흐름
+변경과 승인 주장을 차단합니다.
+
+API-free 전체 383개 테스트와 8건 country validation fixture 평가를 실행했습니다.
+초기 집중 실행에서 안전 고지가 같은 줄의 잘못된 국가등급 주장을 가리는 critic
+경계가 드러나 affirmative 오표현을 별도로 거부하도록 수정한 뒤 재검증했습니다.
+OpenAI API, 외부 LLM, runtime 공식자료 API, live 문서 평가, 배포와 Git push는
+실행하지 않았습니다.

@@ -6,12 +6,19 @@ from typing import Any, Callable, List, Literal, Optional, Tuple
 from pydantic import Field
 
 from schemas import StrictModel, TradeDocumentExtraction, ValidationResult
+from src.country_environment.assessment import (
+    assess_country_trade_environment,
+)
 from src.config import Settings
 from src.application.market_integration_service import (
     integrate_stage1_market,
 )
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import ConsultationPacket
+from src.domain.country_environment_models import (
+    CountryTradeEnvironmentAssessment,
+    CountryTradeEnvironmentInput,
+)
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
@@ -43,6 +50,10 @@ CashflowRunner = Callable[[Stage2Input, Any], Stage2Result]
 HedgeRunner = Callable[..., Stage3Result]
 ProductSearch = Callable[..., Stage4Result]
 ReportGenerator = Callable[..., ReportResult]
+CountryEnvironmentRunner = Callable[
+    [CountryTradeEnvironmentInput],
+    CountryTradeEnvironmentAssessment,
+]
 
 
 class WorkflowRequest(StrictModel):
@@ -84,6 +95,9 @@ class WorkflowOrchestrator:
         offline_product_search: ProductSearch = search_offline_kb,
         official_product_search: ProductSearch = search_official_web,
         report_generator: ReportGenerator = generate_report,
+        country_environment_runner: CountryEnvironmentRunner = (
+            assess_country_trade_environment
+        ),
         fallback_report_generator: ReportGenerator = (
             generate_deterministic_report
         ),
@@ -99,6 +113,7 @@ class WorkflowOrchestrator:
         self.offline_product_search = offline_product_search
         self.official_product_search = official_product_search
         self.report_generator = report_generator
+        self.country_environment_runner = country_environment_runner
         self.fallback_report_generator = fallback_report_generator
         self.max_report_revisions = max_report_revisions
 
@@ -938,6 +953,17 @@ class WorkflowOrchestrator:
                 ]
                 if consultation_packet is not None
                 else []
+            )
+            + (
+                [
+                    "report.report_json.consultation."
+                    "country_environment",
+                ]
+                if (
+                    consultation_packet is not None
+                    and consultation_packet.country_environment is not None
+                )
+                else []
             ),
             started_at=started_at,
             finished_at=datetime.now(timezone.utc),
@@ -959,6 +985,55 @@ class WorkflowOrchestrator:
             critic_passed=report.critique.passed,
             rewrite_count=rewrite_count,
         )
+        return state
+
+    def run_country_environment(
+        self,
+        state: WorkflowState,
+        value: CountryTradeEnvironmentInput,
+    ) -> WorkflowState:
+        started_at, started_ns = self._started()
+        state.report = None
+        state.report_draft = None
+        state.critic_result = None
+        state.final_report = None
+        state.rewrite_count = 0
+        try:
+            assessment = self.country_environment_runner(value)
+            result = StageResult[CountryTradeEnvironmentAssessment](
+                status=StageStatus.SUCCEEDED,
+                data=assessment,
+                warnings=assessment.warnings,
+                evidence=[
+                    "country={}".format(assessment.country),
+                    "snapshot_id={}".format(assessment.snapshot_id),
+                    "rule_version={}".format(assessment.rule_version),
+                    "review_priority={}".format(
+                        assessment.review_priority
+                    ),
+                    "source_record_ids={}".format(
+                        ",".join(assessment.source_record_ids)
+                    ),
+                    "warning_codes={}".format(
+                        ",".join(assessment.warning_codes)
+                    ),
+                ],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider="versioned_offline_snapshot",
+            )
+        except Exception as exc:
+            result = StageResult[CountryTradeEnvironmentAssessment](
+                status=StageStatus.FAILED,
+                errors=[self._safe_error("country_environment", exc)],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider="versioned_offline_snapshot",
+            )
+        state.country_environment = result
+        self._record(state, "country_environment", result)
         return state
 
     @staticmethod

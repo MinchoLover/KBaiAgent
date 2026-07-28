@@ -6,6 +6,10 @@ from src.domain.consultation_models import (
     RiskAssessment,
     RiskCode,
 )
+from src.domain.country_environment_models import (
+    CountryEnvironmentReviewNeed,
+    CountryTradeEnvironmentAssessment,
+)
 from src.domain.stage2_models import Stage2Result
 from src.domain.trade_risk_models import (
     TradeRiskReviewNeed,
@@ -26,6 +30,10 @@ def _topic(
     trade_risk_review_needs: Optional[
         List[TradeRiskReviewNeed]
     ] = None,
+    country_environment_rule_codes: Optional[List[str]] = None,
+    country_environment_review_needs: Optional[
+        List[CountryEnvironmentReviewNeed]
+    ] = None,
 ) -> ConsultationTopic:
     return ConsultationTopic(
         category=category,
@@ -33,6 +41,12 @@ def _topic(
         triggered_by=triggered_by,
         trade_risk_factor_codes=trade_risk_factor_codes or [],
         trade_risk_review_needs=trade_risk_review_needs or [],
+        country_environment_rule_codes=(
+            country_environment_rule_codes or []
+        ),
+        country_environment_review_needs=(
+            country_environment_review_needs or []
+        ),
         explanation=explanation,
         required_information=required_information,
         required_documents=required_documents,
@@ -230,6 +244,200 @@ def map_trade_risk_consultation_topics(
             ],
         )
 
+    return list(topics.values())
+
+
+def _country_rule_codes(
+    *,
+    assessment: CountryTradeEnvironmentAssessment,
+    needs: List[CountryEnvironmentReviewNeed],
+) -> List[str]:
+    return [
+        item.rule_code
+        for item in assessment.rule_contributions
+        if item.review_need in needs
+    ]
+
+
+def map_country_environment_consultation_topics(
+    assessment: CountryTradeEnvironmentAssessment,
+) -> List[ConsultationTopic]:
+    needs = set(assessment.review_needs)
+    topics: Dict[str, ConsultationTopic] = {}
+    if "INFORMATION_COMPLETENESS_REVIEW" in needs:
+        info_need: CountryEnvironmentReviewNeed = (
+            "INFORMATION_COMPLETENESS_REVIEW"
+        )
+        topics["COUNTRY_INFORMATION_COMPLETENESS"] = _topic(
+            category="COUNTRY_INFORMATION_COMPLETENESS",
+            title="국가 공식자료 완전성 확인",
+            triggered_by=[],
+            country_environment_rule_codes=_country_rule_codes(
+                assessment=assessment,
+                needs=[info_need],
+            ),
+            country_environment_review_needs=[info_need],
+            explanation=(
+                "공식 snapshot 또는 핵심 provenance가 불완전해 낮은 위험으로 "
+                "간주하지 않고 자료를 다시 확인하는 상담 항목입니다."
+            ),
+            required_information=[
+                "거래 상대국 사용자 확인",
+                "snapshot version·hash와 세 공식 source provenance",
+            ],
+            required_documents=[
+                "최종 계약서 또는 인보이스의 거래 상대국 표시",
+            ],
+            questions=[
+                "현재 거래국의 공식자료를 어떤 기준일 자료로 다시 확인해야 하는가?",
+            ],
+        )
+        return list(topics.values())
+
+    protection_needs = [
+        item
+        for item in (
+            "PAYMENT_TRANSFER_PROTECTION_REVIEW",
+            "CREDIT_INSURANCE_REVIEW",
+            "GUARANTEE_REVIEW",
+        )
+        if item in needs
+    ]
+    if protection_needs:
+        category = (
+            "EXPORT_RECEIVABLE_PROTECTION"
+            if assessment.trade_type == "EXPORT"
+            else "COUNTRY_PAYMENT_TRANSFER_PROTECTION"
+        )
+        topics[category] = _topic(
+            category=category,
+            title="국가 지급·이전 보호수단 상담",
+            triggered_by=[],
+            country_environment_rule_codes=_country_rule_codes(
+                assessment=assessment,
+                needs=protection_needs,
+            ),
+            country_environment_review_needs=protection_needs,
+            explanation=(
+                "OECD 원자료를 자체 국가등급으로 바꾸지 않고 보험·보증·"
+                "지급보호 조건을 우선 확인하는 상담 항목입니다."
+            ),
+            required_information=[
+                "보험·보증의 거래국·채권 적용범위",
+                "보상·보증 한도, 유효기간, 면책과 청구조건",
+            ],
+            required_documents=[
+                "수출입계약서와 결제 일정",
+                "보험증권·지급보증·보증신용장 문서(있는 경우)",
+            ],
+            questions=[
+                "지급·이전 위험에 대비해 이 거래에 적용 가능한 보호수단은 무엇인가?",
+                "보험·보증의 보상범위와 면책이 현재 채권에 어떻게 적용되는가?",
+            ],
+        )
+
+    if "DOCUMENTARY_CREDIT_TERMS_REVIEW" in needs:
+        need = "DOCUMENTARY_CREDIT_TERMS_REVIEW"
+        topics["DOCUMENTARY_CREDIT_TERMS_REVIEW"] = _topic(
+            category="DOCUMENTARY_CREDIT_TERMS_REVIEW",
+            title="신용장 세부조건 상담",
+            triggered_by=[],
+            country_environment_rule_codes=_country_rule_codes(
+                assessment=assessment,
+                needs=[need],
+            ),
+            country_environment_review_needs=[need],
+            explanation=(
+                "거래국 공식 신호와 별개로 발행은행·확인 여부·서류조건을 "
+                "확인하는 상담 항목입니다."
+            ),
+            required_information=[
+                "발행은행·확인은행과 지급 또는 인수 조건",
+                "요구서류·제시기한·불일치 처리조건",
+            ],
+            required_documents=["신용장 원문과 amendment(검토 시)"],
+            questions=[
+                "Open Account 조건을 보완할 신용장 조건을 검토할 필요가 있는가?",
+            ],
+        )
+
+    if "PAYMENT_TERMS_REVIEW" in needs:
+        need = "PAYMENT_TERMS_REVIEW"
+        topics["PAYMENT_TERMS_REVIEW"] = _topic(
+            category="PAYMENT_TERMS_REVIEW",
+            title="결제조건 명확화 상담",
+            triggered_by=[],
+            country_environment_rule_codes=_country_rule_codes(
+                assessment=assessment,
+                needs=[need],
+            ),
+            country_environment_review_needs=[need],
+            explanation=(
+                "장기 Open Account의 회수기간·연체·분쟁 조건과 보호수단을 "
+                "거래 전에 다시 확인하는 상담 항목입니다."
+            ),
+            required_information=[
+                "회수기간 기준일과 연체 시 조치",
+                "결제조건 단축·분할·보호조건 추가 가능성",
+            ],
+            required_documents=["최종 계약서와 결제조건 변경 합의서"],
+            questions=[
+                "90일 Open Account 조건을 단축·분할하거나 보호조건을 추가할 수 있는가?",
+            ],
+        )
+
+    if "MACRO_ENVIRONMENT_MONITORING" in needs:
+        need = "MACRO_ENVIRONMENT_MONITORING"
+        topics["COUNTRY_MACRO_ENVIRONMENT_MONITORING"] = _topic(
+            category="COUNTRY_MACRO_ENVIRONMENT_MONITORING",
+            title="거시환경 관측자료 확인",
+            triggered_by=[],
+            country_environment_rule_codes=_country_rule_codes(
+                assessment=assessment,
+                needs=[need],
+            ),
+            country_environment_review_needs=[need],
+            explanation=(
+                "World Bank 원값과 서로 다른 관측연도를 점수화하지 않고 "
+                "회수기간 중 점검할 상담 문맥으로 사용합니다."
+            ),
+            required_information=[
+                "지표별 관측연도와 갱신일",
+                "결제기간 중 거래처와 회수일정 변화",
+            ],
+            required_documents=["최신 회수 일정과 거래처 결제이력"],
+            questions=[
+                "관측연도가 다른 거시지표를 현재 거래조건 검토에 어떻게 제한적으로 참고할 것인가?",
+            ],
+        )
+
+    if "TRADE_MARKET_ACCESS_REVIEW" in needs:
+        need = "TRADE_MARKET_ACCESS_REVIEW"
+        topics["TRADE_MARKET_ACCESS_REVIEW"] = _topic(
+            category="TRADE_MARKET_ACCESS_REVIEW",
+            title="통관·관세·시장접근 조건 확인",
+            triggered_by=[],
+            country_environment_rule_codes=_country_rule_codes(
+                assessment=assessment,
+                needs=[need],
+            ),
+            country_environment_review_needs=[need],
+            explanation=(
+                "WTO 회원·MFN·무역정책검토 원값은 시장접근 문맥이며 "
+                "실제 품목의 통관·관세 조건을 별도로 확인해야 합니다."
+            ),
+            required_information=[
+                "HS code와 원산지",
+                "품목별 관세·특혜·추가조치와 통관 요구사항",
+            ],
+            required_documents=[
+                "품목분류·원산지·선적 서류",
+            ],
+            questions=[
+                "현재 품목과 원산지에 적용되는 실제 관세·통관 조건은 무엇인가?",
+                "최근 조치나 시장접근 제한을 무역전문가와 추가 확인해야 하는가?",
+            ],
+        )
     return list(topics.values())
 
 

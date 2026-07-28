@@ -8,10 +8,11 @@
 | 검증 | 명령 | 결과 |
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
-| compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 345/345 PASS |
-| 거래·결제 위험·상담·공식 후보 연결 P0 | `python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 58/58 PASS |
-| T7 통합 보고서·critic | `python -m unittest tests.test_stage5_decision_report tests.test_stage3_4_5.Stage5Tests -v` | 25/25 PASS |
+| compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | PASS |
+| 전체 unit/integration/E2E | `.venv/bin/python -m unittest discover -s tests -v` | 383/383 PASS |
+| T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 58/58 PASS |
+| 거래·결제 위험·상담·공식 후보 연결 P0 | `.venv/bin/python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 60/60 PASS |
+| T7 통합 보고서·critic | 전체 unittest 내 실행 | 34/34 PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
@@ -24,6 +25,48 @@
 | Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
 | Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
 | sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
+
+## T4 국가·무역환경 검증
+
+`2026.07.29-v1` offline snapshot
+(`country-environment-2026-07-29`, hash
+`095c5e38a88403449214ba899e05d07831f1b2a44932f2ebe2beaa65045fb757`)
+을 외부 네트워크 없이 strict 역직렬화했습니다. schema·version·hash 변조,
+누락 provenance, 비공식 URL과 lookalike host, 중복 source ID, 국가 불일치,
+float·과학표기 소수를 모두 fail closed하는 테스트가 통과했습니다.
+
+동일한 `SELLER / EXPORT / USD / EXISTING / Open Account 90일 /
+NONE_CONFIRMED` 입력에서 국가만 변경했습니다.
+
+```text
+US: OECD HIGH_INCOME_OECD_UNCLASSIFIED / raw null
+    review priority ELEVATED_REVIEW
+BR: OECD CLASSIFIED / raw 4
+    action PAYMENT_TRANSFER_PROTECTION_REVIEW_REQUIRED
+    review priority HIGH_REVIEW
+```
+
+우선순위는 국가 신용등급이 아닌 보험·보증·신용장·결제조건 상담 순서입니다.
+World Bank는 US 물가의 최신 비결측 관측연도 `2024`와 GDP·경상수지 `2025`를
+같은 시점으로 표현하지 않았고, WTO 회원·MFN·TPR 원값도 지급불능 위험으로
+변환하지 않았습니다.
+
+`CountryEnvironmentIntegrationTests`는 국가 변경 전후 Stage 1, Stage 2,
+Stage 3, runtime Stage 4와 상품 eligibility·approval이 완전히 동일함을
+검증했습니다. T4 auxiliary step은 국가 assessment와 안전한 source ID trace만
+갱신하고 packet·report를 무효화합니다. legacy packet에서는 T4 필드가
+직렬화되지 않고, T4가 있으면 assessment fingerprint가 packet hash에
+결속됩니다.
+
+T7 결정론 fallback은 세 축, 공식 URL, 자료기간, 원값 해석과 한계를 분리해
+출력합니다. critic 테스트는 브라질 원값 `4`의 자체등급화, 미국 미분류의
+`LOW·0·안전` 변환, 0~100 합산, source URL·원값 변조, 국가 신호에 따른
+환헤지·Stage 2 현금흐름 변경, 상품 승인 주장을 거부했습니다. Streamlit
+AppTest는 정상 US 상태와 지원하지 않는 국가의 `정보 부족` 상태를 모두
+렌더링했습니다.
+
+공식 source 확인에만 공개 1차 자료를 사용했고 runtime·테스트에서는 OECD,
+World Bank, WTO API나 OpenAI API를 호출하지 않았습니다.
 
 ## 미국·브라질 합성 문서 검증
 

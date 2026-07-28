@@ -287,8 +287,13 @@ class TradeRiskResponseMappingTests(unittest.TestCase):
         packet = demo["consultation_packet"].packet
 
         self.assertIsNone(packet.trade_settlement_risk)
+        self.assertIsNone(packet.country_environment)
         self.assertNotIn(
             "trade_settlement_risk",
+            packet.model_dump(),
+        )
+        self.assertNotIn(
+            "country_environment",
             packet.model_dump(),
         )
         legacy_topic = map_consultation_topics(
@@ -298,6 +303,10 @@ class TradeRiskResponseMappingTests(unittest.TestCase):
         )[0]
         self.assertNotIn(
             "trade_risk_factor_codes",
+            legacy_topic.model_dump(),
+        )
+        self.assertNotIn(
+            "country_environment_rule_codes",
             legacy_topic.model_dump(),
         )
 

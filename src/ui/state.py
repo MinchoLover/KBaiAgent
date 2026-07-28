@@ -17,6 +17,9 @@ PIPELINE_KEYS = (
     "stage2_result",
     "trade_risk_confirmation",
     "trade_risk_assessment",
+    "country_environment_input",
+    "country_environment_assessment",
+    "country_environment_trace",
     "risk_assessment",
     "consultation_topics",
     "consultation_packet",
@@ -247,6 +250,9 @@ def clear_confirmation_and_later(state: object) -> None:
             "stage2_result",
             "trade_risk_confirmation",
             "trade_risk_assessment",
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
             "risk_assessment",
             "consultation_topics",
             "consultation_packet",
@@ -266,7 +272,25 @@ def clear_trade_risk_and_related(state: object) -> None:
         (
             "trade_risk_confirmation",
             "trade_risk_assessment",
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
+            "consultation_topics",
             "official_candidate_shortlist",
+            "consultation_packet",
+            "report_result",
+        ),
+    )
+
+
+def clear_country_environment_and_related(state: object) -> None:
+    clear_keys(
+        state,
+        (
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
+            "consultation_topics",
             "consultation_packet",
             "report_result",
         ),

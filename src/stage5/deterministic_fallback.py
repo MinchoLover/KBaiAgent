@@ -85,6 +85,135 @@ def _trade_risk_lines(
     return lines
 
 
+def _country_environment_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or consultation_packet.country_environment is None
+    ):
+        return ["- 국가·무역환경의 별도 공식자료 검토 결과가 없습니다."]
+    assessment = consultation_packet.country_environment
+    priority_labels = {
+        "STANDARD_REVIEW": "통상 검토",
+        "ELEVATED_REVIEW": "추가 검토",
+        "HIGH_REVIEW": "우선 검토",
+        "INSUFFICIENT_INFORMATION": "정보 부족",
+    }
+    references = {
+        item.source_record_id: (index, item)
+        for index, item in enumerate(
+            assessment.official_source_references
+        )
+    }
+    lines = [
+        "- 거래국은 **{}**, 거래 검토 우선순위는 **{}**입니다. "
+        "이는 국가 신용등급이 아니라 상담 순서입니다. "
+        "[source: consultation.country_environment]".format(
+            assessment.country,
+            priority_labels[assessment.review_priority],
+        )
+    ]
+    oecd = assessment.oecd_payment_transfer
+    oecd_reference = references.get(oecd.source_record_id or "")
+    if oecd.status == "CLASSIFIED":
+        oecd_text = (
+            "OECD 공식 원자료 분류는 {}이며 KBaiAgent 자체 국가등급이 "
+            "아닙니다.".format(oecd.raw_classification)
+        )
+    elif oecd.status == "HIGH_INCOME_OECD_UNCLASSIFIED":
+        oecd_text = (
+            "고소득 OECD 회원국 미분류이며 0 또는 낮은 위험으로 "
+            "변환하지 않았습니다."
+        )
+    else:
+        oecd_text = "OECD 원자료를 확인할 수 없어 정보 부족으로 처리했습니다."
+    if oecd_reference is not None:
+        reference_index, reference = oecd_reference
+        lines.append(
+            "- 지급·이전 환경 — {} 기준일 {}. {} 한계: {} "
+            "([공식 출처]({})) "
+            "[source: consultation.country_environment."
+            "oecd_payment_transfer] "
+            "[source: consultation.country_environment."
+            "official_source_references.{}]".format(
+                oecd_text,
+                oecd.as_of_date,
+                oecd.interpretation,
+                oecd.limitations,
+                reference.official_url,
+                reference_index,
+            )
+        )
+    else:
+        lines.append(
+            "- 지급·이전 환경 — {} {} 한계: {} "
+            "[source: consultation.country_environment."
+            "oecd_payment_transfer]".format(
+                oecd_text,
+                oecd.interpretation,
+                oecd.limitations,
+            )
+        )
+    for index, item in enumerate(
+        assessment.world_bank_macro_environment.observations
+    ):
+        reference_index, reference = references[item.source_record_id]
+        raw = (
+            item.raw_value
+            if item.raw_value is not None
+            else item.raw_status or "자료 없음"
+        )
+        lines.append(
+            "- 거시환경 — World Bank `{}` 원값 {} {}, 관측기간 {}, "
+            "자료 기준일 {}. {} 한계: {} ([공식 출처]({})) "
+            "[source: consultation.country_environment."
+            "world_bank_macro_environment.observations.{}] "
+            "[source: consultation.country_environment."
+            "official_source_references.{}]".format(
+                item.indicator_code,
+                raw,
+                item.raw_unit,
+                item.observation_period,
+                item.as_of_date,
+                item.interpretation,
+                item.limitations,
+                reference.official_url,
+                index,
+                reference_index,
+            )
+        )
+    for index, item in enumerate(
+        assessment.wto_trade_market_access.observations
+    ):
+        reference_index, reference = references[item.source_record_id]
+        raw = (
+            item.raw_value
+            if item.raw_value is not None
+            else item.raw_status or "자료 없음"
+        )
+        lines.append(
+            "- 무역·시장접근 — WTO `{}` 원값/status {} {}, 자료기간 {}, "
+            "자료 기준일 {}. {} 한계: {} ([공식 출처]({})) "
+            "[source: consultation.country_environment."
+            "wto_trade_market_access.observations.{}] "
+            "[source: consultation.country_environment."
+            "official_source_references.{}]".format(
+                item.indicator_code,
+                raw,
+                item.raw_unit,
+                item.observation_period,
+                item.as_of_date,
+                item.interpretation,
+                item.limitations,
+                reference.official_url,
+                index,
+                reference_index,
+            )
+        )
+    return lines
+
+
 def _consultation_topic_lines(
     consultation_packet: Optional[ConsultationPacket],
 ) -> List[str]:
@@ -320,6 +449,19 @@ def generate_deterministic_report(
     trade_risk_lines = "\n".join(
         _trade_risk_lines(consultation_packet)
     )
+    country_environment_lines = "\n".join(
+        _country_environment_lines(consultation_packet)
+    )
+    country_environment_policy_note = (
+        "OECD·World Bank·WTO는 합산 점수로 만들지 않았고 국가 신호는 "
+        "Stage 2 현금흐름이나 Stage 3 환헤지 비율을 변경하지 않습니다.\n"
+        "[source: consultation.country_environment]"
+        if (
+            consultation_packet is not None
+            and consultation_packet.country_environment is not None
+        )
+        else "국가 공식자료 검토가 연결되지 않아 별도 해석을 만들지 않았습니다."
+    )
     consultation_topic_lines = "\n".join(
         _consultation_topic_lines(consultation_packet)
     )
@@ -394,33 +536,39 @@ def generate_deterministic_report(
 
 이 결과는 금융기관의 공식 심사등급·부도확률·보험 인수판단이 아닙니다.
 
-## 7. 환헤지 시뮬레이션 후보
+## 7. 국가·무역환경 검토
+
+{country_environment_lines}
+
+{country_environment_policy_note}
+
+## 8. 환헤지 시뮬레이션 후보
 
 {strategy_lines}
 
 위 후보는 확정 자문이 아니라 입력 가정 아래 계산된 검토안입니다.
 [source: stage3.status]
 
-## 8. 검토할 금융 대응
+## 9. 검토할 금융 대응
 
 {consultation_topic_lines}
 
 결제·회수 위험이 환헤지 비율을 직접 변경하지 않으며, 최종 판단은 사용자와
 거래은행·보험기관 담당자가 합니다.
 
-## 9. 공식 출처 상담 후보
+## 10. 공식 출처 상담 후보
 
 {product_lines}
 
-## 10. 아직 확인할 정보
+## 11. 아직 확인할 정보
 
 {missing_information_lines}
 
-## 11. 은행·보험기관 상담 시 질문
+## 12. 은행·보험기관 상담 시 질문
 
 {question_lines}
 
-## 12. 가정·한계·면책
+## 13. 가정·한계·면책
 
 본 결과는 제공된 입력의 결정론적 계산과 공식자료 후보 정리이며 금융자문·승인·보장을
 의미하지 않습니다. 실제 거래 전 은행·보험기관·전문가 확인이 필요합니다.
@@ -442,6 +590,8 @@ def generate_deterministic_report(
         buffer_shortfall=worst.maximum_buffer_shortfall,
         credit_shortfall=worst.post_credit_shortfall,
         trade_risk_lines=trade_risk_lines,
+        country_environment_lines=country_environment_lines,
+        country_environment_policy_note=country_environment_policy_note,
         strategy_lines=strategy_lines,
         consultation_topic_lines=consultation_topic_lines,
         product_lines=product_lines,

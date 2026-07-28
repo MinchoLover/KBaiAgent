@@ -3,6 +3,10 @@ from typing import Dict, List, Literal, Optional
 from pydantic import Field
 
 from schemas import StrictModel
+from src.domain.country_environment_models import (
+    CountryEnvironmentReviewNeed,
+    CountryTradeEnvironmentAssessment,
+)
 from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.trade_risk_models import (
     TradeRiskReviewNeed,
@@ -57,6 +61,16 @@ class ConsultationTopic(StrictModel):
         exclude_if=lambda value: not value,
     )
     trade_risk_review_needs: List[TradeRiskReviewNeed] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
+    country_environment_rule_codes: List[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
+    country_environment_review_needs: List[
+        CountryEnvironmentReviewNeed
+    ] = Field(
         default_factory=list,
         exclude_if=lambda value: not value,
     )
@@ -135,6 +149,12 @@ class ConsultationPacket(StrictModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    country_environment: Optional[
+        CountryTradeEnvironmentAssessment
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )
@@ -165,6 +185,12 @@ class DecisionSupportResult(StrictModel):
     risk_assessment: RiskAssessment
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    country_environment: Optional[
+        CountryTradeEnvironmentAssessment
     ] = Field(
         default=None,
         exclude_if=lambda value: value is None,

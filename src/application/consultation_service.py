@@ -3,16 +3,79 @@ from typing import List, Optional
 from schemas import TradeDocumentExtraction
 from src.consultation.packet import build_consultation_packet
 from src.consultation.response_mapping import (
+    map_country_environment_consultation_topics,
     map_consultation_topics,
     map_trade_risk_consultation_topics,
 )
 from src.consultation.risk_classifier import classify_stage2_risks
 from src.document_intake.confirmation import ConfirmationRecord
-from src.domain.consultation_models import DecisionSupportResult
+from src.domain.consultation_models import (
+    ConsultationTopic,
+    DecisionSupportResult,
+)
+from src.domain.country_environment_models import (
+    CountryTradeEnvironmentAssessment,
+)
 from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+
+
+def _dedupe(values: List[str]) -> List[str]:
+    return list(dict.fromkeys(values))
+
+
+def _merge_topics(
+    topics: List[ConsultationTopic],
+) -> List[ConsultationTopic]:
+    merged = {}
+    order: List[str] = []
+    for topic in topics:
+        if topic.category not in merged:
+            merged[topic.category] = topic
+            order.append(topic.category)
+            continue
+        current = merged[topic.category]
+        explanations = _dedupe(
+            [current.explanation, topic.explanation]
+        )
+        merged[topic.category] = current.model_copy(
+            update={
+                "triggered_by": _dedupe(
+                    current.triggered_by + topic.triggered_by
+                ),
+                "trade_risk_factor_codes": _dedupe(
+                    current.trade_risk_factor_codes
+                    + topic.trade_risk_factor_codes
+                ),
+                "trade_risk_review_needs": _dedupe(
+                    current.trade_risk_review_needs
+                    + topic.trade_risk_review_needs
+                ),
+                "country_environment_rule_codes": _dedupe(
+                    current.country_environment_rule_codes
+                    + topic.country_environment_rule_codes
+                ),
+                "country_environment_review_needs": _dedupe(
+                    current.country_environment_review_needs
+                    + topic.country_environment_review_needs
+                ),
+                "explanation": " ".join(explanations),
+                "required_information": _dedupe(
+                    current.required_information
+                    + topic.required_information
+                ),
+                "required_documents": _dedupe(
+                    current.required_documents
+                    + topic.required_documents
+                ),
+                "questions": _dedupe(
+                    current.questions + topic.questions
+                ),
+            }
+        )
+    return [merged[category] for category in order]
 
 
 def build_decision_support(
@@ -25,6 +88,9 @@ def build_decision_support(
     stage2_result: Stage2Result,
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
+    ] = None,
+    country_environment: Optional[
+        CountryTradeEnvironmentAssessment
     ] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
@@ -48,6 +114,13 @@ def build_decision_support(
                 trade_settlement_risk
             )
         )
+    if country_environment is not None:
+        topics.extend(
+            map_country_environment_consultation_topics(
+                country_environment
+            )
+        )
+    topics = _merge_topics(topics)
     packet = build_consultation_packet(
         case_id=case_id,
         extraction=extraction,
@@ -58,6 +131,7 @@ def build_decision_support(
         assessment=assessment,
         consultation_topics=topics,
         trade_settlement_risk=trade_settlement_risk,
+        country_environment=country_environment,
         official_candidate_shortlist=official_candidate_shortlist,
         missing_information=missing_information,
         generated_at=generated_at,
@@ -65,6 +139,7 @@ def build_decision_support(
     return DecisionSupportResult(
         risk_assessment=assessment,
         trade_settlement_risk=trade_settlement_risk,
+        country_environment=country_environment,
         consultation_topics=topics,
         official_candidate_shortlist=official_candidate_shortlist,
         consultation_packet=packet,

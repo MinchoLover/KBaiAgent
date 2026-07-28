@@ -370,3 +370,40 @@ Trade-off: fixture prediction은 label 복사이므로 evaluator 파이프라인
 Revisit condition: 사용자가 실제 API 비용을 명시적으로 허가하면 최대 2건부터
 `predictions/live`와 별도 live 보고서로 측정합니다. 승인된 익명 문서가 생겨도
 기존 test split이나 baseline은 자동 갱신하지 않습니다.
+
+## 27. Country signals are separate review context, not a country rating
+
+Context: T4는 미국·브라질 거래에서 OECD 지급·이전, World Bank 거시환경,
+WTO 무역·시장접근 원자료를 상담자료에 연결해야 합니다. 세 자료는 정의·기준일·
+관측기간이 다르므로 하나의 숫자나 국가등급으로 합치면 공식 원자료보다 강한
+주장을 만들게 됩니다. 특히 OECD의 브라질 원값 `4`와 고소득 OECD 회원국인
+미국의 미분류 상태를 자체 등급이나 `0·LOW`로 바꾸면 안 됩니다.
+
+Decision: `src/integration_assets/country_environment/snapshot_v1.json`의
+versioned offline snapshot을 strict schema·version·canonical SHA-256 hash로
+검증합니다. 세 축은 `CountryTradeEnvironmentAssessment` 안에서 분리하고,
+`STANDARD_REVIEW`, `ELEVATED_REVIEW`, `HIGH_REVIEW`,
+`INSUFFICIENT_INFORMATION`만 거래 검토 우선순위로 사용합니다. 이 우선순위는
+보험·보증·신용장·결제조건 상담 순서를 설명할 뿐 국가 신용등급·부도확률·은행
+승인 판단이 아닙니다.
+
+T4는 사용자 확인된 거래 상대국과 기존 거래·결제조건만 입력받는 auxiliary
+workflow입니다. fingerprint에는 canonical 거래조건, 국가, snapshot
+version/hash, rule version, source record ID를 포함합니다. 변경 시 T4,
+`ConsultationPacket`, T7 보고서만 다시 만들고 Stage 1 환율, Stage 2 현금흐름,
+Stage 3 헤지 후보, 기존 runtime Stage 4와 상품 eligibility·approval은 유지합니다.
+World Bank·WTO 원값은 context-only이며 OECD와 합산하거나 환헤지 비율에
+반영하지 않습니다.
+
+Rationale: 외부 API·LLM 없이 같은 입력에 같은 결과를 재현하고, 공식 자료의
+관측시점과 한계를 그대로 노출하면서 기존 계산·상품 계약을 보존할 수 있습니다.
+packet이 T4를 포함하지 않으면 optional 필드가 직렬화되지 않아 기존 JSON과 hash
+계약도 유지됩니다.
+
+Trade-off: committed snapshot 검증일 이후 공식 자료 변경을 자동 반영하지 않고,
+US·BR 외 국가는 `INSUFFICIENT_INFORMATION`으로 처리합니다. 개별 품목 관세,
+통관조건, 보험 인수와 은행 승인은 별도 사람 상담이 필요합니다.
+
+Revisit condition: 공식 원자료를 사람이 재검증해 새 snapshot version과 hash를
+승인하거나 지원 국가를 확장할 명시적 범위가 생길 때 rule version·경계 테스트와
+함께 재검토합니다.

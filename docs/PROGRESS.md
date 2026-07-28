@@ -15,6 +15,10 @@
 - [x] Stage 5 explainer policy, critic, deterministic fallback
 - [x] 거래·결제 위험·금융 대응·공식 shortlist의 Stage 5 통합 보고서 연결
 - [x] 원시 Stage 4 후보를 사용자 보고서 bundle에서 분리한 critic/fallback 정책
+- [x] US·BR versioned offline 국가환경 snapshot과 OECD·World Bank·WTO
+  세 축 분리 검토
+- [x] T4 거래 검토 우선순위, optional ConsultationPacket, T7 critic/fallback,
+  최소 UI와 Stage 1~4 불변성 검증
 - [x] Typed WorkflowState, StageResult, confirmation gate, trace
 - [x] Offline demo와 Streamlit의 공통 WorkflowOrchestrator 경로
 - [x] Stage 1 및 공식상품 fallback, 구조화 critic/revision metadata
@@ -37,7 +41,7 @@
 - [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
 - [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
 - [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
-- [x] 345 API-free tests (country validation 전용 12건 포함)
+- [x] 383 API-free tests (country validation 전용 12건, T4 신규 회귀 포함)
 - [x] offline evaluation and regression baseline
 - [x] 합성 이미지형 PDF 1건 live OpenAI smoke test
 - [ ] 허가된 실제 문서군 live 품질 benchmark

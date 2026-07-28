@@ -2,14 +2,22 @@ import unittest
 
 from sample_data import sample_extraction
 from schemas import TradeDocumentExtraction
+from src.country_environment.assessment import (
+    assess_country_trade_environment,
+)
 from src.document_intake.confirmation import (
     create_confirmation_record,
     discard_stale_evidence_after_review,
     validate_confirmation,
 )
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+from src.domain.country_environment_models import (
+    CountryTradeEnvironmentAssessment,
+    CountryTradeEnvironmentInput,
+)
 from src.ui.state import (
     clear_confirmation_and_later,
+    clear_country_environment_and_related,
     clear_downstream,
     clear_trade_risk_and_related,
 )
@@ -107,6 +115,9 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
             "stage2_result": {"result": "stale"},
             "trade_risk_confirmation": {"risk": "stale"},
             "trade_risk_assessment": {"priority": "stale"},
+            "country_environment_input": {"country": "US"},
+            "country_environment_assessment": {"priority": "stale"},
+            "country_environment_trace": {"country": "US"},
             "workflow_state": {"case_id": "stale"},
             "review_audit_trail": [{"before": "kept"}],
             "confirm_currency_widget": True,
@@ -123,6 +134,9 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
             "stage2_result",
             "trade_risk_confirmation",
             "trade_risk_assessment",
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
             "workflow_state",
             "confirm_currency_widget",
         ):
@@ -134,6 +148,9 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
             "stage2_result": {"cash": "old"},
             "trade_risk_confirmation": {"risk": "confirmed"},
             "trade_risk_assessment": {"priority": "HIGH_REVIEW"},
+            "country_environment_assessment": {
+                "priority": "STANDARD_REVIEW"
+            },
             "stage3_result": {"hedge": "old"},
             "consultation_packet": {"packet": "old"},
         }
@@ -142,6 +159,7 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
 
         self.assertIn("trade_risk_confirmation", state)
         self.assertIn("trade_risk_assessment", state)
+        self.assertIn("country_environment_assessment", state)
         for key in (
             "stage2_input",
             "stage2_result",
@@ -162,6 +180,10 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
             },
             "trade_risk_confirmation": {"risk": "stale"},
             "trade_risk_assessment": {"priority": "stale"},
+            "country_environment_input": {"country": "US"},
+            "country_environment_assessment": {"priority": "stale"},
+            "country_environment_trace": {"country": "US"},
+            "consultation_topics": [{"topic": "stale"}],
             "consultation_packet": {"packet": "stale"},
             "report_result": {"report": "stale"},
         }
@@ -179,7 +201,48 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
         for key in (
             "trade_risk_confirmation",
             "trade_risk_assessment",
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
+            "consultation_topics",
             "official_candidate_shortlist",
+            "consultation_packet",
+            "report_result",
+        ):
+            self.assertNotIn(key, state)
+
+    def test_country_change_preserves_stage_results_and_trade_risk(self):
+        state = {
+            "stage1_load": {"market": "kept"},
+            "stage2_result": {"cash": "kept"},
+            "stage3_result": {"hedge": "kept"},
+            "stage4_result": {"products": "kept"},
+            "official_candidate_shortlist": {"products": "kept"},
+            "trade_risk_assessment": {"priority": "kept"},
+            "country_environment_input": {"country": "US"},
+            "country_environment_assessment": {"priority": "stale"},
+            "country_environment_trace": {"country": "US"},
+            "consultation_topics": [{"topic": "stale"}],
+            "consultation_packet": {"packet": "stale"},
+            "report_result": {"report": "stale"},
+        }
+
+        clear_country_environment_and_related(state)
+
+        for key in (
+            "stage1_load",
+            "stage2_result",
+            "stage3_result",
+            "stage4_result",
+            "official_candidate_shortlist",
+            "trade_risk_assessment",
+        ):
+            self.assertIn(key, state)
+        for key in (
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
+            "consultation_topics",
             "consultation_packet",
             "report_result",
         ):
@@ -201,6 +264,9 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         self.assertEqual(len(app.exception), 0)
         self.assertIn("trade_risk_confirmation", app.session_state)
         self.assertIn("trade_risk_assessment", app.session_state)
+        self.assertIn("country_environment_input", app.session_state)
+        self.assertIn("country_environment_assessment", app.session_state)
+        self.assertIn("country_environment_trace", app.session_state)
         assessment = TradeSettlementRiskAssessment.model_validate(
             app.session_state["trade_risk_assessment"]
         )
@@ -214,6 +280,18 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         )
         self.assertIn(
             "## 4. 거래·결제조건 위험",
+            app.session_state["consultation_packet"]["markdown"],
+        )
+        country_assessment = CountryTradeEnvironmentAssessment.model_validate(
+            app.session_state["country_environment_assessment"]
+        )
+        self.assertEqual(country_assessment.country, "US")
+        self.assertEqual(
+            country_assessment.oecd_payment_transfer.status,
+            "HIGH_INCOME_OECD_UNCLASSIFIED",
+        )
+        self.assertIn(
+            "## 4A. 국가·무역환경 검토",
             app.session_state["consultation_packet"]["markdown"],
         )
         self.assertIn(
@@ -237,6 +315,15 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "수입 선지급·계약이행 위험",
             app.session_state["report_result"]["markdown"],
         )
+        self.assertIn(
+            "국가·무역환경 검토",
+            app.session_state["report_result"]["markdown"],
+        )
+        visible_text = " ".join(
+            item.value for item in app.markdown
+        )
+        self.assertIn("국가·무역환경 검토", visible_text)
+        self.assertIn("고소득 OECD 회원국 미분류", visible_text)
         stage3_before = app.session_state["stage3_result"]
 
         relationship = next(
@@ -264,6 +351,40 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(updated.review_priority, "ELEVATED_REVIEW")
         self.assertEqual(app.session_state["stage3_result"], stage3_before)
+
+    def test_information_insufficient_country_ui_is_explicit(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        demo = next(
+            button
+            for button in app.button
+            if button.label == "수입기업 대표 데모"
+        )
+        demo.click().run()
+        current = CountryTradeEnvironmentInput.model_validate(
+            app.session_state["country_environment_input"]
+        )
+        unavailable = assess_country_trade_environment(
+            current.model_copy(
+                update={"counterparty_country": "CA"}
+            )
+        )
+        app.session_state["country_environment_assessment"] = (
+            unavailable.model_dump()
+        )
+        app.run()
+
+        self.assertEqual(len(app.exception), 0)
+        visible_text = " ".join(
+            item.value for item in app.markdown
+        )
+        warnings = " ".join(item.value for item in app.warning)
+        self.assertIn("정보 부족", visible_text)
+        self.assertIn(
+            "검증된 OECD 원자료를 확인할 수 없습니다",
+            warnings,
+        )
 
     def test_review_edit_clears_evidence_and_prior_confirmation_state(self):
         from streamlit.testing.v1 import AppTest

@@ -9,6 +9,9 @@ from schemas import (
     ValidationResult,
 )
 from src.document_intake.confirmation import ConfirmationRecord
+from src.domain.country_environment_models import (
+    CountryTradeEnvironmentAssessment,
+)
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportCritique, ReportResult
 from src.domain.stage1_models import Stage1LoadResult
@@ -49,6 +52,9 @@ class WorkflowState(StrictModel):
     hedge: Optional[StageResult[Stage3Result]] = None
     selected_strategy: Optional[StrategyCandidate] = None
     product_search: Optional[StageResult[Stage4Result]] = None
+    country_environment: Optional[
+        StageResult[CountryTradeEnvironmentAssessment]
+    ] = None
     report: Optional[StageResult[ReportResult]] = None
     report_draft: Optional[str] = None
     critic_result: Optional[ReportCritique] = None

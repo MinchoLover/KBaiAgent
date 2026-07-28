@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sample_data import sample_extraction
 from src.application.consultation_service import build_decision_support
+from src.application.country_environment_service import (
+    build_country_environment_input,
+)
 from src.application.official_candidate_service import (
     build_official_candidate_query,
     shortlist_official_candidates,
@@ -14,6 +17,9 @@ from src.consultation.response_mapping import (
 from src.consultation.trade_settlement_risk import (
     assess_trade_settlement_risk,
     create_trade_risk_confirmation,
+)
+from src.country_environment.assessment import (
+    assess_country_trade_environment,
 )
 from src.config import Settings
 from src.document_intake.confirmation import (
@@ -382,6 +388,13 @@ def run_decision_support_demo(
             confirmed_trade_sha256=confirmed_trade.trade_sha256,
         )
     )
+    country_environment_input = build_country_environment_input(
+        extraction=extraction,
+        trade_risk_confirmation=trade_risk_confirmation,
+    )
+    country_environment_assessment = (
+        assess_country_trade_environment(country_environment_input)
+    )
     workflow = orchestrator or WorkflowOrchestrator(
         settings=Settings(
             stage1_provider=(
@@ -434,6 +447,10 @@ def run_decision_support_demo(
     )
     state = workflow.run(state, request)
     _require_completed(state)
+    state = workflow.run_country_environment(
+        state,
+        country_environment_input,
+    )
     decision_support = build_decision_support(
         case_id=state.case_id,
         extraction=extraction,
@@ -442,6 +459,7 @@ def run_decision_support_demo(
         stage2_input=stage2_input,
         stage2_result=state.cashflow.data,
         trade_settlement_risk=trade_risk_assessment,
+        country_environment=country_environment_assessment,
         generated_at="2026-07-23T09:00:00+09:00",
     )
     official_candidate_shortlist = shortlist_official_candidates(
@@ -457,6 +475,7 @@ def run_decision_support_demo(
         stage2_input=stage2_input,
         stage2_result=state.cashflow.data,
         trade_settlement_risk=trade_risk_assessment,
+        country_environment=country_environment_assessment,
         official_candidate_shortlist=official_candidate_shortlist,
         generated_at="2026-07-23T09:00:00+09:00",
     )
@@ -475,6 +494,10 @@ def run_decision_support_demo(
         "stage2": state.cashflow.data,
         "trade_risk_confirmation": trade_risk_confirmation,
         "trade_risk_assessment": trade_risk_assessment,
+        "country_environment_input": country_environment_input,
+        "country_environment_assessment": (
+            country_environment_assessment
+        ),
         "stage3": state.hedge.data,
         "stage4": state.product_search.data,
         "official_candidate_shortlist": official_candidate_shortlist,

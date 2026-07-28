@@ -21,6 +21,9 @@ from src.application.stage2_input_service import (
     build_stage2_input_from_form,
 )
 from src.application.consultation_service import build_decision_support
+from src.application.country_environment_service import (
+    build_country_environment_input,
+)
 from src.application.official_candidate_service import (
     build_official_candidate_query,
     shortlist_official_candidates,
@@ -30,6 +33,10 @@ from src.config import Settings
 from src.consultation.trade_settlement_risk import (
     assess_trade_settlement_risk,
     create_trade_risk_confirmation,
+)
+from src.country_environment.assessment import (
+    assess_country_trade_environment,
+    country_environment_trace,
 )
 from src.demo import run_decision_support_demo
 from src.document_intake.confirmation import (
@@ -52,6 +59,9 @@ from src.domain.consultation_models import (
     ConsultationTopic,
     DecisionSupportResult,
     RiskAssessment,
+)
+from src.domain.country_environment_models import (
+    CountryTradeEnvironmentAssessment,
 )
 from src.domain.product_models import (
     OfficialCandidateShortlist,
@@ -146,6 +156,11 @@ def _save_decision_support(value: DecisionSupportResult) -> None:
         _save_model(
             "trade_risk_assessment",
             value.trade_settlement_risk,
+        )
+    if value.country_environment is not None:
+        _save_model(
+            "country_environment_assessment",
+            value.country_environment,
         )
     st.session_state["consultation_topics"] = [
         item.model_dump() for item in value.consultation_topics
@@ -501,6 +516,197 @@ def _trade_risk_priority_copy(
     return mapping[value.review_priority]
 
 
+def _render_country_environment_section(
+    assessment: CountryTradeEnvironmentAssessment,
+) -> None:
+    priority_copy = {
+        "HIGH_REVIEW": (
+            "danger",
+            "우선 검토 필요",
+            "보호수단과 결제조건을 거래 진행 전에 먼저 확인하세요.",
+        ),
+        "ELEVATED_REVIEW": (
+            "warning",
+            "추가 검토 필요",
+            "국가 원자료와 확정 거래조건의 조합을 추가로 검토하세요.",
+        ),
+        "STANDARD_REVIEW": (
+            "safe",
+            "통상 검토",
+            "현재 규칙에서 우선순위를 높이는 조합은 확인되지 않았습니다.",
+        ),
+        "INSUFFICIENT_INFORMATION": (
+            "warning",
+            "정보 부족",
+            "검증된 국가 원자료가 부족해 우선순위를 정하지 않았습니다.",
+        ),
+    }
+    tone, label, headline = priority_copy[assessment.review_priority]
+    st.markdown("### 국가·무역환경 검토")
+    st.markdown(
+        "<div class='risk-banner {}'><div class='signal'>{}</div>"
+        "<div><strong>{}</strong><p>{}</p></div>"
+        "<div class='detail'>{}</div></div>".format(
+            tone,
+            escape(label),
+            escape(headline),
+            escape(assessment.country),
+            "규칙 기반 상담 우선순위",
+        ),
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "국가 신용등급·부도확률·은행 승인등급이 아닙니다. 세 공식 자료 축은 "
+        "합산 점수로 만들지 않으며 환헤지 비율과 현금흐름 계산을 바꾸지 않습니다."
+    )
+    if assessment.review_needs:
+        need_labels = {
+            "PAYMENT_TRANSFER_PROTECTION_REVIEW": "결제·송금 보호수단",
+            "CREDIT_INSURANCE_REVIEW": "신용보험",
+            "GUARANTEE_REVIEW": "보증",
+            "DOCUMENTARY_CREDIT_TERMS_REVIEW": "신용장 조건",
+            "PAYMENT_TERMS_REVIEW": "결제기간",
+            "MACRO_ENVIRONMENT_MONITORING": "거시환경 모니터링",
+            "TRADE_MARKET_ACCESS_REVIEW": "통관·관세·시장접근",
+            "INFORMATION_COMPLETENESS_REVIEW": "공식 자료 완전성",
+        }
+        st.caption(
+            "우선 확인: {}".format(
+                " · ".join(
+                    need_labels[item]
+                    for item in assessment.review_needs[:3]
+                )
+            )
+        )
+
+    references = {
+        item.source_record_id: item
+        for item in assessment.official_source_references
+    }
+    oecd = assessment.oecd_payment_transfer
+    with st.expander("1. OECD 결제·송금 환경", expanded=True):
+        if oecd.status == "CLASSIFIED":
+            st.write(
+                "OECD 공식 원자료 분류: {} · 자체 국가등급 아님".format(
+                    oecd.raw_classification
+                )
+            )
+        elif oecd.status == "HIGH_INCOME_OECD_UNCLASSIFIED":
+            st.write(
+                "고소득 OECD 회원국 미분류 · 0 또는 낮은 위험으로 "
+                "변환하지 않음"
+            )
+        else:
+            st.warning("검증된 OECD 원자료를 확인할 수 없습니다.")
+        st.caption(
+            "기준일 {} · {}".format(
+                oecd.as_of_date,
+                oecd.interpretation,
+            )
+        )
+        st.caption("한계: {}".format(oecd.limitations))
+        reference = references.get(oecd.source_record_id or "")
+        if reference is not None:
+            st.markdown(
+                "[{}]({}) · 관측기간 {} · 검증일 {}".format(
+                    escape(reference.source_title),
+                    escape(reference.official_url),
+                    escape(reference.observation_period),
+                    escape(reference.verified_at),
+                )
+            )
+
+    with st.expander("2. World Bank 거시환경", expanded=False):
+        if not assessment.world_bank_macro_environment.observations:
+            st.warning("검증된 World Bank 관측값이 없습니다.")
+        for observation in (
+            assessment.world_bank_macro_environment.observations
+        ):
+            reference = references.get(observation.source_record_id)
+            st.markdown(
+                "**{}** · {} {}".format(
+                    escape(observation.indicator_name),
+                    escape(
+                        observation.raw_value
+                        if observation.raw_value is not None
+                        else str(observation.raw_status)
+                    ),
+                    escape(observation.raw_unit),
+                )
+            )
+            st.caption(
+                "관측기간 {} · 기준일 {} · {} · 한계: {}".format(
+                    observation.observation_period,
+                    observation.as_of_date,
+                    observation.interpretation,
+                    observation.limitations,
+                )
+            )
+            if reference is not None:
+                st.markdown(
+                    "[공식 원자료]({})".format(
+                        escape(reference.official_url)
+                    )
+                )
+        for warning in assessment.world_bank_macro_environment.warnings:
+            st.warning(warning)
+
+    with st.expander("3. WTO 무역·시장접근", expanded=False):
+        if not assessment.wto_trade_market_access.observations:
+            st.warning("검증된 WTO 관측값이 없습니다.")
+        for observation in assessment.wto_trade_market_access.observations:
+            reference = references.get(observation.source_record_id)
+            raw_value = (
+                observation.raw_value
+                if observation.raw_value is not None
+                else str(observation.raw_status)
+            )
+            st.markdown(
+                "**{}** · {} {}".format(
+                    escape(observation.indicator_code),
+                    escape(raw_value),
+                    escape(observation.raw_unit),
+                )
+            )
+            st.caption(
+                "관측기간 {} · 기준일 {} · {} · 한계: {}".format(
+                    observation.observation_period,
+                    observation.as_of_date,
+                    observation.interpretation,
+                    observation.limitations,
+                )
+            )
+            if reference is not None:
+                st.markdown(
+                    "[공식 원자료]({})".format(
+                        escape(reference.official_url)
+                    )
+                )
+
+    trace = country_environment_trace(assessment)
+    with st.expander("개발·감사용 국가환경 기록", expanded=False):
+        st.caption(
+            "snapshot={} · version={} · hash={} · rule={}".format(
+                assessment.snapshot_id,
+                assessment.snapshot_version,
+                assessment.snapshot_hash,
+                assessment.rule_version,
+            )
+        )
+        st.caption(
+            "input_fingerprint={}".format(
+                assessment.input_fingerprint
+            )
+        )
+        st.json(trace.model_dump())
+        json_download(
+            label="국가환경 추적 JSON",
+            value=trace,
+            filename="country_environment_trace.json",
+            key="country_environment_trace_download",
+        )
+
+
 def _render_trade_risk_section(
     *,
     document_input: Dict[str, Any],
@@ -709,8 +915,20 @@ def _render_trade_risk_section(
                     horizontal=True,
                     key="trade_risk_protection_applicability_widget",
                 )
+            counterparty_country = (
+                extraction.seller_country
+                if trade_binding.trade_type == "IMPORT"
+                else extraction.buyer_country
+            ) or "미확인"
+            st.info(
+                "이 검토에 사용할 거래 상대국: {}".format(
+                    counterparty_country
+                )
+            )
             confirmed_by_user = st.checkbox(
-                "위 입력값을 확인했습니다.",
+                "위 입력값과 거래 상대국 {}를 확인했습니다.".format(
+                    counterparty_country
+                ),
                 key="trade_risk_confirm_widget",
             )
             submitted = st.form_submit_button(
@@ -771,11 +989,33 @@ def _render_trade_risk_section(
                     confirmed_by="streamlit-user",
                 )
                 assessment = assess_trade_settlement_risk(record)
+                country_input = build_country_environment_input(
+                    extraction=extraction,
+                    trade_risk_confirmation=record,
+                )
+                country_assessment = assess_country_trade_environment(
+                    country_input
+                )
                 clear_trade_risk_and_related(st.session_state)
                 _save_model("trade_risk_confirmation", record)
                 _save_model("trade_risk_assessment", assessment)
+                _save_model("country_environment_input", country_input)
+                _save_model(
+                    "country_environment_assessment",
+                    country_assessment,
+                )
+                _save_model(
+                    "country_environment_trace",
+                    country_environment_trace(country_assessment),
+                )
 
                 workflow = _workflow_from_state()
+                if workflow is not None:
+                    workflow = orchestrator.run_country_environment(
+                        workflow,
+                        country_input,
+                    )
+                    _save_workflow(workflow)
                 stage1_load = _model_from_state(
                     "stage1_load",
                     Stage1LoadResult,
@@ -807,6 +1047,7 @@ def _render_trade_risk_section(
                         stage2_input=stage2_input,
                         stage2_result=stage2_result,
                         trade_settlement_risk=assessment,
+                        country_environment=country_assessment,
                         missing_information=list(
                             extraction.missing_required_fields
                         ),
@@ -831,6 +1072,7 @@ def _render_trade_risk_section(
                             stage2_input=stage2_input,
                             stage2_result=stage2_result,
                             trade_settlement_risk=assessment,
+                            country_environment=country_assessment,
                             official_candidate_shortlist=shortlist,
                             missing_information=list(
                                 extraction.missing_required_fields
@@ -899,6 +1141,12 @@ def _render_trade_risk_section(
         "공식 신용등급이나 승인 결과가 아니며, 환헤지 비율과 "
         "유동성 계산을 직접 변경하지 않습니다."
     )
+    country_assessment = _model_from_state(
+        "country_environment_assessment",
+        CountryTradeEnvironmentAssessment,
+    )
+    if country_assessment is not None:
+        _render_country_environment_section(country_assessment)
 
 
 def _scenario_label(value: str) -> str:
@@ -1032,6 +1280,20 @@ def _demo_all(company_role: str = "BUYER") -> None:
     _save_model(
         "trade_risk_assessment",
         result["trade_risk_assessment"],
+    )
+    _save_model(
+        "country_environment_input",
+        result["country_environment_input"],
+    )
+    _save_model(
+        "country_environment_assessment",
+        result["country_environment_assessment"],
+    )
+    _save_model(
+        "country_environment_trace",
+        country_environment_trace(
+            result["country_environment_assessment"]
+        ),
     )
     _save_model("risk_assessment", result["risk_assessment"])
     st.session_state["consultation_topics"] = [
@@ -3341,6 +3603,10 @@ with stage2_tab:
                         "trade_risk_assessment",
                         TradeSettlementRiskAssessment,
                     ),
+                    country_environment=_model_from_state(
+                        "country_environment_assessment",
+                        CountryTradeEnvironmentAssessment,
+                    ),
                     missing_information=list(
                         extraction_for_decision.missing_required_fields
                     ),
@@ -4101,6 +4367,10 @@ with stage4_tab:
                     trade_settlement_risk=_model_from_state(
                         "trade_risk_assessment",
                         TradeSettlementRiskAssessment,
+                    ),
+                    country_environment=_model_from_state(
+                        "country_environment_assessment",
+                        CountryTradeEnvironmentAssessment,
                     ),
                     official_candidate_shortlist=shortlist,
                     missing_information=list(
