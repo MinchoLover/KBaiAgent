@@ -29,9 +29,16 @@ from scripts.generate_golden_trade_demo import (
 from src.document_intake.normalization import normalize_country_name
 from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.domain.stage1_web_models import SpotQuote
+from src.domain.stage2_models import (
+    ExposureInput,
+    KrwCashflowEvent,
+    Stage2Input,
+)
+from src.domain.trade_risk_models import TradeSettlementRiskInput
 from src.security.upload_guard import validate_upload
 from src.stage1.scenario_builder import build_fx_scenarios
 from src.stage1.web_forecast import normalize_stage1_web_forecast
+from src.stage2.engine import run_stage2
 from src.config import Settings
 from validators import apply_deterministic_review_state
 
@@ -254,6 +261,95 @@ class GoldenTradeDemoTests(unittest.TestCase):
                 "model_accuracy_claim_allowed"
             ]
         )
+
+    def test_demo_trade_risk_inputs_validate_against_existing_domain(self):
+        payload = self.demo_inputs["user_confirmed_trade_inputs"]
+        risk_input = TradeSettlementRiskInput(
+            confirmed_trade_sha256="0" * 64,
+            trade_type="EXPORT",
+            **payload,
+        )
+        self.assertEqual(risk_input.counterparty_relationship, "EXISTING")
+        self.assertEqual(risk_input.advance_payment_ratio, "0.2")
+        self.assertEqual(risk_input.balance_payment_method, "OPEN_ACCOUNT")
+        self.assertEqual(risk_input.payment_term_days, 22)
+        self.assertEqual(
+            risk_input.protection_information_status,
+            "NONE_CONFIRMED",
+        )
+        self.assertEqual(risk_input.protection_mechanisms, [])
+
+    def test_demo_finance_inputs_produce_meaningful_existing_stage2_result(
+        self,
+    ):
+        forecast = normalize_stage1_web_forecast(
+            json.loads(STAGE1_FIXTURE.read_text(encoding="utf-8")),
+            provider="golden-demo-test",
+            now=datetime(2026, 7, 29, 0, 0, tzinfo=timezone.utc),
+        )
+        scenario_build = build_fx_scenarios(
+            spot_quote=SpotQuote(
+                pair="USD/KRW",
+                rate="1400.00",
+                quote_convention="KRW_PER_1_USD",
+                rate_type="TEST_FIXTURE",
+                as_of="2026-07-29T09:00:00+09:00",
+                source="GOLDEN_DEMO_FIXTURE",
+                user_confirmed=False,
+            ),
+            settlement_date="2026-08-20",
+            currency="USD",
+            forecast=forecast,
+        )
+        finance = self.demo_inputs["company_finance_manual_inputs"]
+        stage2_input = Stage2Input(
+            confirmed_trade_sha256="0" * 64,
+            as_of_date=finance["as_of_date"],
+            exposures=[
+                ExposureInput(
+                    sequence=1,
+                    trade_type="EXPORT",
+                    currency="USD",
+                    foreign_amount=self.extraction.amount_due,
+                    settlement_date=self.extraction.explicit_due_date,
+                    usable_fx_balance=finance["usable_fx_balance"],
+                    same_currency_flows=[],
+                )
+            ],
+            current_krw_cash=finance["current_krw_cash"],
+            minimum_cash_buffer=finance["minimum_cash_buffer"],
+            credit_limit=finance["credit_limit"],
+            acceptable_fx_loss=finance["acceptable_fx_loss"],
+            krw_cashflows=[
+                KrwCashflowEvent.model_validate(item)
+                for item in finance["confirmed_krw_cashflows"]
+            ],
+            bank_spread_bps=finance["bank_spread_bps"],
+            bank_fee=finance["bank_fee"],
+        )
+        result = run_stage2(
+            stage2_input,
+            scenario_build.calculation_set,
+        )
+        down_five = next(
+            item
+            for item in result.scenario_results
+            if item.scenario_name == "DOWN_5"
+        )
+        self.assertEqual(result.trade_type, "EXPORT")
+        self.assertEqual(result.total_foreign_amount, "100000.00")
+        self.assertEqual(
+            result.base_required_or_proceeds_krw,
+            "140000000.00",
+        )
+        self.assertEqual(down_five.fx_krw_inflow, "133000000.00")
+        self.assertEqual(down_five.loss_vs_base, "7000000.00")
+        self.assertEqual(down_five.ending_cash, "8000000.00")
+        self.assertEqual(
+            down_five.maximum_buffer_shortfall,
+            "2000000.00",
+        )
+        self.assertEqual(down_five.post_credit_shortfall, "0.00")
 
     def test_contract_contains_required_natural_language_clauses(self):
         joined = "\n".join(self.page_texts)
