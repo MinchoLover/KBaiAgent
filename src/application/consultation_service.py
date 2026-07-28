@@ -9,6 +9,7 @@ from src.consultation.response_mapping import (
 from src.consultation.risk_classifier import classify_stage2_risks
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import DecisionSupportResult
+from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
@@ -24,6 +25,9 @@ def build_decision_support(
     stage2_result: Stage2Result,
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
+    ] = None,
+    official_candidate_shortlist: Optional[
+        OfficialCandidateShortlist
     ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
@@ -54,6 +58,7 @@ def build_decision_support(
         assessment=assessment,
         consultation_topics=topics,
         trade_settlement_risk=trade_settlement_risk,
+        official_candidate_shortlist=official_candidate_shortlist,
         missing_information=missing_information,
         generated_at=generated_at,
     )
@@ -61,5 +66,6 @@ def build_decision_support(
         risk_assessment=assessment,
         trade_settlement_risk=trade_settlement_risk,
         consultation_topics=topics,
+        official_candidate_shortlist=official_candidate_shortlist,
         consultation_packet=packet,
     )

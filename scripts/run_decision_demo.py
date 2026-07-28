@@ -70,6 +70,21 @@ def _summary(result: Dict[str, Any]) -> Dict[str, Any]:
         "financial_review_categories": [
             item.category for item in result["consultation_topics"]
         ],
+        "official_candidate_shortlist": [
+            {
+                "name": item.name,
+                "institution": item.institution,
+                "category": item.category,
+                "matched_consultation_categories": (
+                    item.matched_consultation_categories
+                ),
+                "source_url": item.source.url,
+                "verified_at": item.source.verified_at,
+            }
+            for item in result[
+                "official_candidate_shortlist"
+            ].candidates
+        ],
         "case_id": packet.case_id,
         "input_hash": packet.input_hash,
         "calculation_version": packet.calculation_version,

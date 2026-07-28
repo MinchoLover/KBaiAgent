@@ -32,6 +32,8 @@ A user can:
   `UNKNOWN` 상태와 확인할 항목을 받는다.
 - 결제·회수 위험에 맞는 상담 범주, 확인 질문과 준비서류를 보고서에서 받되 특정
   상품 가입이나 승인 결과로 오해하지 않는다.
+- 상담 범주와 직접 연결되고 공식 출처가 확인된 후보만 최대 3개 받으며, 매칭이
+  없으면 상품을 임의 생성하지 않은 빈 상태를 확인한다.
 - 내부 오류 code, JSON, provider와 workflow trace는 접힌 개발·감사용 영역에서만
   확인한다.
 - 대응 후보가 금융 추천이 아니라 가정 기반 비교안임을 이해할 수 있다.
@@ -52,6 +54,8 @@ The team can verify:
 4. 대응 후보의 순위 표현을 제거하고 사람이 읽는 상담자료 다운로드를 우선한다.
 5. 사용자 확인된 거래처·선지급·잔여대금·보호수단으로 결제·회수 검토 우선도를
    결정론적으로 표시하되 숫자 신용점수나 자동 승인 판단은 만들지 않는다.
+6. 확인된 상담 범주를 공식 source record와 결정론적으로 연결하고 사용자에게는
+   직접 맞는 후보만 최대 3개 표시한다.
 
 ## Non-goals
 
@@ -82,6 +86,8 @@ The team can verify:
 | Unknown protection | 보호수단 정보가 없음 | 거래조건을 확인 | 없음으로 간주하거나 감경하지 않고 `정보 확인 필요`로 표시된다 |
 | Risk boundary | 결제·회수 우선도가 높음 | 결과를 저장 | Stage 2 현금 또는 Stage 3 환헤지 비율을 직접 변경하지 않는다 |
 | Financial response mapping | 확인된 수입 선지급 또는 수출채권 회수 위험 | 상담자료를 생성 | 거래방향에 맞는 보호기능·질문·준비서류가 생성되고 특정 상품 승인 결과는 만들지 않는다 |
+| Official candidate shortlist | 보호기능 상담 범주와 공식 Stage 4 검색 결과 | 공식 정보 연결 | 공식 출처·거래방향·범주가 모두 맞는 후보만 최대 3개 표시하고 자격·승인을 확정하지 않는다 |
+| No grounded official candidate | 상담 범주와 직접 맞는 공식 record 없음 | 공식 정보 연결 | 빈 후보와 미매칭 사유를 표시하고 상품을 생성하지 않는다 |
 | Packet binding | 거래·보호조건 confirmation이 변경됨 | 상담자료를 다시 생성 | trade-risk fingerprint가 packet hash에 반영되고 이전 자료와 구분된다 |
 | Plain-language validation | 원문 근거 불일치 | 문서 검토 화면을 본다 | 내부 code 대신 필드명과 확인 행동이 표시된다 |
 | Validation failure | 필수 필드 또는 사용자 확인 누락 | downstream 실행 요청 | `WAITING_FOR_USER`이며 Cashflow가 실행되지 않는다 |

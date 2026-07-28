@@ -157,6 +157,9 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
             "stage2_result": {"cash": "kept"},
             "stage3_result": {"hedge": "kept"},
             "stage4_result": {"products": "kept"},
+            "official_candidate_shortlist": {
+                "products": "stale"
+            },
             "trade_risk_confirmation": {"risk": "stale"},
             "trade_risk_assessment": {"priority": "stale"},
             "consultation_packet": {"packet": "stale"},
@@ -176,6 +179,7 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
         for key in (
             "trade_risk_confirmation",
             "trade_risk_assessment",
+            "official_candidate_shortlist",
             "consultation_packet",
             "report_result",
         ):
@@ -211,6 +215,18 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         self.assertIn(
             "## 4. 거래·결제조건 위험",
             app.session_state["consultation_packet"]["markdown"],
+        )
+        self.assertIn(
+            "official_candidate_shortlist",
+            app.session_state,
+        )
+        self.assertLessEqual(
+            len(
+                app.session_state[
+                    "official_candidate_shortlist"
+                ]["candidates"]
+            ),
+            3,
         )
         stage3_before = app.session_state["stage3_result"]
 

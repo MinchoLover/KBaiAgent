@@ -22,6 +22,7 @@ PIPELINE_KEYS = (
     "consultation_packet",
     "stage3_result",
     "stage4_result",
+    "official_candidate_shortlist",
     "report_result",
     "workflow_state",
     "review_audit_trail",
@@ -182,6 +183,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "consultation_packet",
             "stage3_result",
             "stage4_result",
+            "official_candidate_shortlist",
             "report_result",
         ),
         2: (
@@ -192,6 +194,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "consultation_packet",
             "stage3_result",
             "stage4_result",
+            "official_candidate_shortlist",
             "report_result",
         ),
         3: (
@@ -200,9 +203,14 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "consultation_packet",
             "stage3_result",
             "stage4_result",
+            "official_candidate_shortlist",
             "report_result",
         ),
-        4: ("stage4_result", "report_result"),
+        4: (
+            "stage4_result",
+            "official_candidate_shortlist",
+            "report_result",
+        ),
         5: ("report_result",),
     }
     stage_widget_keys = {
@@ -244,6 +252,7 @@ def clear_confirmation_and_later(state: object) -> None:
             "consultation_packet",
             "stage3_result",
             "stage4_result",
+            "official_candidate_shortlist",
             "report_result",
             "workflow_state",
         )
@@ -257,6 +266,7 @@ def clear_trade_risk_and_related(state: object) -> None:
         (
             "trade_risk_confirmation",
             "trade_risk_assessment",
+            "official_candidate_shortlist",
             "consultation_packet",
             "report_result",
         ),

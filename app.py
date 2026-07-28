@@ -21,6 +21,10 @@ from src.application.stage2_input_service import (
     build_stage2_input_from_form,
 )
 from src.application.consultation_service import build_decision_support
+from src.application.official_candidate_service import (
+    build_official_candidate_query,
+    shortlist_official_candidates,
+)
 from src.application.trade_risk_service import build_trade_risk_prefill
 from src.config import Settings
 from src.consultation.trade_settlement_risk import (
@@ -49,7 +53,10 @@ from src.domain.consultation_models import (
     DecisionSupportResult,
     RiskAssessment,
 )
-from src.domain.product_models import Stage4Result
+from src.domain.product_models import (
+    OfficialCandidateShortlist,
+    Stage4Result,
+)
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
 from src.domain.stage1_web_models import MarketIntegrationResult
@@ -143,6 +150,16 @@ def _save_decision_support(value: DecisionSupportResult) -> None:
     st.session_state["consultation_topics"] = [
         item.model_dump() for item in value.consultation_topics
     ]
+    if value.official_candidate_shortlist is not None:
+        _save_model(
+            "official_candidate_shortlist",
+            value.official_candidate_shortlist,
+        )
+    else:
+        st.session_state.pop(
+            "official_candidate_shortlist",
+            None,
+        )
     _save_model("consultation_packet", value.consultation_packet)
 
 
@@ -794,6 +811,31 @@ def _render_trade_risk_section(
                             extraction.missing_required_fields
                         ),
                     )
+                    stage4_result = _model_from_state(
+                        "stage4_result",
+                        Stage4Result,
+                    )
+                    if stage4_result is not None:
+                        shortlist = shortlist_official_candidates(
+                            stage4_result=stage4_result,
+                            trade_type=stage2_result.trade_type,
+                            consultation_topics=(
+                                decision_support.consultation_topics
+                            ),
+                        )
+                        decision_support = build_decision_support(
+                            case_id=workflow.case_id,
+                            extraction=extraction,
+                            confirmation=document_confirmation,
+                            stage1=stage1_load.scenario_set,
+                            stage2_input=stage2_input,
+                            stage2_result=stage2_result,
+                            trade_settlement_risk=assessment,
+                            official_candidate_shortlist=shortlist,
+                            missing_information=list(
+                                extraction.missing_required_fields
+                            ),
+                        )
                     _save_decision_support(decision_support)
                 st.success("확인된 거래조건으로 결제·회수 위험을 갱신했습니다.")
             except (ValueError, TypeError) as exc:
@@ -998,6 +1040,10 @@ def _demo_all(company_role: str = "BUYER") -> None:
     _save_model("consultation_packet", result["consultation_packet"])
     _save_model("stage3_result", result["stage3"])
     _save_model("stage4_result", result["stage4"])
+    _save_model(
+        "official_candidate_shortlist",
+        result["official_candidate_shortlist"],
+    )
     _save_model("report_result", result["report"])
     _save_workflow(result["workflow_state"])
     metadata = validate_upload(
@@ -3948,20 +3994,23 @@ with stage4_tab:
             "가입 자격·승인·한도·금리는 확정하지 않고 상담에서 "
             "확인할 항목으로 남깁니다.",
         )
-        default_query = (
-            " ".join(
-                stage3_result.candidates[0].required_product_types
-                + [
-                    "선물환",
-                    "환변동보험",
-                    "외화예금",
-                    "수출입대출",
-                    "정책자금",
-                    "보증상품",
-                ]
-            )
+        consultation_topics = _consultation_topics_from_state()
+        strategy_terms = (
+            stage3_result.candidates[0].required_product_types
             if stage3_result.candidates
-            else "수출입 결제자금 환율관리 운영자금 상담"
+            else []
+        )
+        default_query = build_official_candidate_query(
+            consultation_topics=consultation_topics,
+            additional_terms=strategy_terms
+            + [
+                "선물환",
+                "환변동보험",
+                "외화예금",
+                "수출입대출",
+                "정책자금",
+                "보증상품",
+            ],
         )
         with st.expander("검색 범위와 출처 설정", expanded=False):
             query = st.text_input(
@@ -4012,30 +4061,91 @@ with stage4_tab:
                         )
                     )
                 result = workflow.product_search.data
+                shortlist = shortlist_official_candidates(
+                    stage4_result=result,
+                    trade_type=stage2_result.trade_type,
+                    consultation_topics=consultation_topics,
+                )
+                extraction = _model_from_state(
+                    "extraction",
+                    TradeDocumentExtraction,
+                )
+                document_confirmation = _model_from_state(
+                    "confirmation",
+                    ConfirmationRecord,
+                )
+                stage1_load = _model_from_state(
+                    "stage1_load",
+                    Stage1LoadResult,
+                )
+                stage2_input = _model_from_state(
+                    "stage2_input",
+                    Stage2Input,
+                )
+                if (
+                    extraction is None
+                    or document_confirmation is None
+                    or stage1_load is None
+                    or stage2_input is None
+                ):
+                    raise RuntimeError(
+                        "공식 후보를 상담자료에 연결할 확정 입력이 없습니다."
+                    )
+                decision_support = build_decision_support(
+                    case_id=workflow.case_id,
+                    extraction=extraction,
+                    confirmation=document_confirmation,
+                    stage1=stage1_load.scenario_set,
+                    stage2_input=stage2_input,
+                    stage2_result=stage2_result,
+                    trade_settlement_risk=_model_from_state(
+                        "trade_risk_assessment",
+                        TradeSettlementRiskAssessment,
+                    ),
+                    official_candidate_shortlist=shortlist,
+                    missing_information=list(
+                        extraction.missing_required_fields
+                    ),
+                )
                 _save_model("stage4_result", result)
+                _save_decision_support(decision_support)
                 _save_workflow(workflow)
                 clear_downstream(st.session_state, 5)
                 st.rerun()
-            except RuntimeError as exc:
+            except (RuntimeError, TypeError, ValueError) as exc:
                 st.error(str(exc))
         stage4_result = _model_from_state("stage4_result", Stage4Result)
+        official_candidate_shortlist = _model_from_state(
+            "official_candidate_shortlist",
+            OfficialCandidateShortlist,
+        )
         if stage4_result is not None:
-            if not stage4_result.candidates:
+            if official_candidate_shortlist is None:
+                st.info(
+                    "이전 형식의 검색 결과입니다. 현재 상담 항목에 맞춰 "
+                    "공식 후보를 다시 찾으세요."
+                )
+            elif not official_candidate_shortlist.candidates:
                 st.markdown(
                     "<div class='state-banner warning'><span class='state-icon'>!</span>"
                     "<div><strong>공식 출처에서 연결할 후보를 찾지 못했습니다</strong>"
-                    "<p>상품을 임의로 만들지 않았습니다. 검색 범위를 조정하거나 "
+                    "<p>현재 상담 필요 항목과 직접 맞는 상품을 임의로 만들지 "
+                    "않았습니다. 검색 범위를 조정하거나 "
                     "거래은행에 직접 문의하세요.</p></div></div>",
                     unsafe_allow_html=True,
                 )
             product_columns = st.columns(2)
-            for index, candidate in enumerate(stage4_result.candidates):
+            shortlist_candidates = (
+                official_candidate_shortlist.candidates
+                if official_candidate_shortlist is not None
+                else []
+            )
+            for index, candidate in enumerate(shortlist_candidates):
                 with product_columns[index % 2]:
                     with st.container(border=True):
                         st.caption(
-                            "{} · {} · 공식 출처 확인".format(
+                            "{} · 공식 출처 확인".format(
                                 candidate.institution,
-                                candidate.category,
                             )
                         )
                         st.markdown("### {}".format(candidate.name))
@@ -4072,21 +4182,27 @@ with stage4_tab:
                                 candidate.source.verified_at,
                             )
                         )
-            st.markdown(
-                "<div class='state-banner'><span class='state-icon'>→</span>"
-                "<div><strong>다음 단계는 사람과의 상담입니다</strong>"
-                "<p>이 화면은 상품 추천이나 승인 결과가 아닙니다. "
-                "공식 페이지와 거래은행에서 조건을 다시 확인하세요.</p></div></div>",
-                unsafe_allow_html=True,
-            )
-            with st.expander("고급 · 공식 후보 데이터", expanded=False):
-                _advanced_downloads_title()
-                json_download(
-                    label="공식 상담 후보 JSON",
-                    value=stage4_result,
-                    filename="stage4_products.json",
-                    key="download_stage4",
+            if official_candidate_shortlist is not None:
+                st.markdown(
+                    "<div class='state-banner'><span class='state-icon'>→</span>"
+                    "<div><strong>다음 단계는 사람과의 상담입니다</strong>"
+                    "<p>표시 후보는 최대 3개이며 추천이나 승인 결과가 아닙니다. "
+                    "공식 페이지와 거래은행에서 조건을 다시 확인하세요.</p></div></div>",
+                    unsafe_allow_html=True,
                 )
+                with st.expander(
+                    "고급 · 공식 후보 데이터",
+                    expanded=False,
+                ):
+                    _advanced_downloads_title()
+                    json_download(
+                        label="공식 상담 후보 JSON",
+                        value=official_candidate_shortlist,
+                        filename="official_candidate_shortlist.json",
+                        key="download_stage4",
+                    )
+                    for warning in official_candidate_shortlist.warnings:
+                        st.caption("· {}".format(warning))
 
 with stage5_tab:
     _section_intro(

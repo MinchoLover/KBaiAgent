@@ -9,8 +9,8 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 310/310 PASS |
-| 거래·결제 위험·상담 연결 P0 | `python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_ui_evidence_state -v` | 48/48 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 320/320 PASS |
+| 거래·결제 위험·상담·공식 후보 연결 P0 | `python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 58/58 PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
@@ -159,6 +159,38 @@ USD 100,000 수취 거래에서 기준 수취액 140,000,000원, -5% 스트레�
 이 결과는 숫자 신용점수, 부도확률, 공식 심사등급이 아닙니다. 국가위험, 거래처
 재무정보, 신용장 발행은행·확인 여부·서류불일치, 보험 약관·보증 범위는 이번 P0에서
 평가하지 않았습니다.
+
+## 공식 출처 후보 연결 검증
+
+기존 Stage 4 검색 결과와 별도로 사용자용 공식 후보 shortlist를 최대 3개로
+제한했습니다.
+
+```text
+수입 데모 첫 후보:
+K-SURE 수입보험(수입자용)
+연결 범주: IMPORT_ADVANCE_PAYMENT_PROTECTION
+공식 자료 확인일: 2026-07-29
+
+수출 데모 첫 후보:
+K-SURE 단기수출보험
+연결 범주: EXPORT_RECEIVABLE_PROTECTION
+공식 자료 확인일: 2026-07-29
+```
+
+자동 테스트 범위:
+
+- 상담 범주 기반 검색어와 후보 순서의 결정성
+- 공식 HTTPS allowlist, 거래방향과 검증상태 재확인
+- 수입 선지급 보호와 수출채권 보호의 방향별 공식 제도 연결
+- shortlist 모델과 서비스 모두 최대 3개 제한
+- 직접 매칭이 없을 때 빈 결과·미매칭 범주 반환, 상품 생성 금지
+- 비공식 URL 후보 제거
+- 모든 후보의 자격 `unknown`, 승인 `consultation_required` 유지
+- 후보 product ID·공식 URL·자료 확인일·매칭 범주의 상담 packet hash 반영
+- Streamlit 기본 화면과 상담 패킷에는 shortlist만 표시
+
+K-SURE 공식 페이지는 제도의 위험보호 구조를 확인하는 근거이며, 현재 거래의
+대상 여부·인수·책임금액·보험료를 확정하는 근거로 사용하지 않았습니다.
 
 ## Stage 3·보고서 검증
 

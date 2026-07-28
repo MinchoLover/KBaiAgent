@@ -16,6 +16,7 @@ from src.domain.consultation_models import (
     RiskAssessment,
     SourceDocumentReference,
 )
+from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
@@ -39,6 +40,9 @@ def _input_hash(
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
     ] = None,
+    official_candidate_shortlist: Optional[
+        OfficialCandidateShortlist
+    ] = None,
 ) -> str:
     canonical: Dict[str, Any] = {
         "confirmation": {
@@ -53,6 +57,29 @@ def _input_hash(
         canonical["trade_risk_input_fingerprint"] = (
             trade_settlement_risk.input_fingerprint
         )
+    if official_candidate_shortlist is not None:
+        canonical["official_candidate_shortlist"] = {
+            "selection_policy": (
+                official_candidate_shortlist.selection_policy
+            ),
+            "trade_type": official_candidate_shortlist.trade_type,
+            "candidates": [
+                {
+                    "product_id": candidate.product_id,
+                    "category": candidate.category,
+                    "source_url": candidate.source.url,
+                    "source_verified_at": candidate.source.verified_at,
+                    "matched_consultation_categories": (
+                        candidate.matched_consultation_categories
+                    ),
+                }
+                for candidate in official_candidate_shortlist.candidates
+            ],
+            "unmatched_consultation_categories": (
+                official_candidate_shortlist
+                .unmatched_consultation_categories
+            ),
+        }
     serialized = json.dumps(
         canonical,
         ensure_ascii=False,
@@ -192,6 +219,28 @@ def _markdown(packet: ConsultationPacket) -> str:
         )
         for item in packet.consultation_topics
     )
+    if packet.official_candidate_shortlist is None:
+        official_candidate_lines = (
+            "- 공식 후보 검색을 아직 실행하지 않았습니다."
+        )
+    elif not packet.official_candidate_shortlist.candidates:
+        official_candidate_lines = (
+            "- 상담 필요 항목과 직접 연결되는 공식 후보를 찾지 못했습니다. "
+            "후보를 임의로 만들지 않았습니다."
+        )
+    else:
+        official_candidate_lines = "\n".join(
+            "- **{}** · {} · [{}]({}) · 자료 확인일 {}  \n"
+            "  연결 근거: {}".format(
+                candidate.name,
+                candidate.institution,
+                candidate.source.title,
+                candidate.source.url,
+                candidate.source.verified_at,
+                candidate.strategy_connection_reason,
+            )
+            for candidate in packet.official_candidate_shortlist.candidates
+        )
     missing_lines = (
         "\n".join("- {}".format(item) for item in packet.missing_information)
         or "- 현재 패킷에 명시적으로 등록된 미확인 항목이 없습니다."
@@ -252,19 +301,25 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 위 항목은 금융상품 추천이나 승인 결과가 아니라 상담 범주입니다.
 
-## 6. 아직 확인할 정보
+## 6. 공식 출처 상담 후보
+
+{official_candidate_lines}
+
+후보는 최대 3개이며, 자격·승인·가격·한도는 제공 기관에서 다시 확인해야 합니다.
+
+## 7. 아직 확인할 정보
 
 {missing_lines}
 
-## 7. 준비할 서류
+## 8. 준비할 서류
 
 {document_lines}
 
-## 8. KB 상담 시 질문
+## 9. KB 상담 시 질문
 
 {question_lines}
 
-## 9. 재현성 정보
+## 10. 재현성 정보
 
 - 계산 버전: `{calculation_version}`
 - 입력 hash: `{input_hash}`
@@ -272,7 +327,7 @@ def _markdown(packet: ConsultationPacket) -> str:
 - 시나리오 ID: {scenario_ids}
 - 생성시각: `{generated_at}`
 
-## 10. 고지문
+## 11. 고지문
 
 {disclaimer}
 """.format(
@@ -297,6 +352,7 @@ def _markdown(packet: ConsultationPacket) -> str:
         trade_risk_lines=trade_risk_lines,
         trade_risk_assumptions=trade_risk_assumptions,
         topic_lines=topic_lines,
+        official_candidate_lines=official_candidate_lines,
         missing_lines=missing_lines,
         document_lines=document_lines,
         question_lines=question_lines,
@@ -321,6 +377,9 @@ def build_consultation_packet(
     consultation_topics: List[ConsultationTopic],
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
+    ] = None,
+    official_candidate_shortlist: Optional[
+        OfficialCandidateShortlist
     ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
@@ -362,6 +421,7 @@ def build_consultation_packet(
             stage1=stage1,
             stage2_input=stage2_input,
             trade_settlement_risk=trade_settlement_risk,
+            official_candidate_shortlist=official_candidate_shortlist,
         ),
         exchange_rate_as_of=stage1.as_of,
         scenario_ids=[
@@ -393,6 +453,7 @@ def build_consultation_packet(
         risk_findings=assessment.findings,
         trade_settlement_risk=trade_settlement_risk,
         consultation_topics=consultation_topics,
+        official_candidate_shortlist=official_candidate_shortlist,
         missing_information=gaps,
         required_documents=_required_documents(consultation_topics),
         source_documents=[

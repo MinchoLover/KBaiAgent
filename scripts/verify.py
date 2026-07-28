@@ -235,6 +235,11 @@ def _check_demo(errors: List[str]) -> None:
         errors.append("offline demo must have three strategy candidates")
     if not result["stage4"].candidates:
         errors.append("offline demo has no official KB candidates")
+    if (
+        not result["official_candidate_shortlist"].candidates
+        or len(result["official_candidate_shortlist"].candidates) > 3
+    ):
+        errors.append("offline demo official shortlist is invalid")
     report_numbers = result["stage2"].base_required_or_proceeds_krw
     if report_numbers not in result["report"].markdown:
         errors.append("offline report lost Stage 2 base flow trace")
@@ -293,6 +298,45 @@ def _check_demo(errors: List[str]) -> None:
         errors.append("import trade risk lost financial response mapping")
     if "EXPORT_RECEIVABLE_PROTECTION" not in export_categories:
         errors.append("export trade risk lost financial response mapping")
+    import_candidates = import_demo[
+        "official_candidate_shortlist"
+    ].candidates
+    export_candidates = export_demo[
+        "official_candidate_shortlist"
+    ].candidates
+    if (
+        not import_candidates
+        or import_candidates[0].category
+        != "IMPORT_ADVANCE_PAYMENT_INSURANCE"
+    ):
+        errors.append("import demo lost direct official protection candidate")
+    if (
+        not export_candidates
+        or export_candidates[0].category
+        != "EXPORT_CREDIT_INSURANCE"
+    ):
+        errors.append("export demo lost direct official protection candidate")
+    for label, candidates in (
+        ("import", import_candidates),
+        ("export", export_candidates),
+    ):
+        if len(candidates) > 3:
+            errors.append(
+                "{} official shortlist exceeds three".format(label)
+            )
+        if any(
+            not item.matched_consultation_categories
+            for item in candidates
+        ):
+            errors.append(
+                "{} official shortlist has ungrounded candidate".format(
+                    label
+                )
+            )
+        if any(item.eligibility != "unknown" for item in candidates):
+            errors.append(
+                "{} official shortlist asserts eligibility".format(label)
+            )
     if (
         import_packet.trade_settlement_risk is None
         or export_packet.trade_settlement_risk is None
@@ -302,6 +346,10 @@ def _check_demo(errors: List[str]) -> None:
         import_demo["consultation_packet"].markdown
     ):
         errors.append("consultation markdown lost trade risk section")
+    if "## 6. 공식 출처 상담 후보" not in (
+        import_demo["consultation_packet"].markdown
+    ):
+        errors.append("consultation markdown lost official shortlist")
 
     integrated_import = run_integrated_decision_demo("BUYER")
     integrated_export = run_integrated_decision_demo("SELLER")
@@ -368,6 +416,7 @@ def _check_imports(errors: List[str]) -> None:
         "src.application.demo_service",
         "src.application.market_integration_service",
         "src.application.consultation_service",
+        "src.application.official_candidate_service",
         "src.application.stage2_input_service",
         "src.application.trade_risk_service",
         "src.consultation.packet",

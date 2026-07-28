@@ -3,6 +3,7 @@ from typing import Dict, List, Literal, Optional
 from pydantic import Field
 
 from schemas import StrictModel
+from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.trade_risk_models import (
     TradeRiskReviewNeed,
     TradeSettlementRiskAssessment,
@@ -137,6 +138,12 @@ class ConsultationPacket(StrictModel):
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )
+    official_candidate_shortlist: Optional[
+        OfficialCandidateShortlist
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     missing_information: List[str] = Field(default_factory=list)
     required_documents: List[str] = Field(default_factory=list)
     source_documents: List[SourceDocumentReference] = Field(
@@ -164,5 +171,11 @@ class DecisionSupportResult(StrictModel):
     )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
+    )
+    official_candidate_shortlist: Optional[
+        OfficialCandidateShortlist
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
     )
     consultation_packet: ConsultationPacketResult

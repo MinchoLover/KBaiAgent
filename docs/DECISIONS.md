@@ -274,3 +274,36 @@ Trade-off: 공식 상품명이나 신청 자격을 즉시 보여주지 않지만
 
 Revisit condition: T6에서 공식 후보를 연결할 때도 topic과 공식 source record를
 분리하고, source가 없거나 오래됐으면 후보를 생성하지 않습니다.
+
+## 24. Official retrieval and the user-facing shortlist are separate
+
+Context: 기존 Stage 4 검색은 공식 KB 또는 허용된 공식 웹 출처에서 관련 문서를
+넓게 찾는 retrieval 계층이며 최대 8건을 반환합니다. 이를 그대로 사용자에게
+보여주면 현재 상담 필요 항목과 직접 관계없는 제도까지 섞이고, 기존 JSON·샘플
+계약의 후보 수를 바꾸면 Stage 4 회귀 범위가 불필요하게 커집니다.
+
+Decision: `Stage4Result`는 기존 retrieval 계약으로 유지하고, application 계층에서
+`OfficialCandidateShortlist`를 별도로 만듭니다. T5의 `ConsultationTopic.category`와
+공식 KB의 `ProductRecord.category`를 공개된 결정론 테이블로 연결하고, 공식 HTTPS
+allowlist·거래방향·검증상태를 다시 확인한 후보만 최대 3개 표시합니다. 각 후보에는
+연결된 상담 범주를 저장하고 상담 패킷 hash에는 product ID, 공식 URL, 자료 확인일과
+매칭 범주를 포함합니다.
+
+수입 선지급 보호는 K-SURE `수입보험(수입자용)`, 수출채권 보호는 K-SURE
+`단기수출보험` 공식 제도 snapshot과 직접 연결합니다. 두 항목 모두
+`eligibility=unknown`, `approval_status=consultation_required`를 유지하며 대상
+물품·거래·기업, 보험료, 한도와 인수 여부를 확정하지 않습니다. 현재 상담 범주와
+직접 맞는 공식 후보가 없으면 빈 shortlist와 미매칭 범주를 반환하고 상품을 만들지
+않습니다.
+
+Rationale: 사용자에게는 근거 있는 소수 후보만 보이면서도 기존 Stage 4 검색과
+Stage 5 보고서 계약을 보존할 수 있습니다. 환율·유동성·결제위험 계산은 shortlist
+때문에 변경되지 않고, 후보는 계산 결과가 아니라 상담 준비용 공식 정보입니다.
+
+Trade-off: 공식 snapshot은 자료 확인일 이후 조건 변경을 자동 반영하지 않으며,
+실시간 이용 가능성을 보장하지 않습니다. 공식 웹 검색이 활성화되더라도 shortlist
+정책과 사람 확인 경계는 동일합니다.
+
+Revisit condition: T7 최종 보고서 통합 시에도 raw retrieval 목록이 아니라 이
+shortlist만 사용자용 보고서에 전달하고, 공식 출처의 갱신 주기·만료 정책을 별도
+운영 기준으로 정합니다.

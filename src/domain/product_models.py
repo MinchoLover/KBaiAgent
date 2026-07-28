@@ -1,6 +1,6 @@
 from typing import List, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from schemas import StrictModel
 
@@ -38,6 +38,10 @@ class ProductCandidate(ProductRecord):
         "OFFICIAL_SOURCE_VERIFIED"
     ] = "OFFICIAL_SOURCE_VERIFIED"
     candidate_status: str = "CANDIDATE_REQUIRES_HUMAN_CONSULTATION"
+    matched_consultation_categories: List[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
 
 
 class Stage4Result(StrictModel):
@@ -46,3 +50,36 @@ class Stage4Result(StrictModel):
     query: str
     candidates: List[ProductCandidate] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
+
+
+class OfficialCandidateShortlist(StrictModel):
+    schema_version: Literal["1.0"] = "1.0"
+    trade_type: Literal["IMPORT", "EXPORT"]
+    source_mode: Literal["OFFLINE_KB", "OFFICIAL_WEB_SEARCH"]
+    query: str
+    selection_policy: Literal[
+        "CONSULTATION_CATEGORY_MATCH"
+    ] = "CONSULTATION_CATEGORY_MATCH"
+    candidates: List[ProductCandidate] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    unmatched_consultation_categories: List[str] = Field(
+        default_factory=list
+    )
+    warnings: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_grounded_candidates(
+        self,
+    ) -> "OfficialCandidateShortlist":
+        for candidate in self.candidates:
+            if self.trade_type not in candidate.trade_types:
+                raise ValueError(
+                    "공식 후보의 거래방향이 shortlist와 일치해야 합니다."
+                )
+            if not candidate.matched_consultation_categories:
+                raise ValueError(
+                    "공식 후보에는 연결된 상담 범주가 필요합니다."
+                )
+        return self

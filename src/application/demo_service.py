@@ -4,6 +4,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sample_data import sample_extraction
 from src.application.consultation_service import build_decision_support
+from src.application.official_candidate_service import (
+    build_official_candidate_query,
+    shortlist_official_candidates,
+)
+from src.consultation.response_mapping import (
+    map_trade_risk_consultation_topics,
+)
 from src.consultation.trade_settlement_risk import (
     assess_trade_settlement_risk,
     create_trade_risk_confirmation,
@@ -282,6 +289,21 @@ def run_offline_demo(
         stage2_result=state.cashflow.data,
         generated_at="2026-07-23T09:00:00+09:00",
     )
+    official_candidate_shortlist = shortlist_official_candidates(
+        stage4_result=state.product_search.data,
+        trade_type=state.cashflow.data.trade_type,
+        consultation_topics=decision_support.consultation_topics,
+    )
+    decision_support = build_decision_support(
+        case_id=state.case_id,
+        extraction=extraction,
+        confirmation=record,
+        stage1=state.market_risk.data.scenario_set,
+        stage2_input=stage2_input,
+        stage2_result=state.cashflow.data,
+        official_candidate_shortlist=official_candidate_shortlist,
+        generated_at="2026-07-23T09:00:00+09:00",
+    )
     return {
         "extraction": extraction,
         "confirmation": record,
@@ -292,6 +314,7 @@ def run_offline_demo(
         "stage2": state.cashflow.data,
         "stage3": state.hedge.data,
         "stage4": state.product_search.data,
+        "official_candidate_shortlist": official_candidate_shortlist,
         "report": state.final_report,
         "risk_assessment": decision_support.risk_assessment,
         "consultation_topics": decision_support.consultation_topics,
@@ -391,6 +414,19 @@ def run_decision_support_demo(
             "fixture" if use_stage1_web_fixture else None
         ),
         product_search_mode="OFFLINE_KB",
+        product_query=build_official_candidate_query(
+            consultation_topics=map_trade_risk_consultation_topics(
+                trade_risk_assessment
+            ),
+            additional_terms=[
+                "선물환",
+                "환변동보험",
+                "외화예금",
+                "수출입대출",
+                "정책자금",
+                "보증상품",
+            ],
+        ),
     )
     state = workflow.run(state, request)
     _require_completed(state)
@@ -402,6 +438,22 @@ def run_decision_support_demo(
         stage2_input=stage2_input,
         stage2_result=state.cashflow.data,
         trade_settlement_risk=trade_risk_assessment,
+        generated_at="2026-07-23T09:00:00+09:00",
+    )
+    official_candidate_shortlist = shortlist_official_candidates(
+        stage4_result=state.product_search.data,
+        trade_type=state.cashflow.data.trade_type,
+        consultation_topics=decision_support.consultation_topics,
+    )
+    decision_support = build_decision_support(
+        case_id=state.case_id,
+        extraction=extraction,
+        confirmation=record,
+        stage1=state.market_risk.data.scenario_set,
+        stage2_input=stage2_input,
+        stage2_result=state.cashflow.data,
+        trade_settlement_risk=trade_risk_assessment,
+        official_candidate_shortlist=official_candidate_shortlist,
         generated_at="2026-07-23T09:00:00+09:00",
     )
     return {
@@ -417,6 +469,7 @@ def run_decision_support_demo(
         "trade_risk_assessment": trade_risk_assessment,
         "stage3": state.hedge.data,
         "stage4": state.product_search.data,
+        "official_candidate_shortlist": official_candidate_shortlist,
         "report": state.final_report,
         "risk_assessment": decision_support.risk_assessment,
         "consultation_topics": decision_support.consultation_topics,
