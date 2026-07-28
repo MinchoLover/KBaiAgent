@@ -81,6 +81,7 @@ The team can verify:
 | Journey | Given | When | Then |
 |---|---|---|---|
 | Primary success | 확인된 가상 거래와 offline 설정 | 대표 데모를 실행 | 네 업무 단계에 계산 결과와 상담자료가 표시된다 |
+| Country document validation | 미국·브라질 합성 스캔·사진 8건 | 별도 fixture 평가를 실행 | 기존 baseline을 바꾸지 않고 분할결제·사건 기준·통화 누락·Balance Due 사례를 재현한다 |
 | Navigation | 초기 앱 | 화면을 연다 | 문서 확인·위험 진단·대응안 비교·상담자료 네 탭만 표시된다 |
 | Information hierarchy | 위험 계산 완료 | 결과를 본다 | 핵심 금액 네 개가 상세 계산표보다 먼저 표시된다 |
 | Import settlement risk | 신규 수입 거래처, 30% 선지급, 보호수단 없음 확인 | 거래조건을 확인 | 수입 선지급·계약이행 `우선 검토 필요`와 구체적 근거가 표시된다 |

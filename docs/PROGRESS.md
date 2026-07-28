@@ -3,6 +3,8 @@
 - [x] 기존 저장소와 Python 3.9/Pydantic/OpenAI/Streamlit 경로 감사
 - [x] Stage 0 schema, prompts, adapter, validator, confirmation gate
 - [x] 16 synthetic documents, labels, fixture predictions, manifest
+- [x] 기존 baseline과 격리한 미국·브라질 스캔·사진 검증 문서 8건,
+  정답·fixture·manifest·시각 QA
 - [x] offline/live evaluator, baseline regression, fine-tuning candidate exporter
 - [x] Stage 1 legacy adapter + web forecast HTTP/file/mock provider
 - [x] Spot provider, model/fixed scenario builder, 21-day horizon gate
@@ -35,7 +37,7 @@
 - [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
 - [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
 - [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
-- [x] 333 API-free tests
+- [x] 345 API-free tests (country validation 전용 12건 포함)
 - [x] offline evaluation and regression baseline
 - [x] 합성 이미지형 PDF 1건 live OpenAI smoke test
 - [ ] 허가된 실제 문서군 live 품질 benchmark

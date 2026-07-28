@@ -1,5 +1,24 @@
 # AI Use Log
 
+## 2026-07-29 US/Brazil synthetic document validation set
+
+Codex가 기존 17건 manifest와 regression baseline을 유지한 채 미국·브라질 합성
+무역문서 8건을 별도 데이터셋으로 생성했습니다. PDF 4건은 텍스트 레이어가 없는
+스캔형이고 JPG 4건은 고정 seed의 원근·그림자·압축 효과를 사용합니다. 문서에는
+가상 회사명과 법적 효력 없음 경고만 있으며 실제 주소·계좌·식별번호·로고·서명·
+도장을 넣지 않았습니다.
+
+`TradeDocumentExtraction` label, 문자 단위 렌더링 원문 evidence, fixture
+prediction, manifest와 전용 테스트를 코드로 생성했습니다. Net 60만 기존 Python
+정책으로 파생하고 B/L date·final acceptance·통화·가려진 결제일은 추측하지
+않았습니다. 이미지 label evidence는 평가용 ground truth일 뿐 production OCR의
+자동 검증으로 사용하지 않습니다.
+
+fixture offline 평가는 evaluator 파이프라인 검증용으로만 실행했습니다. 실제
+OpenAI/OCR/외부 API 호출, live prediction, baseline 갱신, 파인튜닝 포함, Git
+commit·push는 수행하지 않았습니다. 초기 시각 검수에서 사진 원근 좌표 순서 때문에
+문서가 회전한 결함을 발견해 수정하고 8건을 다시 열어 확인했습니다.
+
 ## 2026-07-29 Trade-risk final report grounding
 
 Codex가 기존 Stage 5 생성·critic·1회 수정·결정론 fallback 구조를 유지하면서

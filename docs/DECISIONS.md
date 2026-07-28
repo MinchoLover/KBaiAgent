@@ -344,3 +344,29 @@ shortlist만 보존하는 편이 오해 가능성이 낮습니다.
 Revisit condition: 별도 case 저장소를 도입하면 report가 참조한 packet hash와 Stage 4
 retrieval artifact ID를 영속적으로 연결하고, 보고서 재생성 이력을 case audit으로
 관리합니다.
+
+## 26. Country validation documents stay isolated from the regression baseline
+
+Context: 미국·브라질 거래의 스캔·사진 문서와 의도적 누락 사례를 검증해야 하지만,
+기존 16개 합성 문서와 샘플 1건의 manifest·fixture·regression baseline에 합치면
+기존 품질 수치가 데이터 구성 변경 때문에 달라집니다. 이미지 label의
+`source_text`를 production OCR이 검증한 evidence로 오해할 위험도 있습니다.
+
+Decision: `dataset/country_validation`에 문서 8건, label, fixture prediction,
+manifest를 별도로 둡니다. 모두 test split이고 사람 승인·사용자 확인·파인튜닝
+자격을 false로 고정합니다. PDF는 텍스트 레이어가 없는 실제 이미지형 PDF로 만들고
+사진에는 제한적인 원근·그림자·압축을 적용합니다. label evidence는 렌더링 원문과
+일치하는 평가용 ground truth로만 사용하며 Stage 0의 `OCR_REQUIRED`와 필드별 사용자
+확인 정책을 약화하지 않습니다.
+
+Rationale: 기존 회귀 지표를 보존하면서도 Balance Due, 분할결제, 사건 기준 날짜,
+통화 누락과 국소 가림을 독립적으로 반복 평가할 수 있습니다. 고정 seed와 고정 PDF
+metadata로 재생성 결과도 byte 단위로 비교할 수 있습니다.
+
+Trade-off: fixture prediction은 label 복사이므로 evaluator 파이프라인만 검증하며
+실제 모델·OCR 정확도를 측정하지 않습니다. 사건 기준일·통화·결제일이 안전하게
+비어 있는 사례는 exact match여도 자동 문서 PASS가 아닐 수 있습니다.
+
+Revisit condition: 사용자가 실제 API 비용을 명시적으로 허가하면 최대 2건부터
+`predictions/live`와 별도 live 보고서로 측정합니다. 승인된 익명 문서가 생겨도
+기존 test split이나 baseline은 자동 갱신하지 않습니다.

@@ -1,0 +1,105 @@
+{
+  "document_type": "PURCHASE_ORDER",
+  "document_number": "US-IMP-NOCUR-007",
+  "seller_name": "Frontier Firefly Test Parts LLC",
+  "seller_country": "US",
+  "buyer_name": "Hangang Fictional Procurement Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": null,
+  "grand_total": "47500.00",
+  "amount_due": "47500.00",
+  "issue_date": "2026-08-12",
+  "contract_date": null,
+  "shipment_date": null,
+  "explicit_due_date": "2026-10-01",
+  "derived_due_date": null,
+  "payment_terms": "Payment requested on 2026-10-01",
+  "incoterm": null,
+  "installments": [],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The English test-only notice is printed at the top."
+    },
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "합성 테스트 문서 - 법적 효력 없음",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Korean test-only notice is printed at the top."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Frontier Firefly Test Parts LLC",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The seller name is explicitly labelled."
+    },
+    {
+      "field": "seller_country",
+      "page": 1,
+      "source_text": "Seller Country: United States (US)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The seller country and ISO alpha-2 code are explicit."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Hangang Fictional Procurement Ltd.",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The buyer name is explicitly labelled."
+    },
+    {
+      "field": "buyer_country",
+      "page": 1,
+      "source_text": "Buyer Country: Republic of Korea (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The buyer country and ISO alpha-2 code are explicit."
+    },
+    {
+      "field": "issue_date",
+      "page": 1,
+      "source_text": "Purchase Order Date: 2026-08-12",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The purchase-order date is explicit."
+    },
+    {
+      "field": "grand_total",
+      "page": 1,
+      "source_text": "Order Total / Amount Due: 47500.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The order total is explicit but has no currency."
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "Order Total / Amount Due: 47500.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The amount due is explicit but has no currency."
+    },
+    {
+      "field": "explicit_due_date",
+      "page": 1,
+      "source_text": "Requested Payment Date: 2026-10-01",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The requested payment date is explicit."
+    },
+    {
+      "field": "payment_terms",
+      "page": 1,
+      "source_text": "Payment Terms: Payment requested on 2026-10-01",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The requested payment term is explicit."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [
+    "currency"
+  ],
+  "needs_human_review": true
+}

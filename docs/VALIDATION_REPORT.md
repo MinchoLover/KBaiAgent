@@ -9,12 +9,14 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 333/333 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 345/345 PASS |
 | 거래·결제 위험·상담·공식 후보 연결 P0 | `python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 58/58 PASS |
 | T7 통합 보고서·critic | `python -m unittest tests.test_stage5_decision_report tests.test_stage3_4_5.Stage5Tests -v` | 25/25 PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
+| 미국·브라질 별도 fixture 평가 | `python scripts/evaluate_extraction.py --mode offline --manifest dataset/country_validation/manifest.jsonl ...` | 8건, fixture field match 100%, 안전 누락 포함 document pass 50%, hallucination 0% |
+| country validation 전용 | `python -m unittest tests.test_country_validation_dataset -v` | 12/12 PASS |
 | Stage 0 live 합성 PDF | `scripts/live_smoke_test.py samples/demo_net90_contract.pdf --company-role SELLER` | PASS, `SALES_CONTRACT`, 10.14초 |
 | regression | `python scripts/run_regression.py` | PASS |
 | Streamlit AppTest | 전체 unittest 내 실행 | PASS |
@@ -22,6 +24,35 @@
 | Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
 | Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
 | sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
+
+## 미국·브라질 합성 문서 검증
+
+기존 17건 manifest와 regression baseline을 변경하지 않고
+`dataset/country_validation`에 미국 4건·브라질 4건을 별도로 생성했습니다.
+수입·수출은 각각 4건이며 PDF 4건은 텍스트 레이어가 없는 이미지형, JPG 4건은
+사진형입니다.
+
+```text
+fixture cases: 8
+currency accuracy: 100%
+amount exact accuracy: 100%
+date exact accuracy: 100%
+evidence claim coverage: 100%
+hallucination rate: 0%
+document pass: 4/8
+```
+
+fixture는 label 복사로 evaluator 동작만 검증하므로 위 일치율은 실제 OCR·모델
+정확도 주장이 아닙니다. 자동 문서 PASS에서 제외된 4건은 B/L 사건 기준일 부재,
+두 번째 분할결제일 부재, 통화 누락, 가려진 결제일 사례입니다. 4번 B/L 사례는
+사람이 기준일을 보완할 수 있는 조건부 검토이고, 6·7·8번은 manifest상 의도적
+차단 사례입니다.
+
+시각 검수에서 8건의 경고문, 당사자, 국가, 금액·통화와 의도한 가림 범위를 직접
+확인했습니다. 최초 생성 사진의 원근 좌표 순서 오류로 90도 회전하던 결함은
+수정 후 전건 재생성·재검수했습니다. 반복 생성 byte hash, upload guard, 이미지형
+PDF 무텍스트, 정답 schema/evidence, 분할합계, fine-tuning 영구 제외도 자동
+테스트로 확인했습니다. 실제 OpenAI live 평가는 실행하지 않았습니다.
 
 ## Stage 0 매매계약 회귀
 
