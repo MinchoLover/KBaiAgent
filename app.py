@@ -81,6 +81,8 @@ from src.domain.trade_risk_models import (
 from src.security.upload_guard import validate_upload
 from src.stage2.binding import confirmed_trade_from_document_input
 from src.ui.components import (
+    SCHEDULED_EXPOSURE_WARNING,
+    amount_due_user_label,
     decimal_text,
     evidence_rows,
     format_decimal_display,
@@ -2045,8 +2047,8 @@ with stage0_tab:
     _section_intro(
         "1단계 · 문서 확인",
         "문서에서 결제정보를 읽고 사람이 마지막으로 확인합니다",
-        "AI는 입력을 도울 뿐입니다. 통화·결제금액·결제일을 원문과 대조하기 전에는 "
-        "어떤 금융 계산도 시작하지 않습니다.",
+        "AI는 입력을 도울 뿐입니다. 통화·분석 대상 예정 결제액·결제일을 원문과 "
+        "대조하기 전에는 어떤 금융 계산도 시작하지 않습니다.",
     )
     if _model_from_state("extraction", TradeDocumentExtraction) is None:
         st.markdown("#### 빠르게 둘러보기")
@@ -2319,6 +2321,12 @@ with stage0_tab:
                 value=extraction.buyer_country or "",
                 key="review_buyer_country_widget",
             ).strip()
+            review_trade_type = (
+                selected_trade_type
+                if selected_trade_type in {"IMPORT", "EXPORT"}
+                else extraction.trade_type
+            )
+            amount_due_label = amount_due_user_label(review_trade_type)
             payment_row = st.columns(3)
             currency = payment_row[0].text_input(
                 "통화",
@@ -2326,7 +2334,7 @@ with stage0_tab:
                 key="review_currency_widget",
             ).strip().upper()
             amount_due = payment_row[1].text_input(
-                "실제 결제금액",
+                amount_due_label,
                 value=extraction.amount_due or "",
                 key="review_amount_due_widget",
             )
@@ -2341,6 +2349,7 @@ with stage0_tab:
                 value=extraction.payment_terms or "",
                 key="review_payment_terms_widget",
             )
+            st.caption(SCHEDULED_EXPOSURE_WARNING)
 
             with st.expander("추가 문서정보", expanded=False):
                 document_row = st.columns(3)
@@ -2591,17 +2600,16 @@ with stage0_tab:
             banner_icon = "✓"
             banner_title = "거래값 확정 완료"
             banner_copy = (
-                "회사 역할·거래 방향·통화·결제금액·결제일을 사용자가 "
-                "확인했습니다. "
-                "이제 환율 가정 단계로 이동할 수 있습니다."
-            )
+                "회사 역할·거래 방향·통화·{}·결제일을 사용자가 "
+                "확인했습니다. 이제 환율 가정 단계로 이동할 수 있습니다."
+            ).format(amount_due_label)
         elif validation.validation_pass:
             banner_class = "warning"
             banner_icon = "3"
             banner_title = "자동 검증 완료 · 핵심값 확인이 남았습니다"
             banner_copy = (
-                "아래 원문 근거와 회사 역할·거래 방향·통화·결제금액·결제일을 "
-                "대조한 뒤 거래를 확정하세요."
+                "아래 원문 근거와 회사 역할·거래 방향·통화·{}·결제일을 "
+                "대조한 뒤 거래를 확정하세요.".format(amount_due_label)
             )
         else:
             banner_class = "danger"
@@ -2682,7 +2690,7 @@ with stage0_tab:
                     key="confirm_currency_widget",
                 )
                 amount_ok = st.checkbox(
-                    "결제금액을 원문과 대조했습니다",
+                    "{}을 원문과 대조했습니다".format(amount_due_label),
                     key="confirm_amount_widget",
                 )
                 due_ok = st.checkbox(
@@ -2822,7 +2830,7 @@ with stage0_tab:
                     extraction.currency or "-",
                 )
                 confirmed_cols[2].metric(
-                    "확정 결제금액",
+                    amount_due_label,
                     format_foreign(
                         extraction.amount_due or "0",
                         extraction.currency or "",
@@ -2868,7 +2876,7 @@ with stage1_tab:
         st.markdown(
             "<div class='state-banner warning'><span class='state-icon'>1</span>"
             "<div><strong>먼저 거래값을 확정하세요</strong>"
-            "<p>첫 번째 탭에서 통화·결제금액·결제일을 확인하면 "
+            "<p>첫 번째 탭에서 통화·분석 대상 예정 결제액·결제일을 확인하면 "
             "환율 가정을 만들 수 있습니다.</p></div></div>",
             unsafe_allow_html=True,
         )

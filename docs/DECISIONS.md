@@ -450,14 +450,24 @@ ISO 날짜 문구로 반환됐습니다. 기존 validator는 이를 올바르게
 `EVIDENCE_VALUE_MISMATCH`, `EVIDENCE_NOT_IN_SOURCE`로 폐기했고 단순 사용자
 확인 뒤에도 Stage 2를 차단했습니다.
 
-Decision: `grand_total`은 문서의 액면 총액이고 `amount_due`는 Stage 2로 전달할
-실제 미지급·미수 노출액입니다. Invoice의 명시 `Balance Due`는
-`grand_total`보다 작을 수 있습니다. SALES_CONTRACT에서 문서가 지급 완료를
-표시하지 않고 모든 지급 예정 회차가 추출된 경우에는 회차 합계를
-`amount_due`로 사용하며 기존 validator의
+Decision: `grand_total`은 문서에 명시된 계약 또는 청구 총액이고,
+`amount_due`는 Stage 2 분석에 투입되는 계약상 미결제 예정 노출액입니다.
+Invoice의 명시 `Balance Due`는 `grand_total`보다 작을 수 있습니다.
+SALES_CONTRACT에서 지급 완료 정보가 없고 모든 지급 예정 회차가 추출된 경우에는
+완료 여부가 확인되지 않은 회차 합계를 `amount_due`로 사용하며 기존 validator의
 `sum(installments) == amount_due` 계약을 유지합니다. Golden에서는
 USD 20,000 + USD 80,000 = USD 100,000이므로 총 계약금액 조항이
 `amount_due` 근거이고 USD 80,000 잔금 조항은 그 근거가 아닙니다.
+
+실제 입금·지급 이력을 반영한 현재 미수·미지급 잔액은 별도
+`actual_outstanding_balance` 개념입니다. 계약서만으로는 확인할 수 없어 Golden에서
+`UNKNOWN`이며, 이번 결정에서는 신규 Domain 필드를 만들지 않습니다. 내부 JSON
+필드명 `amount_due`도 하위 호환성을 위해 유지합니다.
+
+사용자에게는 다음 경고를 함께 표시합니다.
+
+> 계약서에 명시된 예정 결제액을 기준으로 분석합니다.
+> 실제 입금·지급 이력이 확인되면 이미 이행된 금액을 제외해야 합니다.
 
 텍스트 레이어 PDF에 한해 모델 quote를 실제 페이지의 대소문자·문장부호를 보존한
 문구와 먼저 대조합니다. Quote가 없거나 값이 다르면 다음 조건을 모두 만족할 때만

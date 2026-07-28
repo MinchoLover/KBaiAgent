@@ -96,7 +96,7 @@ Live end-to-end 성공을 아직 주장하지 않습니다.
 | 항목 | 상태 | 근거 |
 | --- | --- | --- |
 | compile | PASS | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q app.py src scripts tests` |
-| 전체 API-free suite | 434/434 PASS | `python -m unittest discover -s tests -v` |
+| 전체 API-free suite | 436/436 PASS | `python -m unittest discover -s tests -v` |
 | Golden 전용 | 14/14 PASS | `python -m unittest tests.test_golden_trade_demo -v` |
 | country canonicalization | 8/8 PASS | `python -m unittest tests.test_country_canonicalization -v` |
 | Stage 1~5 통합 회귀 | PASS | 전체 suite와 `python scripts/run_regression.py` |

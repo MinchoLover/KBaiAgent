@@ -21,7 +21,11 @@ from src.ui.state import (
     clear_downstream,
     clear_trade_risk_and_related,
 )
-from src.ui.components import validation_issue_copy
+from src.ui.components import (
+    SCHEDULED_EXPOSURE_WARNING,
+    amount_due_user_label,
+    validation_issue_copy,
+)
 from validators import apply_deterministic_review_state
 
 
@@ -32,7 +36,29 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
                 "amount_due",
                 "EVIDENCE_VALUE_MISMATCH",
             ),
-            "실제 결제금액: 원문 근거와 현재 입력값이 서로 다릅니다.",
+            "분석 대상 예정 결제액: 원문 근거와 현재 입력값이 서로 다릅니다.",
+        )
+
+    def test_amount_due_user_labels_distinguish_trade_direction(self):
+        self.assertEqual(
+            amount_due_user_label("EXPORT"),
+            "분석 대상 예정 수취액",
+        )
+        self.assertEqual(
+            amount_due_user_label("IMPORT"),
+            "분석 대상 예정 지급액",
+        )
+        self.assertEqual(
+            amount_due_user_label("UNKNOWN"),
+            "분석 대상 예정 결제액",
+        )
+        self.assertEqual(
+            SCHEDULED_EXPOSURE_WARNING,
+            (
+                "계약서에 명시된 예정 결제액을 기준으로 분석합니다. "
+                "실제 입금·지급 이력이 확인되면 이미 이행된 금액을 "
+                "제외해야 합니다."
+            ),
         )
 
     def test_user_edit_drops_model_evidence_and_requires_explicit_override(self):
@@ -250,6 +276,39 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
 
 
 class StreamlitReviewEvidenceTests(unittest.TestCase):
+    def test_amount_due_widget_uses_directional_scheduled_label(self):
+        from streamlit.testing.v1 import AppTest
+
+        cases = (
+            ("수입기업 대표 데모", "분석 대상 예정 지급액"),
+            ("수출기업 대표 데모", "분석 대상 예정 수취액"),
+        )
+        for button_label, expected_label in cases:
+            with self.subTest(button_label=button_label):
+                app = AppTest.from_file(
+                    "app.py",
+                    default_timeout=20,
+                ).run()
+                demo = next(
+                    button
+                    for button in app.button
+                    if button.label == button_label
+                )
+                demo.click().run()
+                amount_due = next(
+                    widget
+                    for widget in app.text_input
+                    if widget.key == "review_amount_due_widget"
+                )
+                self.assertEqual(amount_due.label, expected_label)
+                self.assertTrue(
+                    any(
+                        item.value == SCHEDULED_EXPOSURE_WARNING
+                        for item in app.caption
+                    )
+                )
+                self.assertEqual(len(app.exception), 0)
+
     def test_demo_exposes_trade_risk_without_ui_exception(self):
         from streamlit.testing.v1 import AppTest
 

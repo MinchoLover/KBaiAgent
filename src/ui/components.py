@@ -24,7 +24,7 @@ USER_FIELD_LABELS = {
     "buyer_country": "구매자 국가",
     "currency": "거래 통화",
     "grand_total": "문서 총액",
-    "amount_due": "실제 결제금액",
+    "amount_due": "분석 대상 예정 결제액",
     "issue_date": "발행일",
     "contract_date": "계약일",
     "shipment_date": "선적일",
@@ -32,6 +32,11 @@ USER_FIELD_LABELS = {
     "payment_terms": "결제조건",
     "installments": "분할결제 일정",
 }
+
+SCHEDULED_EXPOSURE_WARNING = (
+    "계약서에 명시된 예정 결제액을 기준으로 분석합니다. "
+    "실제 입금·지급 이력이 확인되면 이미 이행된 금액을 제외해야 합니다."
+)
 
 USER_ISSUE_MESSAGES = {
     "MISSING_CORE_EVIDENCE": "원문 근거를 확인해 주세요.",
@@ -48,6 +53,14 @@ USER_ISSUE_MESSAGES = {
 
 def status_badge(status: str) -> str:
     return "`{}` · {}".format(status, STATUS_HELP.get(status, "상태"))
+
+
+def amount_due_user_label(trade_type: Optional[str]) -> str:
+    if trade_type == "EXPORT":
+        return "분석 대상 예정 수취액"
+    if trade_type == "IMPORT":
+        return "분석 대상 예정 지급액"
+    return "분석 대상 예정 결제액"
 
 
 def format_decimal_display(

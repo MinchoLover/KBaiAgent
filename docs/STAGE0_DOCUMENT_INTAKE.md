@@ -27,17 +27,27 @@ confidence_reason을 가집니다.
 
 ### 금액 Domain 계약
 
-- `grand_total`: 문서의 액면 총액
-- `amount_due`: Stage 2 현금흐름으로 전달할 실제 미지급·미수 노출액
+- `grand_total`: 문서에 명시된 계약 또는 청구 총액
+- `amount_due`: Stage 2 분석에 투입되는 계약상 미결제 예정 노출액
 - Invoice: 명시된 `Balance Due` 또는 `Amount Due`가 우선하며
   `grand_total`보다 작을 수 있음
-- SALES_CONTRACT: 아직 지급됐다고 표시되지 않은 지급 예정 회차를 모두 추출한
-  경우 `amount_due`는 회차 합계이며 `sum(installments) == amount_due`
+- SALES_CONTRACT: 지급 완료 정보가 없으면 완료 여부가 확인되지 않은 예정
+  installment의 합계를 사용하며 `sum(installments) == amount_due`
 - Purchase Order: 명시 amount due가 없으면 order total과 amount_due가 같은
   경우에만 총액 문맥을 사용할 수 있음
 
-계약 총액과 잔금이 서로 다르거나 일부 회차의 지급 완료 여부를 문서에서 확정할 수
-없으면 한 금액을 임의 선택하지 않고 사람 검토로 보냅니다.
+Golden 계약서는 USD 20,000 선지급과 USD 80,000 잔금의 실제 이행 여부를 알려주지
+않으므로 `amount_due=USD 100,000`을 유지합니다. 실제 입금·지급 이력을 반영한
+현재 미수·미지급 잔액은 별도 `actual_outstanding_balance` 개념이며 이 문서만으로
+확인할 수 없어 `UNKNOWN`입니다. 신규 Domain 필드는 만들지 않고 내부 JSON
+`amount_due` 이름을 유지합니다. 문서가 일부 이행 사실을 표시하지만 어느 회차가
+완료됐는지 모호한 경우에는 금액을 임의 선택하지 않고 사람 검토로 보냅니다.
+
+화면에서는 수출 `amount_due`를 `분석 대상 예정 수취액`, 수입 `amount_due`를
+`분석 대상 예정 지급액`으로 표시하고 다음 경고를 제공합니다.
+
+> 계약서에 명시된 예정 결제액을 기준으로 분석합니다.
+> 실제 입금·지급 이력이 확인되면 이미 이행된 금액을 제외해야 합니다.
 
 문서 모델은 국가를 자연어로 반환할 수 있습니다. 검증 전에
 `src/document_intake/normalization.py`가 판매자·구매자·사용자 회사 국가를 같은

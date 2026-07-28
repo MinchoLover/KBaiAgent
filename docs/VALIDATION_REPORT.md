@@ -9,11 +9,11 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 434/434 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 436/436 PASS |
 | Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
 | Text-PDF amount/date evidence recovery | `python -m unittest tests.test_source_evidence_recovery -v` | 18/18 PASS |
-| T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 58/58 PASS |
-| 거래·결제 위험·상담·공식 후보 연결 P0 | `.venv/bin/python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 60/60 PASS |
+| T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 60/60 PASS |
+| 거래·결제 위험·상담·공식 후보 연결 P0 | `.venv/bin/python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 62/62 PASS |
 | T7 통합 보고서·critic | 전체 unittest 내 실행 | 34/34 PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
@@ -23,7 +23,7 @@
 | country validation 전용 | `python -m unittest tests.test_country_validation_dataset -v` | 12/12 PASS |
 | Stage 0 live 합성 PDF | `scripts/live_smoke_test.py samples/demo_net90_contract.pdf --company-role SELLER` | PASS, `SALES_CONTRACT`, 10.14초 |
 | regression | `python scripts/run_regression.py` | PASS |
-| Streamlit AppTest | 전체 unittest 내 실행 | PASS |
+| Streamlit amount_due 방향별 라벨·경고 | `python -m unittest tests.test_ui_evidence_state -v` | 11/11 PASS |
 | Streamlit 실제 health | `curl ...:8502/_stcore/health` | HTTP 200, `ok` |
 | Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
 | Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
@@ -199,11 +199,12 @@ validation_pass: false
 stage2_allowed: false
 ```
 
-`amount_due`는 분할결제 합계 USD 100,000과 같은 계약 총노출액인데 모델 evidence가
-canonical 금액을 뒷받침하지 못했습니다. 결제일 값 `2026-08-20`은 맞지만 모델
+`amount_due`는 분할결제 합계 USD 100,000과 같은 계약상 미결제 예정 노출액인데
+모델 evidence가 canonical 금액을 뒷받침하지 못했습니다. 결제일 값
+`2026-08-20`은 맞지만 모델
 quote가 PDF의 실제 `20 August 2026` 표현과 일치하지 않았습니다. 단순 사용자
-확인으로 두 오류를 제거하지 않았고, USD 80,000 잔금 조항을 총노출액 evidence로
-사용하지 않습니다.
+확인으로 두 오류를 제거하지 않았고, USD 80,000 잔금 조항을 계약상 미결제 예정
+노출액 USD 100,000의 evidence로 사용하지 않습니다.
 
 수정된 API-free 경로는 먼저 잘못된 모델 evidence를 같은 사유로 폐기한 뒤 실제
 텍스트 레이어에서 다음 원문을 복구합니다.
