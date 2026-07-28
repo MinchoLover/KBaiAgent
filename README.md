@@ -126,6 +126,19 @@ python scripts/run_decision_demo.py --company-role BUYER --format markdown
 두 사례의 결제일은 21거래일 밖이므로 모델 분위수는 시장 문맥으로만 보이고
 결제 숫자는 고정 스트레스에서 나옵니다.
 
+메인 발표용 텍스트 레이어 Golden 수출계약서는 별도로 생성합니다.
+
+```bash
+python scripts/generate_golden_trade_demo.py
+python -m unittest tests.test_golden_trade_demo -v
+```
+
+`dataset/golden_demo/golden_export_contract.pdf`는 KR 판매자·BR 구매자,
+USD 100,000, 20/80 분할결제와 2026-08-20 잔금일을 가진 합성 계약서입니다.
+Expected evidence와 사용자 입력은 같은 디렉터리의 JSON에 있으며 Golden Live
+추출은 별도 승인 전 실행하지 않습니다. 발표 순서는
+[docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md)를 따릅니다.
+
 ## 9. 실행 방법
 
 Python 3.9, Streamlit 단일 앱입니다. DB와 Docker는 필요하지 않습니다.
@@ -172,7 +185,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-29 기준 394개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-29 기준 416개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
@@ -181,7 +194,7 @@ live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외
 고유 run ID가 모두 필요합니다. 실행·비용·주장 범위는
 [docs/LIVE_BENCHMARK_RUNBOOK.md](docs/LIVE_BENCHMARK_RUNBOOK.md), 제출 전 사실
 확인은 [docs/SUBMISSION_READINESS.md](docs/SUBMISSION_READINESS.md), 실행한
-합성 2건의 결과는
+Baseline v1/v2 합성 8건씩의 결과는
 [docs/LIVE_BENCHMARK_RESULTS.md](docs/LIVE_BENCHMARK_RESULTS.md)를 봅니다.
 
 ## 11. 현재 구현 상태
@@ -199,6 +212,7 @@ live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외
 | 공식자료 검색 | 부분 구현 | 검증된 local snapshot, 선택적 web |
 | 설명 보고서·critic | 완료 | API 없는 template fallback 포함 |
 | 수입·수출 fixture E2E | 완료 | `run_integrated_decision_demo`, tests |
+| Golden text-layer 발표자료 | 완료 | 결정론 PDF·expected evidence·14개 API-free tests |
 | 인증·DB·독립 API·은행 내부연동 | 미구현 | 운영 확장 범위 |
 
 구조는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 기존 canonical 설명은

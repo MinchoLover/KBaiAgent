@@ -1,5 +1,24 @@
 # AI Use Log
 
+## 2026-07-29 Text-layer Golden trade demo
+
+Codex가 메인 발표 성공 흐름용 2페이지 영문 합성 수출계약서를 결정론 PDF 생성기로
+추가했습니다. Built-in PDF font, 고정 object 순서·metadata와 명시적 흰 배경을
+사용해 반복 생성 bytes를 고정했습니다. 각 페이지에 합성·법적 효력 없음 표시를
+넣고 실제 주소·계좌·등록번호·로고·서명·도장은 넣지 않았습니다.
+
+기존 `TradeDocumentExtraction` schema를 확장하지 않고 KR 판매자, BR 구매자,
+EXPORT, USD 100,000, 20/80 분할결제, 계약·선적·잔금일과 exact page evidence를
+expected data로 작성했습니다. Schema에 없는 신용장·보증 계약 사실과 계약 밖의
+거래처 관계·보험·헤지·현금 입력은 별도 구조로 분리했습니다.
+
+Golden 전용 14개 API-free 테스트로 PDF text layer, exact quote/page, 국가 raw와
+normalized audit, trade type, 금액 합계, 날짜, 사용자 확인 후 Stage 2 gate,
+Stage 1 21거래일 horizon과 기존 trade-risk/Stage 2 계산을 검증했습니다. 기준
+원화 수취 140,000,000원과 -5% 수취 133,000,000원도 기존 `Decimal` 엔진 결과로
+확인했습니다. Extraction prompt/schema, 국가 alias, Stage 1~5 계산은 바꾸지
+않았고 Golden OpenAI Live 호출은 실행하지 않았습니다.
+
 ## 2026-07-29 Baseline v1/v2 country canonicalization evidence
 
 Codex가 기존 Live run 원본 JSON과 Markdown에서 V1/V2 수치를 다시 읽고 제출용

@@ -1,34 +1,44 @@
 # Submission Readiness
 
-상태: `LIVE_SMOKE_2_COMPLETED_AWAITING_FULL_RUN_APPROVAL`
-
-이 문서는 제출 직전 사실 확인표입니다. Live 결과가 없을 때 실제 AI 정확도 수치를
-작성하지 않습니다.
+상태: `SUBMISSION_EVIDENCE_READY_GOLDEN_LIVE_NOT_RUN`
 
 ## 기준 상태
 
-- 기준 기능 commit: `0a53847549683059e533b0fdf7b1496596dc897f`
-- 기준 기능 branch: `feature/t4-country-risk`
-- benchmark 작업 branch: `feature/submission-benchmark-evidence`
-- benchmark evidence commit: 이 문서를 포함한 branch tip이며, 정확한 SHA는 최종 전달 보고에 기록
+- 작업 branch: `feature/submission-benchmark-evidence`
+- 국가 canonicalization: `9bdffd91becca3fe8546d8a16186f0469cfdb948`
+- V1/V2 제출 증거: `432678f`
+- Golden text-layer 자료: `73e457f`, `e466912`
 - Python: 3.9 호환
-- Stage 1 팀 JSON/REST adapter: 유지
 - 실제 고객문서 사용: 없음
+- 이번 Golden 작업의 OpenAI Live 호출: 없음
+- Git push: 최종 사용자 지시 전 수행하지 않음
 
-## 구현 완료 기능
+기존 T1~T7, T4, Stage 1 JSON/REST adapter, Stage 2 현금흐름, Stage 3 환헤지,
+Stage 4 공식 후보, Stage 5 report/critic 정책과 extraction prompt/schema는
+변경하지 않았습니다.
 
-- T1 팀 Stage 1 연결과 별도 Spot provenance
-- T2 거래·결제 입력과 사용자 확인
-- T3 결정론 결제·회수 위험
-- T4 미국·브라질 국가·무역환경 검토
-- T5 위험에서 금융 대응 mapping
-- T6 공식 후보 shortlist
-- T7 검증된 최종 보고서와 결정론 fallback
-- 문서 추출값의 Pydantic·evidence·결정론 검증·사용자 확인 gate
-- guarded Live evaluator와 fixture/Live 분리
+## Baseline v1/v2 제출 증거
 
-T1~T7, Stage 1 모델, Stage 2 현금흐름과 Stage 3 환헤지 계산은 P1-A에서
-변경하지 않습니다.
+| 항목 | Baseline v1 | Baseline v2 |
+| --- | --- | --- |
+| Run ID | `baseline-v1-full-20260729-0404-kst` | `baseline-v2-full-20260729-0443-kst` |
+| Git SHA | `0a53847549683059e533b0fdf7b1496596dc897f` | `9bdffd91becca3fe8546d8a16186f0469cfdb948` |
+| model | `gpt-4o-mini` | `gpt-4o-mini` |
+| API 성공/실패/timeout | 8/0/0 | 8/0/0 |
+| seller_country | 4/8 | 8/8 |
+| buyer_country | 3/8 | 8/8 |
+| trade_type | 2/8 | 8/8 |
+| validation PASS·Stage 2 allowed | 0/8·0/8 | 0/8·0/8 |
+
+공통 evaluator, prompt와 manifest hash는
+`docs/LIVE_BENCHMARK_RESULTS.md`에 전체 값으로 기록했습니다. 국가·거래방향
+세 항목만 canonicalization의 직접 효과로 주장합니다. `document_type`,
+전체 document match, token, latency와 법인명 표현은 LLM 재호출 변동 가능성이 있어
+인과 효과로 주장하지 않습니다.
+
+스캔형 8건의 accepted evidence coverage 0%는 OCR 정확도 0%가 아닙니다. 독립
+텍스트 레이어가 없어 모델 인용을 자동 수용하지 않았고 사용자 확인 전 Stage 2를
+전부 차단한 fail-closed 결과입니다.
 
 ## T4 공식 snapshot 재현성
 
@@ -38,109 +48,111 @@ T1~T7, Stage 1 모델, Stage 2 현금흐름과 Stage 3 환헤지 계산은 P1-A�
   `095c5e38a88403449214ba899e05d07831f1b2a44932f2ebe2beaa65045fb757`
 - 공식 축: OECD, World Bank, WTO를 별도 유지
 - 미국 OECD: `HIGH_INCOME_OECD_UNCLASSIFIED`, raw `null`
-- 브라질 OECD: 공식 raw classification `4`를 원값으로만 유지
+- 브라질 OECD: 공식 raw classification `4`
 - 출력: 국가 신용등급이 아닌 거래 검토 우선도
 
-동일 거래에서 국가만 바꿔도 Stage 1, Stage 2, Stage 3, runtime Stage 4와 상품
-eligibility·approval은 바뀌지 않습니다. 국가 신호는 보험·보증·신용장·결제조건
-상담 우선순위에만 반영됩니다.
+국가 신호는 보험·보증·신용장·결제조건 상담 순서에만 반영하며 Stage 1,
+Stage 2, Stage 3이나 상품 eligibility·approval을 변경하지 않습니다.
+
+## Golden 메인 데모
+
+- PDF: `dataset/golden_demo/golden_export_contract.pdf`
+- expected extraction: `dataset/golden_demo/expected_extraction.json`
+- 사용자·기업 입력: `dataset/golden_demo/demo_inputs.json`
+- 생성기: `scripts/generate_golden_trade_demo.py`
+- 테스트: `tests/test_golden_trade_demo.py`
+
+Golden 계약서는 2페이지 영문 텍스트 PDF이며 모든 페이지에
+`SYNTHETIC SAMPLE - NOT LEGALLY BINDING`을 표시합니다. 판매자 KR, 구매자 BR,
+EXPORT, USD 100,000, 계약일 2026-07-29, 선적일 2026-08-05, 20/80 분할결제,
+잔금일 2026-08-20과 Open Account/T/T를 포함합니다.
+
+Expected data는 기존 `TradeDocumentExtraction` schema만 사용합니다. Schema에 없는
+신용장·보증 계약 사실은 별도 document fact로, 거래처 관계·신용보험·기존 헤지·
+현금·신용한도는 사용자 입력으로 분리했습니다.
+
+Golden의 API-free 확인 결과:
+
+- PDF byte 결정론: PASS
+- 텍스트 레이어 2/2 페이지: PASS
+- expected exact evidence 16개 페이지 대조: PASS
+- `Republic of Korea (KR)→KR`, `Brazil (BR)→BR`: PASS
+- trade type `EXPORT`: PASS
+- USD 20,000 + USD 80,000 = USD 100,000: PASS
+- 사용자 확인 후 `validation_pass=true`, `stage2_allowed=true`: PASS
+- Stage 1 21거래일 종료 2026-08-25 안에 잔금일 2026-08-20: PASS
+- Golden 전용 API-free tests: 14/14 PASS
+
+Golden PDF의 OpenAI Live 추출은 아직 실행하지 않았습니다. 따라서 Golden expected
+data를 모델 정확도라고 말하지 않습니다.
 
 ## 검증 상태
 
-| 항목 | 현재 상태 | 근거 |
+| 항목 | 상태 | 근거 |
 | --- | --- | --- |
-| 전체 API-free suite | 394/394 PASS | `python -m unittest discover -s tests -v` |
+| compile | PASS | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q app.py src scripts tests` |
+| 전체 API-free suite | 416/416 PASS | `python -m unittest discover -s tests -v` |
+| Golden 전용 | 14/14 PASS | `python -m unittest tests.test_golden_trade_demo -v` |
+| country canonicalization | 8/8 PASS | `python -m unittest tests.test_country_canonicalization -v` |
+| Stage 1~5 통합 회귀 | PASS | 전체 suite와 `python scripts/run_regression.py` |
 | release gate | PASS | `python scripts/verify.py` |
-| 기존 regression | PASS | `python scripts/run_regression.py` |
-| country fixture | 8건 실행, evaluator pipeline 검증 | `reports/country_validation/eval_summary.json` |
-| fixture 모델 정확도 주장 | 금지 | `evaluation_mode=FIXTURE`, `model_accuracy_claim_allowed=false` |
-| Live synthetic smoke | 2건 실행, API 성공 2·실패 0 | `docs/LIVE_BENCHMARK_RESULTS.md` |
-| 전체 8건 Live | 미실행 | 두 번째 명시적 승인 필요 |
-| 실제 고객문서 benchmark | 미실행·범위 밖 | 개인정보·동의·운영통제 필요 |
-
-Fixture의 통화·금액·날짜 등 100% 일치는 label 복사 prediction으로 evaluator를
-검증한 수치입니다. 의도적으로 정보가 부족한 4·6·7·8번 때문에 자동 document
-PASS는 4/8입니다. 이 값은 AI/OCR 정확도가 아닙니다.
-
-## Live 상태
-
-- 상태: `LIVE_SMOKE_2_COMPLETED_AWAITING_FULL_RUN_APPROVAL`
-- run ID: `baseline-v1-smoke-20260729-0341-kst`
-- 모델: `gpt-4o-mini`
-- 실행한 Live case 수: 2
-- API 성공·실패·timeout: 2·0·0
-- 자동 document PASS: 0/2
-- Stage 2 전달 허용: 0/2
-- 핵심 결과: 통화·금액·문서유형·회사역할·날짜 2/2, seller country 0/2,
-  buyer country 1/2, trade type 0/2
-- 독립 검증 evidence: 0%; 두 이미지 문서 모두 안전하게 사용자 확인 요구
-- latency: 사례별 9.58초·9.34초, 평균 9.46초
-- token usage: input 77,623, output 1,254, total 78,877
-- 비용: `UNKNOWN`
-- 준비된 안전 게이트: `--confirm-live`, 양수 `--max-cases`, 고유 `--run-id`
-- 전체 8건: 2건 결과 보고 뒤 별도 승인 필요
-- raw Live 결과와 보고서: Git 제외
-
-실행 절차는 [LIVE_BENCHMARK_RUNBOOK.md](LIVE_BENCHMARK_RUNBOOK.md)를 따릅니다.
-실제 결과와 한계는 [LIVE_BENCHMARK_RESULTS.md](LIVE_BENCHMARK_RESULTS.md)에
-기록했습니다. Fixture 100%와 이 Live 수치를 섞지 않습니다.
+| country fixture | 8건 evaluator pipeline 검증 | `reports/country_validation/eval_summary.json` |
+| fixture 모델 정확도 주장 | 금지 | `evaluation_mode=FIXTURE` |
+| V1/V2 합성 Live | 각 8건 완료 | `docs/LIVE_BENCHMARK_RESULTS.md` |
+| Golden Live | 미실행 | 별도 승인 필요 |
+| 실제 고객문서 benchmark | 미실행·범위 밖 | 운영 개인정보 통제 필요 |
 
 ## 심사위원에게 말할 수 있는 주장
 
-- 합성 미국·브라질 무역문서 8건과 정답 label로 평가 파이프라인을 검증했습니다.
-- fixture 평가와 실제 OpenAI Live 평가를 metadata·경로·주장 범위로 분리합니다.
-- 사건 기준 결제조건은 기준 사건일이 없으면 확정 날짜로 임의 변환하지 않습니다.
-- 문서에 없는 통화는 USD로 추측하지 않고 `UNKNOWN/null`을 유지합니다.
-- LLM 추출값은 사용자 확인과 결정론 검증 전에 금융 계산으로 전달하지 않습니다.
-- 국가환경 분석은 versioned 공식 snapshot을 사용하며 OECD·World Bank·WTO를
-  단일 국가 신용점수로 합치지 않습니다.
-- 금융 숫자는 `Decimal` 일반 코드가 계산하므로 같은 입력과 규칙은 같은 결과를
-  만듭니다.
+- 제한된 합성 8건을 동일 model/evaluator/prompt/manifest로 V1/V2 비교했습니다.
+- 검증된 국가 canonicalization으로 seller/buyer 국가와 그에 따른 거래방향이
+  개선됐습니다.
+- 금액·통화·날짜·분할결제와 abstention 30/30, hallucination 0은 유지됐습니다.
+- 독립 검증할 수 없는 스캔형 문서는 사용자 확인 전 금융 계산으로 보내지 않습니다.
+- 텍스트 레이어 Golden 계약서의 expected evidence와 기존 도메인 입력·계산을
+  API-free로 검증했습니다.
+- OECD·World Bank·WTO는 자체 국가 신용점수로 합치지 않습니다.
+- 같은 확인 입력과 규칙의 금융 계산은 `Decimal` 기반으로 결정론적입니다.
 
 ## 말하면 안 되는 주장
 
-- 실제 고객문서, AI 추출 또는 OCR 정확도 100%
-- 8건 결과를 전체 무역문서에 일반화
-- 금융기관 공식 국가·기업 신용등급, 부도확률, 대출·보험 승인 예측
-- 모든 국가의 실시간 국가위험 분석
-- 실거래·헤지 주문·상품 가입·은행 내부 시스템 연동 완료
-- 실제 상품 가입 가능성·가격·한도 보장
+- 실제 고객문서, 전체 무역문서, AI 추출 또는 OCR 정확도 100%
+- Fixture 또는 Golden expected data가 Live model 정확도라는 주장
+- `document_type`·전체 match·latency 개선이 canonicalization 효과라는 주장
+- Evidence 0%가 OCR 정확도 0%라는 주장
+- 비용 상한이 실제 청구액이라는 주장
+- 금융기관 공식 국가·기업 신용등급, 부도확률, 대출·보험 승인
+- 모든 국가의 실시간 국가위험, 실거래·헤지 주문·은행 내부 연동 완료
 
 ## 확인된 한계
 
-- 합성 8건은 실제 언어·레이아웃·스캔 품질 분포를 대표하지 않습니다.
-- 이미지형 PDF/JPG에는 독립 OCR ground-truth verifier가 없습니다.
-- vision evidence는 사용자 원문 대조 전 자동 검증된 근거가 아닙니다.
-- 실제 고객문서 처리에는 동의·보존/삭제 정책, 인증·tenant 분리, secret manager,
-  malware 검사, sandboxed rendering, rate limit과 중앙 감사가 필요합니다.
-- Live token 비용은 실행 시점 공식 단가를 확인하지 않으면 `UNKNOWN`입니다.
+- 합성 8건은 운영 문서 분포로 일반화할 수 없습니다.
+- 스캔형 평가문서에는 독립 OCR verifier가 없습니다.
+- 한 사례에 contract date 하루 차이 오류가 남았습니다.
+- Cached input token 미수집으로 Baseline 실제 API 비용은 `UNKNOWN`입니다.
+- Golden expected data는 API-free이며 Golden Live model 추출은 미검증입니다.
+- 실제 배포에는 인증·tenant 분리, malware scan, sandbox rendering, 동의·보존·
+  삭제, secret manager, rate limit, 중앙 감사와 은행 내부 계약이 필요합니다.
 
 ## 데모 전 확인
 
 ```bash
+python scripts/generate_golden_trade_demo.py
+python -m unittest tests.test_golden_trade_demo -v
 python scripts/verify.py
-
-python scripts/evaluate_extraction.py \
-  --mode offline \
-  --manifest dataset/country_validation/manifest.jsonl \
-  --predictions-dir dataset/country_validation/predictions/fixture \
-  --reports-dir reports/country_validation
-
-python scripts/run_regression.py
-python scripts/run_decision_demo.py --company-role BUYER --format summary
 python scripts/run_decision_demo.py --company-role SELLER --format summary
+python -m streamlit run app.py
 ```
 
-## API 없는 Fallback 데모
+실제 Golden Live를 사용하려면 별도 승인 후 새 immutable Run ID로 먼저 dry-run하고,
+실패하면 `docs/DEMO_SCRIPT_KO.md`의 API-free fallback을 사용합니다.
 
-OpenAI key, Stage 1 서버와 공식 web search가 없어도 다음을 보여줄 수 있습니다.
+## API 없는 fallback
 
-- 합성 fixture 문서와 사용자 확인 gate
-- 팀 Stage 1 forecast fixture와 명시된 fixture spot
-- 고정 스트레스 기반 Stage 2 `Decimal` 현금흐름
-- 수입·수출 결제 위험과 금융 대응 mapping
-- T4 versioned 국가환경 snapshot
-- 공식 후보 offline snapshot
-- 결정론 상담 패킷과 보고서 fallback
+- Golden PDF와 expected exact evidence를 나란히 표시
+- Golden test의 국가·evidence·Stage 2 결과 제시
+- 앱에서는 기존 `수출기업 대표 데모`로 네 탭의 Stage 1~5 흐름 실행
+- T4 versioned snapshot과 offline KB 후보 사용
+- Stage 5는 결정론 report fallback 사용
 
-이 fallback을 Live 모델 품질 검증이라고 표현하지 않습니다.
+이 fallback을 Golden Live 추출 또는 모델 정확도 검증이라고 표현하지 않습니다.

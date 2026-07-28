@@ -9,7 +9,8 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | PASS |
-| 전체 unit/integration/E2E | `.venv/bin/python -m unittest discover -s tests -v` | 394/394 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 416/416 PASS |
+| Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
 | T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 58/58 PASS |
 | 거래·결제 위험·상담·공식 후보 연결 P0 | `.venv/bin/python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 60/60 PASS |
 | T7 통합 보고서·critic | 전체 unittest 내 실행 | 34/34 PASS |
@@ -144,6 +145,46 @@ USD 0.04937025를 실제 청구액으로 표현하지 않습니다.
 `docs/LIVE_BENCHMARK_RESULTS.md`와 sanitized
 `docs/evidence/country_benchmark_v1_v2_summary.json`에 기록했습니다. Raw response,
 전체 prompt·payload·문서와 API key는 제출 문서에 저장하지 않았습니다.
+
+## Golden text-layer 무역계약 데모
+
+`scripts/generate_golden_trade_demo.py`가 2페이지 영문 합성 수출계약 PDF,
+`TradeDocumentExtraction` expected data와 계약 밖 사용자 입력을 결정론적으로
+생성합니다.
+
+```text
+document: dataset/golden_demo/golden_export_contract.pdf
+seller/buyer: Republic of Korea (KR) / Brazil (BR)
+normalized countries: KR / BR
+trade type: EXPORT
+currency/amount: USD / 100000.00
+installments: 20000.00 + 80000.00 = 100000.00
+contract/shipment/balance due: 2026-07-29 / 2026-08-05 / 2026-08-20
+text layer: 2/2 pages
+expected evidence: 16 exact quotes on declared pages
+```
+
+모든 페이지에 `SYNTHETIC SAMPLE - NOT LEGALLY BINDING`을 넣고 실제 주소·계좌·
+등록번호·로고·서명·도장을 넣지 않았습니다. 신용장·보증은 현재 extraction schema에
+임의 필드를 추가하지 않고 별도 document fact에 보존했습니다. 거래처 관계,
+신용보험, 헤지, 현금과 신용한도는 계약서 사실이 아니라 사용자 입력으로 분리했습니다.
+
+Golden 전용 14개 API-free 테스트는 다음을 검증했습니다.
+
+- 반복 생성 PDF/JSON byte hash 동일
+- pypdf strict parsing과 비어 있지 않은 텍스트 레이어
+- 모든 evidence quote의 실제 페이지 존재
+- raw 국가 표현·normalized 값·normalization method 보존
+- KR/BR에서 EXPORT 결정론 판정
+- 통화·금액·날짜·분할합계 불변
+- 사용자 확인 후 `validation_pass=true`, `stage2_allowed=true`
+- 기존 trade-risk domain에서 `ELEVATED_REVIEW`
+- 현재 Stage 1 fixture의 21거래일 종료일 2026-08-25 안에 잔금일 존재
+- 기존 Stage 2 계산으로 기준 수취 140,000,000원, -5% 수취 133,000,000원,
+  수취 감소 7,000,000원, buffer shortfall 2,000,000원
+
+Golden PDF에 대한 OpenAI Live 추출은 실행하지 않았습니다. Expected data와
+14/14 결과는 모델 정확도가 아니라 API-free 성공 경로 검증입니다.
 
 ## Stage 0 매매계약 회귀
 
