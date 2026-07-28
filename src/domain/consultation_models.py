@@ -3,7 +3,10 @@ from typing import Dict, List, Literal, Optional
 from pydantic import Field
 
 from schemas import StrictModel
-from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+from src.domain.trade_risk_models import (
+    TradeRiskReviewNeed,
+    TradeSettlementRiskAssessment,
+)
 
 
 RiskCode = Literal[
@@ -48,6 +51,14 @@ class ConsultationTopic(StrictModel):
     category: str
     title: str
     triggered_by: List[RiskCode] = Field(default_factory=list)
+    trade_risk_factor_codes: List[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
+    trade_risk_review_needs: List[TradeRiskReviewNeed] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
     explanation: str
     required_information: List[str] = Field(default_factory=list)
     required_documents: List[str] = Field(default_factory=list)
@@ -117,6 +128,12 @@ class ConsultationPacket(StrictModel):
     exposure_summary: ExposureSummary
     risk_summary: PacketRiskSummary
     risk_findings: List[RiskFinding] = Field(default_factory=list)
+    trade_settlement_risk: Optional[
+        TradeSettlementRiskAssessment
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )
@@ -141,7 +158,10 @@ class DecisionSupportResult(StrictModel):
     risk_assessment: RiskAssessment
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
-    ] = None
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )

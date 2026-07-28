@@ -2,7 +2,10 @@ from typing import List, Optional
 
 from schemas import TradeDocumentExtraction
 from src.consultation.packet import build_consultation_packet
-from src.consultation.response_mapping import map_consultation_topics
+from src.consultation.response_mapping import (
+    map_consultation_topics,
+    map_trade_risk_consultation_topics,
+)
 from src.consultation.risk_classifier import classify_stage2_risks
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import DecisionSupportResult
@@ -35,6 +38,12 @@ def build_decision_support(
         assessment=assessment,
         stage2_result=stage2_result,
     )
+    if trade_settlement_risk is not None:
+        topics.extend(
+            map_trade_risk_consultation_topics(
+                trade_settlement_risk
+            )
+        )
     packet = build_consultation_packet(
         case_id=case_id,
         extraction=extraction,
@@ -44,6 +53,7 @@ def build_decision_support(
         stage2_result=stage2_result,
         assessment=assessment,
         consultation_topics=topics,
+        trade_settlement_risk=trade_settlement_risk,
         missing_information=missing_information,
         generated_at=generated_at,
     )

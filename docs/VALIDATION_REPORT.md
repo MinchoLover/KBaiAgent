@@ -9,8 +9,8 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 304/304 PASS |
-| 거래·결제 위험 P0 | `python -m unittest tests.test_trade_settlement_risk tests.test_ui_evidence_state -v` | 34/34 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 310/310 PASS |
+| 거래·결제 위험·상담 연결 P0 | `python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_ui_evidence_state -v` | 48/48 PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
@@ -148,6 +148,13 @@ USD 100,000 수취 거래에서 기준 수취액 140,000,000원, -5% 스트레�
 - confirmation fingerprint 결정성 및 변조 거부
 - 문서 변경 시 위험 snapshot 폐기, 위험조건 변경 시 Stage 1~3 결과 보존
 - 수입·수출 대표 데모와 Streamlit 렌더링
+- 수입 선지급 위험 → 선지급 보호수단 상담·질문·준비서류 매핑
+- 수출 회수 위험 → 수출채권 보호 상담·질문·준비서류 매핑
+- 신용장 존재를 위험 제거로 처리하지 않고 상세조건 검토로 연결
+- `UNKNOWN`을 별도 정보 확인 topic과 packet 미확인 정보로 연결
+- 거래위험 fingerprint 변경 시 상담 packet input hash 변경
+- 상담자료에 한국어 위험 유형·우선도·근거와 공식등급이 아니라는 고지 포함
+- 거래위험이 없는 기존 packet·topic 직렬화에는 신규 optional 필드를 출력하지 않음
 
 이 결과는 숫자 신용점수, 부도확률, 공식 심사등급이 아닙니다. 국가위험, 거래처
 재무정보, 신용장 발행은행·확인 여부·서류불일치, 보험 약관·보증 범위는 이번 P0에서

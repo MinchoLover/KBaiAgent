@@ -3579,10 +3579,17 @@ with stage2_tab:
                 )
                 for topic in consultation_topics:
                     with st.expander(topic.title, expanded=False):
+                        topic_basis = (
+                            ", ".join(topic.triggered_by)
+                            if topic.triggered_by
+                            else "거래·결제조건 확인"
+                            if topic.trade_risk_review_needs
+                            else "정기 점검"
+                        )
                         st.caption(
                             "{} · 근거 {} · 사람 검토 필수".format(
                                 topic.category,
-                                ", ".join(topic.triggered_by) or "정기 점검",
+                                topic_basis,
                             )
                         )
                         st.write(topic.explanation)

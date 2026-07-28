@@ -1,8 +1,52 @@
 import unittest
 
-from src.consultation.response_mapping import map_consultation_topics
+from src.application.consultation_service import build_decision_support
+from src.consultation.response_mapping import (
+    map_consultation_topics,
+    map_trade_risk_consultation_topics,
+)
 from src.consultation.risk_classifier import classify_stage2_risks
-from src.demo import run_decision_support_demo
+from src.consultation.trade_settlement_risk import (
+    assess_trade_settlement_risk,
+    create_trade_risk_confirmation,
+)
+from src.demo import run_decision_support_demo, run_offline_demo
+from src.domain.trade_risk_models import TradeSettlementRiskInput
+
+
+def _trade_risk_assessment(
+    *,
+    trade_type="EXPORT",
+    relationship="EXISTING",
+    ratio="0",
+    method="DOCUMENTARY_CREDIT",
+    term_days=30,
+    term_basis="EXPLICIT_NET_TERM",
+    protection_status="NONE_CONFIRMED",
+):
+    risk_input = TradeSettlementRiskInput(
+        confirmed_trade_sha256="b" * 64,
+        trade_type=trade_type,
+        counterparty_relationship=relationship,
+        advance_payment_ratio=ratio,
+        balance_payment_method=method,
+        payment_term_days=term_days,
+        payment_term_basis=term_basis,
+        protection_information_status=protection_status,
+        protection_mechanisms=[],
+        field_sources={
+            "counterparty_relationship": "USER_CONFIRMED",
+            "advance_payment_ratio": "USER_CONFIRMED",
+            "balance_payment_method": "USER_CONFIRMED",
+            "payment_term_days": "USER_CONFIRMED",
+            "protection_information_status": "USER_CONFIRMED",
+        },
+    )
+    confirmation = create_trade_risk_confirmation(
+        confirmed_input=risk_input,
+        confirmed_at="2026-07-29T09:00:00+09:00",
+    )
+    return assess_trade_settlement_risk(confirmation)
 
 
 class DecisionSupportImportTests(unittest.TestCase):
@@ -68,6 +112,32 @@ class DecisionSupportImportTests(unittest.TestCase):
                 item.source_status,
                 "GENERIC_CONSULTATION_CATEGORY",
             )
+
+    def test_import_trade_risk_maps_to_protection_consultation(self):
+        topics = self.demo["consultation_topics"]
+        topic = next(
+            item
+            for item in topics
+            if item.category == "IMPORT_ADVANCE_PAYMENT_PROTECTION"
+        )
+
+        self.assertIn(
+            "ADVANCE_PAYMENT_PROTECTION_REVIEW",
+            topic.trade_risk_review_needs,
+        )
+        self.assertIn(
+            "IMPORT_ADVANCE_PAYMENT",
+            topic.trade_risk_factor_codes,
+        )
+        self.assertIn(
+            "선급금환급보증",
+            " ".join(topic.required_documents),
+        )
+        packet = self.demo["consultation_packet"]
+        self.assertIsNotNone(packet.packet.trade_settlement_risk)
+        self.assertIn("## 4. 거래·결제조건 위험", packet.markdown)
+        self.assertIn("수입 선지급 보호수단 상담", packet.markdown)
+        self.assertIn("공식 심사등급이나 부도확률", packet.markdown)
 
     def test_packet_numbers_and_audit_fields_match_engine(self):
         packet_result = self.demo["consultation_packet"]
@@ -184,6 +254,112 @@ class DecisionSupportExportTests(unittest.TestCase):
             "7000000.00",
         )
         self.assertEqual(packet.company_summary.trade_type, "EXPORT")
+
+    def test_export_trade_risk_maps_only_to_receivable_protection(self):
+        categories = {
+            item.category for item in self.demo["consultation_topics"]
+        }
+
+        self.assertIn("EXPORT_RECEIVABLE_PROTECTION", categories)
+        self.assertNotIn(
+            "IMPORT_ADVANCE_PAYMENT_PROTECTION",
+            categories,
+        )
+        topic = next(
+            item
+            for item in self.demo["consultation_topics"]
+            if item.category == "EXPORT_RECEIVABLE_PROTECTION"
+        )
+        self.assertIn(
+            "RECEIVABLE_PROTECTION_REVIEW",
+            topic.trade_risk_review_needs,
+        )
+        self.assertIn("EXPORT_OPEN_ACCOUNT", topic.trade_risk_factor_codes)
+        self.assertIn(
+            "수출대금 회수 보호 상담",
+            self.demo["consultation_packet"].markdown,
+        )
+
+
+class TradeRiskResponseMappingTests(unittest.TestCase):
+    def test_legacy_packet_serialization_omits_optional_trade_risk(self):
+        demo = run_offline_demo()
+        packet = demo["consultation_packet"].packet
+
+        self.assertIsNone(packet.trade_settlement_risk)
+        self.assertNotIn(
+            "trade_settlement_risk",
+            packet.model_dump(),
+        )
+        legacy_topic = map_consultation_topics(
+            trade_type="IMPORT",
+            assessment=demo["risk_assessment"],
+            stage2_result=demo["stage2"],
+        )[0]
+        self.assertNotIn(
+            "trade_risk_factor_codes",
+            legacy_topic.model_dump(),
+        )
+
+    def test_documentary_credit_maps_to_terms_review_not_risk_removal(self):
+        assessment = _trade_risk_assessment()
+
+        topics = map_trade_risk_consultation_topics(assessment)
+
+        self.assertEqual(
+            [item.category for item in topics],
+            ["DOCUMENTARY_CREDIT_TERMS_REVIEW"],
+        )
+        self.assertIn(
+            "신용장 존재만으로 회수위험이 제거된다고 보지 않고",
+            topics[0].explanation,
+        )
+
+    def test_unknown_values_map_to_information_review(self):
+        assessment = _trade_risk_assessment(
+            relationship="UNKNOWN",
+            ratio=None,
+            method="UNKNOWN",
+            term_days=None,
+            term_basis="UNKNOWN",
+            protection_status="UNKNOWN",
+        )
+
+        topics = map_trade_risk_consultation_topics(assessment)
+
+        information = next(
+            item
+            for item in topics
+            if item.category == "TRADE_RISK_INFORMATION_REVIEW"
+        )
+        self.assertTrue(information.required_information)
+        self.assertIn(
+            "HUMAN_REVIEW",
+            information.trade_risk_review_needs,
+        )
+
+    def test_packet_hash_is_bound_to_trade_risk_fingerprint(self):
+        demo = run_decision_support_demo("BUYER")
+        current = demo["trade_risk_assessment"]
+        changed = current.model_copy(
+            update={"input_fingerprint": "c" * 64}
+        )
+
+        rebuilt = build_decision_support(
+            case_id=demo["workflow_state"].case_id,
+            extraction=demo["extraction"],
+            confirmation=demo["confirmation"],
+            stage1=demo["stage1"],
+            stage2_input=demo["stage2_input"],
+            stage2_result=demo["stage2"],
+            trade_settlement_risk=changed,
+            generated_at="2026-07-23T09:00:00+09:00",
+        )
+
+        self.assertNotEqual(
+            rebuilt.consultation_packet.packet.input_hash,
+            demo["consultation_packet"].packet.input_hash,
+        )
 
 
 if __name__ == "__main__":

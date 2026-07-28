@@ -18,6 +18,7 @@ from src.domain.consultation_models import (
 )
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
+from src.domain.trade_risk_models import TradeSettlementRiskAssessment
 from src.stage2.metrics import money_string
 
 
@@ -25,6 +26,8 @@ DISCLAIMER = (
     "본 결과는 금융상품 가입, 대출 승인 또는 헤지 실행을 결정하지 않습니다. "
     "환율 시나리오는 미래 환율의 확정 예측이 아닙니다. 실제 이용 가능 여부와 "
     "조건은 KB를 포함한 거래은행 상담과 심사를 통해 확인해야 합니다."
+    " 거래·결제 검토 우선도는 금융기관의 공식 심사등급이나 부도확률이 "
+    "아닙니다."
 )
 
 
@@ -33,6 +36,9 @@ def _input_hash(
     confirmation: ConfirmationRecord,
     stage1: NormalizedScenarioSet,
     stage2_input: Stage2Input,
+    trade_settlement_risk: Optional[
+        TradeSettlementRiskAssessment
+    ] = None,
 ) -> str:
     canonical: Dict[str, Any] = {
         "confirmation": {
@@ -43,6 +49,10 @@ def _input_hash(
         "stage1": stage1.model_dump(),
         "stage2_input": stage2_input.model_dump(),
     }
+    if trade_settlement_risk is not None:
+        canonical["trade_risk_input_fingerprint"] = (
+            trade_settlement_risk.input_fingerprint
+        )
     serialized = json.dumps(
         canonical,
         ensure_ascii=False,
@@ -125,10 +135,59 @@ def _markdown(packet: ConsultationPacket) -> str:
         )
         or "- 현재 입력에서 구조화된 주요 위험 코드가 발생하지 않았습니다."
     )
+    if packet.trade_settlement_risk is None:
+        trade_risk_lines = (
+            "- 거래처·결제·보호조건의 별도 확인 결과가 없습니다."
+        )
+        trade_risk_assumptions = "- 없음"
+    else:
+        trade_risk = packet.trade_settlement_risk
+        priority_labels = {
+            "STANDARD_REVIEW": "일반 검토",
+            "ELEVATED_REVIEW": "추가 검토 필요",
+            "HIGH_REVIEW": "우선 검토 필요",
+            "UNKNOWN": "정보 확인 필요",
+        }
+        risk_type_labels = {
+            "IMPORT_PREPAYMENT_PERFORMANCE_RISK": (
+                "수입 선지급·계약이행 위험"
+            ),
+            "EXPORT_RECEIVABLE_COLLECTION_RISK": (
+                "수출대금 회수 위험"
+            ),
+        }
+        factor_lines = [
+            "- {}: {}".format(
+                {
+                    "RISK_SIGNAL": "위험 신호",
+                    "MITIGANT": "확인된 완화요소",
+                    "INFORMATION_GAP": "정보 부족",
+                }[factor.effect],
+                factor.reason,
+            )
+            for factor in trade_risk.factors
+        ]
+        trade_risk_lines = "\n".join(
+            [
+                "- 위험 유형: {}".format(
+                    risk_type_labels[trade_risk.risk_type]
+                ),
+                "- 검토 우선도: **{}**".format(
+                    priority_labels[trade_risk.review_priority]
+                ),
+            ]
+            + factor_lines
+        )
+        trade_risk_assumptions = (
+            "\n".join(
+                "- {}".format(item)
+                for item in trade_risk.assumptions
+            )
+            or "- 별도 수치 가정 없음"
+        )
     topic_lines = "\n".join(
-        "- **{}** (`{}`): {} 최종 판단은 사용자와 KB 담당자가 합니다.".format(
+        "- **{}**: {} 최종 판단은 사용자와 KB 담당자가 합니다.".format(
             item.title,
-            item.category,
             item.explanation,
         )
         for item in packet.consultation_topics
@@ -175,29 +234,37 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 `최소 운영자금 부족`과 `대출한도 반영 후 지급 부족`은 서로 다른 지표입니다.
 
-## 3. 위험 원인
+## 3. 환율·유동성 위험 원인
 
 {risk_lines}
 
-## 4. 검토할 금융 대응
+## 4. 거래·결제조건 위험
+
+{trade_risk_lines}
+
+적용 가정:
+
+{trade_risk_assumptions}
+
+## 5. 검토할 금융 대응
 
 {topic_lines}
 
 위 항목은 금융상품 추천이나 승인 결과가 아니라 상담 범주입니다.
 
-## 5. 아직 확인할 정보
+## 6. 아직 확인할 정보
 
 {missing_lines}
 
-## 6. 준비할 서류
+## 7. 준비할 서류
 
 {document_lines}
 
-## 7. KB 상담 시 질문
+## 8. KB 상담 시 질문
 
 {question_lines}
 
-## 8. 재현성 정보
+## 9. 재현성 정보
 
 - 계산 버전: `{calculation_version}`
 - 입력 hash: `{input_hash}`
@@ -205,7 +272,7 @@ def _markdown(packet: ConsultationPacket) -> str:
 - 시나리오 ID: {scenario_ids}
 - 생성시각: `{generated_at}`
 
-## 9. 고지문
+## 10. 고지문
 
 {disclaimer}
 """.format(
@@ -227,6 +294,8 @@ def _markdown(packet: ConsultationPacket) -> str:
         cash_deficit=packet.risk_summary.cash_deficit_krw,
         payment_gap=packet.risk_summary.payment_gap_krw,
         risk_lines=risk_lines,
+        trade_risk_lines=trade_risk_lines,
+        trade_risk_assumptions=trade_risk_assumptions,
         topic_lines=topic_lines,
         missing_lines=missing_lines,
         document_lines=document_lines,
@@ -250,6 +319,9 @@ def build_consultation_packet(
     stage2_result: Stage2Result,
     assessment: RiskAssessment,
     consultation_topics: List[ConsultationTopic],
+    trade_settlement_risk: Optional[
+        TradeSettlementRiskAssessment
+    ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
 ) -> ConsultationPacketResult:
@@ -267,17 +339,29 @@ def build_consultation_packet(
             if item and item.strip()
         )
     )
+    if trade_settlement_risk is not None:
+        gaps = list(
+            dict.fromkeys(
+                gaps + trade_settlement_risk.information_gaps
+            )
+        )
+    calculation_versions = [
+        stage2_result.calculation_version,
+        assessment.calculation_version,
+    ]
+    if trade_settlement_risk is not None:
+        calculation_versions.append(
+            trade_settlement_risk.calculation_version
+        )
     packet = ConsultationPacket(
         case_id=case_id,
-        calculation_version="{}+{}".format(
-            stage2_result.calculation_version,
-            assessment.calculation_version,
-        ),
+        calculation_version="+".join(calculation_versions),
         generated_at=generated_at or datetime.now(timezone.utc).isoformat(),
         input_hash=_input_hash(
             confirmation=confirmation,
             stage1=stage1,
             stage2_input=stage2_input,
+            trade_settlement_risk=trade_settlement_risk,
         ),
         exchange_rate_as_of=stage1.as_of,
         scenario_ids=[
@@ -307,6 +391,7 @@ def build_consultation_packet(
             risk_codes=assessment.risk_codes,
         ),
         risk_findings=assessment.findings,
+        trade_settlement_risk=trade_settlement_risk,
         consultation_topics=consultation_topics,
         missing_information=gaps,
         required_documents=_required_documents(consultation_topics),

@@ -283,6 +283,25 @@ def _check_demo(errors: List[str]) -> None:
         != "HIGH_REVIEW"
     ):
         errors.append("export demo trade settlement risk is invalid")
+    import_categories = {
+        item.category for item in import_demo["consultation_topics"]
+    }
+    export_categories = {
+        item.category for item in export_demo["consultation_topics"]
+    }
+    if "IMPORT_ADVANCE_PAYMENT_PROTECTION" not in import_categories:
+        errors.append("import trade risk lost financial response mapping")
+    if "EXPORT_RECEIVABLE_PROTECTION" not in export_categories:
+        errors.append("export trade risk lost financial response mapping")
+    if (
+        import_packet.trade_settlement_risk is None
+        or export_packet.trade_settlement_risk is None
+    ):
+        errors.append("consultation packet lost trade risk assessment")
+    if "## 4. 거래·결제조건 위험" not in (
+        import_demo["consultation_packet"].markdown
+    ):
+        errors.append("consultation markdown lost trade risk section")
 
     integrated_import = run_integrated_decision_demo("BUYER")
     integrated_export = run_integrated_decision_demo("SELLER")

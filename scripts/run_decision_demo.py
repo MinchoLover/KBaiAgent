@@ -19,6 +19,7 @@ from src.demo import (
 def _summary(result: Dict[str, Any]) -> Dict[str, Any]:
     stage2 = result["stage2"]
     assessment = result["risk_assessment"]
+    trade_risk = result["trade_risk_assessment"]
     packet = result["consultation_packet"].packet
     worst = next(
         item
@@ -55,8 +56,19 @@ def _summary(result: Dict[str, Any]) -> Dict[str, Any]:
         "payment_gap_krw": worst.post_credit_shortfall,
         "risk_status": assessment.status,
         "risk_codes": assessment.risk_codes,
+        "trade_settlement_risk": {
+            "risk_type": trade_risk.risk_type,
+            "review_priority": trade_risk.review_priority,
+            "review_needs": trade_risk.review_needs,
+            "reasons": [
+                item.reason for item in trade_risk.factors
+            ],
+        },
         "consultation_topics": [
             item.title for item in result["consultation_topics"]
+        ],
+        "financial_review_categories": [
+            item.category for item in result["consultation_topics"]
         ],
         "case_id": packet.case_id,
         "input_hash": packet.input_hash,

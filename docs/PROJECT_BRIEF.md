@@ -30,6 +30,8 @@ A user can:
 - 핵심 거래값, 불리한 경우 추가 부담, 최저 현금잔고와 신용 후 부족을 먼저 확인한다.
 - 수입 선지급·계약이행 위험과 수출대금 회수 위험을 구분하고, 정보가 없으면
   `UNKNOWN` 상태와 확인할 항목을 받는다.
+- 결제·회수 위험에 맞는 상담 범주, 확인 질문과 준비서류를 보고서에서 받되 특정
+  상품 가입이나 승인 결과로 오해하지 않는다.
 - 내부 오류 code, JSON, provider와 workflow trace는 접힌 개발·감사용 영역에서만
   확인한다.
 - 대응 후보가 금융 추천이 아니라 가정 기반 비교안임을 이해할 수 있다.
@@ -79,6 +81,8 @@ The team can verify:
 | Export collection risk | 신규 수출 거래처, Open Account 90일, 보호수단 없음 확인 | 거래조건을 확인 | 수출대금 회수 `우선 검토 필요`와 구체적 근거가 표시된다 |
 | Unknown protection | 보호수단 정보가 없음 | 거래조건을 확인 | 없음으로 간주하거나 감경하지 않고 `정보 확인 필요`로 표시된다 |
 | Risk boundary | 결제·회수 우선도가 높음 | 결과를 저장 | Stage 2 현금 또는 Stage 3 환헤지 비율을 직접 변경하지 않는다 |
+| Financial response mapping | 확인된 수입 선지급 또는 수출채권 회수 위험 | 상담자료를 생성 | 거래방향에 맞는 보호기능·질문·준비서류가 생성되고 특정 상품 승인 결과는 만들지 않는다 |
+| Packet binding | 거래·보호조건 confirmation이 변경됨 | 상담자료를 다시 생성 | trade-risk fingerprint가 packet hash에 반영되고 이전 자료와 구분된다 |
 | Plain-language validation | 원문 근거 불일치 | 문서 검토 화면을 본다 | 내부 code 대신 필드명과 확인 행동이 표시된다 |
 | Validation failure | 필수 필드 또는 사용자 확인 누락 | downstream 실행 요청 | `WAITING_FOR_USER`이며 Cashflow가 실행되지 않는다 |
 | External Stage 1 failure | 외부 adapter 오류 | 워크플로 실행 | ±3/5/10 수동 stress로 `FALLBACK`하고 경고를 남긴다 |

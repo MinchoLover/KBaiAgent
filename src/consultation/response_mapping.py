@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from src.domain.consultation_models import (
     ConsultationTopic,
@@ -7,6 +7,10 @@ from src.domain.consultation_models import (
     RiskCode,
 )
 from src.domain.stage2_models import Stage2Result
+from src.domain.trade_risk_models import (
+    TradeRiskReviewNeed,
+    TradeSettlementRiskAssessment,
+)
 
 
 def _topic(
@@ -18,16 +22,215 @@ def _topic(
     required_information: List[str],
     required_documents: List[str],
     questions: List[str],
+    trade_risk_factor_codes: Optional[List[str]] = None,
+    trade_risk_review_needs: Optional[
+        List[TradeRiskReviewNeed]
+    ] = None,
 ) -> ConsultationTopic:
     return ConsultationTopic(
         category=category,
         title=title,
         triggered_by=triggered_by,
+        trade_risk_factor_codes=trade_risk_factor_codes or [],
+        trade_risk_review_needs=trade_risk_review_needs or [],
         explanation=explanation,
         required_information=required_information,
         required_documents=required_documents,
         questions=questions,
     )
+
+
+def _trade_factor_codes(
+    *,
+    assessment: TradeSettlementRiskAssessment,
+    allowed: List[str],
+) -> List[str]:
+    return [
+        factor.code
+        for factor in assessment.factors
+        if factor.code in allowed
+    ]
+
+
+def map_trade_risk_consultation_topics(
+    assessment: TradeSettlementRiskAssessment,
+) -> List[ConsultationTopic]:
+    needs = set(assessment.review_needs)
+    topics: Dict[str, ConsultationTopic] = {}
+
+    if "ADVANCE_PAYMENT_PROTECTION_REVIEW" in needs:
+        need: TradeRiskReviewNeed = (
+            "ADVANCE_PAYMENT_PROTECTION_REVIEW"
+        )
+        topics["IMPORT_ADVANCE_PAYMENT_PROTECTION"] = _topic(
+            category="IMPORT_ADVANCE_PAYMENT_PROTECTION",
+            title="수입 선지급 보호수단 상담",
+            triggered_by=[],
+            trade_risk_factor_codes=_trade_factor_codes(
+                assessment=assessment,
+                allowed=[
+                    "IMPORT_ADVANCE_PAYMENT",
+                    "IMPORT_PROTECTION_UNKNOWN",
+                    "NO_APPLICABLE_IMPORT_PROTECTION",
+                    "APPLICABLE_IMPORT_PROTECTION",
+                ],
+            ),
+            trade_risk_review_needs=[need],
+            explanation=(
+                "선지급 금액을 환율 위험과 구분해, 공급자 미이행 시 적용될 "
+                "수 있는 환급·이행 보호조건을 확인하는 상담 항목입니다."
+            ),
+            required_information=[
+                "선지급 금액·비율·지급 예정일",
+                "납품·검수·계약이행 기준과 예정일",
+                "선지급금 반환 조항과 청구 조건",
+                "보증이 있으면 보증금액·유효기간·현재 거래 적용범위",
+            ],
+            required_documents=[
+                "최종 수입계약서와 결제 일정",
+                "견적송장 또는 인보이스",
+                "선급금환급보증·계약이행보증 문안(있는 경우)",
+            ],
+            questions=[
+                "선지급금 미반환 위험에 맞는 보호수단을 검토할 수 있는가?",
+                "보증금액·유효기간·청구조건이 실제 선지급 일정을 충분히 포괄하는가?",
+                "보호수단 발급 전 지급하면 보호되지 않는 구간이 있는가?",
+            ],
+        )
+
+    if "RECEIVABLE_PROTECTION_REVIEW" in needs:
+        need = "RECEIVABLE_PROTECTION_REVIEW"
+        topics["EXPORT_RECEIVABLE_PROTECTION"] = _topic(
+            category="EXPORT_RECEIVABLE_PROTECTION",
+            title="수출대금 회수 보호 상담",
+            triggered_by=[],
+            trade_risk_factor_codes=_trade_factor_codes(
+                assessment=assessment,
+                allowed=[
+                    "EXPORT_OPEN_ACCOUNT",
+                    "EXPORT_DOCUMENTARY_COLLECTION_DA",
+                    "LONG_EXPORT_PAYMENT_TERM",
+                    "EXPORT_PROTECTION_UNKNOWN",
+                    "NO_APPLICABLE_EXPORT_PROTECTION",
+                    "APPLICABLE_EXPORT_PROTECTION",
+                ],
+            ),
+            trade_risk_review_needs=[need],
+            explanation=(
+                "수출대금 미회수·지연 위험을 환율 하락 위험과 구분해, "
+                "보험·지급보증·보증신용장 등 회수 보호조건을 확인하는 "
+                "상담 항목입니다."
+            ),
+            required_information=[
+                "수입자와의 거래기간·과거 결제이력",
+                "잔여 수출채권 금액·통화·회수 예정일",
+                "Open Account 또는 추심 조건과 연체 시 조치",
+                "보험·보증이 있으면 보상범위·면책·현재 거래 적용여부",
+            ],
+            required_documents=[
+                "최종 수출계약서·인보이스·발주서",
+                "선적서류와 수출채권 회수 일정",
+                "수출신용보험·지급보증·보증신용장 문서(있는 경우)",
+            ],
+            questions=[
+                "현재 거래의 미회수 위험에 검토 가능한 보호수단은 무엇인가?",
+                "보상·보증 한도와 면책조건이 이 채권에 어떻게 적용되는가?",
+                "Open Account 또는 D/A 조건을 보완할 수 있는 계약조건이 있는가?",
+            ],
+        )
+
+    if "DOCUMENTARY_CREDIT_TERMS_REVIEW" in needs:
+        need = "DOCUMENTARY_CREDIT_TERMS_REVIEW"
+        topics["DOCUMENTARY_CREDIT_TERMS_REVIEW"] = _topic(
+            category="DOCUMENTARY_CREDIT_TERMS_REVIEW",
+            title="신용장 세부조건 상담",
+            triggered_by=[],
+            trade_risk_factor_codes=_trade_factor_codes(
+                assessment=assessment,
+                allowed=["DOCUMENTARY_CREDIT_DETAILS_NOT_ASSESSED"],
+            ),
+            trade_risk_review_needs=[need],
+            explanation=(
+                "신용장 존재만으로 회수위험이 제거된다고 보지 않고, "
+                "확인 여부·발행은행·서류조건과 불일치 가능성을 검토합니다."
+            ),
+            required_information=[
+                "취소불능 여부와 확인신용장 여부",
+                "발행은행·확인은행과 지급 또는 인수 조건",
+                "요구서류·제시기한·불일치 처리조건",
+            ],
+            required_documents=[
+                "신용장 원문과 모든 amendment",
+                "수출계약서와 요구 선적서류 목록",
+            ],
+            questions=[
+                "발행은행과 신용장 조건에서 추가 확인할 위험은 무엇인가?",
+                "서류불일치를 줄이기 위해 선적 전 수정할 조건이 있는가?",
+                "확인신용장 검토가 필요한지 어떤 기준으로 판단하는가?",
+            ],
+        )
+
+    if "TRADE_TERMS_REVIEW" in needs:
+        need = "TRADE_TERMS_REVIEW"
+        topics["PAYMENT_TERMS_REVIEW"] = _topic(
+            category="PAYMENT_TERMS_REVIEW",
+            title="결제조건 명확화 상담",
+            triggered_by=[],
+            trade_risk_factor_codes=_trade_factor_codes(
+                assessment=assessment,
+                allowed=[
+                    "DOCUMENTARY_COLLECTION_TYPE_UNKNOWN",
+                    "PAYMENT_TERM_UNRESOLVED",
+                ],
+            ),
+            trade_risk_review_needs=[need],
+            explanation=(
+                "D/P·D/A 구분 또는 선적·B/L·검수 후 기간처럼 계산 기준이 "
+                "불명확한 조건을 확정하는 상담 항목입니다."
+            ),
+            required_information=[
+                "잔여대금 결제방식과 지급·인수 조건",
+                "결제기간을 시작하는 사건과 증빙",
+                "지연·분쟁·서류불일치 시 처리 조항",
+            ],
+            required_documents=[
+                "최종 계약서와 결제조건 변경 합의서",
+                "추심지시서 또는 신용장 문서(해당 시)",
+            ],
+            questions=[
+                "현재 문구가 D/P와 D/A 중 어느 조건을 의미하는가?",
+                "결제기간의 기준일과 이를 입증할 서류는 무엇인가?",
+                "계약서에 추가로 명확히 해야 할 지급 조건은 무엇인가?",
+            ],
+        )
+
+    if "HUMAN_REVIEW" in needs or assessment.information_gaps:
+        topics["TRADE_RISK_INFORMATION_REVIEW"] = _topic(
+            category="TRADE_RISK_INFORMATION_REVIEW",
+            title="거래·보호조건 추가 확인",
+            triggered_by=[],
+            trade_risk_factor_codes=[
+                factor.code
+                for factor in assessment.factors
+                if factor.effect == "INFORMATION_GAP"
+            ],
+            trade_risk_review_needs=["HUMAN_REVIEW"],
+            explanation=(
+                "미확인 정보를 ‘없음’으로 가정하지 않고 담당자가 문서와 "
+                "거래 사실을 확인해야 하는 항목입니다."
+            ),
+            required_information=assessment.information_gaps,
+            required_documents=[
+                "최종 계약서·인보이스·결제 일정",
+                "보험·보증·신용장 문서(있는 경우)",
+            ],
+            questions=[
+                "현재 미확인 항목을 증명할 문서 또는 담당자는 누구인가?",
+                "보호수단이 없다면 부재를 확인한 근거는 무엇인가?",
+            ],
+        )
+
+    return list(topics.values())
 
 
 def map_consultation_topics(

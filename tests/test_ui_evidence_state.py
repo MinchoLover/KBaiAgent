@@ -201,6 +201,17 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             app.session_state["trade_risk_assessment"]
         )
         self.assertEqual(assessment.review_priority, "HIGH_REVIEW")
+        self.assertIn(
+            "IMPORT_ADVANCE_PAYMENT_PROTECTION",
+            {
+                item["category"]
+                for item in app.session_state["consultation_topics"]
+            },
+        )
+        self.assertIn(
+            "## 4. 거래·결제조건 위험",
+            app.session_state["consultation_packet"]["markdown"],
+        )
         stage3_before = app.session_state["stage3_result"]
 
         relationship = next(

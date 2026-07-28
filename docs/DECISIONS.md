@@ -240,3 +240,37 @@ Trade-off: 국가·은행·거래처 신용 데이터가 없는 MVP이므로 부
 Revisit condition: T4 국가·무역환경 위험 또는 T5~T7 금융 대응·보고서 연결을
 구현할 때도 이 우선도를 환율 위험과 합산하지 않고 별도 축으로 유지합니다. 90일
 기준과 규칙 강도는 전문가 검토 및 사례 데이터로 검증된 뒤 version을 올려 변경합니다.
+
+## 23. Trade-risk responses reuse consultation topics, not product selection
+
+Context: T2·T3는 결제·회수 위험의 원인과 검토 우선도까지 제공하지만 사용자가
+은행에 어떤 기능을 문의하고 어떤 서류를 준비할지는 연결하지 않았습니다. 반대로
+현재 정보만으로 특정 상품, 가입 가능성, 한도나 승인 결과를 만들면 근거 범위를
+넘습니다.
+
+Decision: 새 추천 엔진이나 Stage를 만들지 않고 기존 `ConsultationTopic` 계약의
+필요정보·준비서류·질문 구조를 재사용합니다. `TradeRiskReviewNeed`를 다음 상담
+범주로 결정론 매핑합니다.
+
+- 수입 선지급 보호 검토 → `IMPORT_ADVANCE_PAYMENT_PROTECTION`
+- 수출채권 회수 보호 검토 → `EXPORT_RECEIVABLE_PROTECTION`
+- 신용장 상세 검토 → `DOCUMENTARY_CREDIT_TERMS_REVIEW`
+- 불명확한 지급조건 → `PAYMENT_TERMS_REVIEW`
+- `UNKNOWN` 정보 → `TRADE_RISK_INFORMATION_REVIEW`
+
+각 topic에는 근거가 된 trade-risk factor code와 review need를 별도 필드로 저장합니다.
+상담 패킷에는 `TradeSettlementRiskAssessment`와 그 input fingerprint를 포함해
+거래조건이 바뀌면 packet hash도 달라지게 합니다. Markdown에는 한국어 위험 유형,
+우선도, 원인, 질문과 준비서류를 표시하고 내부 category는 JSON 감사정보로만
+유지합니다.
+
+Rationale: 기존 환율·유동성 상담 흐름과 결제·회수 대응을 한 자료에서 볼 수 있지만
+환율위험은 환헤지, 유동성위험은 결제자금, 결제·회수위험은 보증·보험·신용장 조건
+검토로 계속 분리됩니다. 모든 topic은 generic consultation category이며 사람과
+거래은행 심사를 최종 판단으로 유지합니다.
+
+Trade-off: 공식 상품명이나 신청 자격을 즉시 보여주지 않지만, 근거 없는 추천을
+피하고 이후 T6 공식 출처 후보 연결에 사용할 안정적인 기능 단위를 확보합니다.
+
+Revisit condition: T6에서 공식 후보를 연결할 때도 topic과 공식 source record를
+분리하고, source가 없거나 오래됐으면 후보를 생성하지 않습니다.
