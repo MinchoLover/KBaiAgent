@@ -17,6 +17,34 @@ STATUS_HELP = {
     "CALCULATION": "결정론적 계산",
 }
 
+USER_FIELD_LABELS = {
+    "seller_name": "판매자",
+    "seller_country": "판매자 국가",
+    "buyer_name": "구매자",
+    "buyer_country": "구매자 국가",
+    "currency": "거래 통화",
+    "grand_total": "문서 총액",
+    "amount_due": "실제 결제금액",
+    "issue_date": "발행일",
+    "contract_date": "계약일",
+    "shipment_date": "선적일",
+    "explicit_due_date": "결제일",
+    "payment_terms": "결제조건",
+    "installments": "분할결제 일정",
+}
+
+USER_ISSUE_MESSAGES = {
+    "MISSING_CORE_EVIDENCE": "원문 근거를 확인해 주세요.",
+    "INFERRED_CRITICAL_FIELD": "AI가 추론한 값이므로 원문 대조가 필요합니다.",
+    "EVIDENCE_NOT_IN_SOURCE": "제시된 근거 문구를 원문에서 찾지 못했습니다.",
+    "EVIDENCE_VALUE_MISMATCH": "원문 근거와 현재 입력값이 서로 다릅니다.",
+    "EVIDENCE_UNVERIFIABLE": "독립된 원문 텍스트로 자동 대조할 수 없습니다.",
+    "MISSING_REQUIRED_FIELD": "계산에 필요한 값이 비어 있습니다.",
+    "AMBIGUOUS_DUE_DATE": "결제일 또는 결제조건을 하나로 확정해 주세요.",
+    "DUE_DATE_CONFLICT": "문서에 표시된 결제일과 계산된 결제일이 다릅니다.",
+    "AMOUNT_CONFLICT": "문서의 금액 정보가 서로 다릅니다.",
+}
+
 
 def status_badge(status: str) -> str:
     return "`{}` · {}".format(status, STATUS_HELP.get(status, "상태"))
@@ -60,19 +88,17 @@ def format_ratio(value: Any) -> str:
 
 
 def render_stepper(completed_stage: int) -> None:
-    labels = [
-        "거래 확인",
-        "값 확정",
-        "환율 가정",
-        "리스크 진단",
-        "대응 검토",
-        "공식 정보",
-        "상담 리포트",
-    ]
+    labels = ["문서 확인", "위험 진단", "대응안 비교", "상담자료"]
+    completion_thresholds = [1, 3, 4, 6]
     cells = st.columns(len(labels))
     for index, (cell, label) in enumerate(zip(cells, labels)):
-        state_class = "done" if index <= completed_stage else "todo"
-        icon = "✓" if index <= completed_stage else str(index + 1)
+        is_done = completed_stage >= completion_thresholds[index]
+        previous_threshold = (
+            -1 if index == 0 else completion_thresholds[index - 1]
+        )
+        is_current = not is_done and completed_stage >= previous_threshold
+        state_class = "done" if is_done else "current" if is_current else "todo"
+        icon = "✓" if is_done else str(index + 1)
         cell.markdown(
             "<div class='journey-step {}'>"
             "<span class='journey-dot'>{}</span>"
@@ -83,6 +109,29 @@ def render_stepper(completed_stage: int) -> None:
             ),
             unsafe_allow_html=True,
         )
+
+
+def validation_issue_copy(field: Optional[str], code: str) -> str:
+    label = USER_FIELD_LABELS.get(field or "", field or "거래정보")
+    guidance = USER_ISSUE_MESSAGES.get(
+        code,
+        "값과 원문 근거를 다시 확인해 주세요.",
+    )
+    return "{}: {}".format(label, guidance)
+
+
+def render_validation_summary(validation: ValidationResult) -> None:
+    actionable = [
+        item
+        for item in validation.issues
+        if item.severity in {"CRITICAL", "HIGH", "MEDIUM"}
+    ]
+    if not actionable:
+        st.success("자동 검증을 통과했습니다. 핵심 거래정보를 원문과 대조해 주세요.")
+        return
+    st.markdown("**확인이 필요한 항목 {}건**".format(len(actionable)))
+    for item in actionable:
+        st.markdown("- {}".format(validation_issue_copy(item.field, item.code)))
 
 
 def render_validation(validation: ValidationResult) -> None:
@@ -223,7 +272,7 @@ def json_download(
 
 
 def render_workflow_trace(state: WorkflowState) -> None:
-    with st.expander("고급 · 실행 기록 및 감사 추적", expanded=False):
+    with st.expander("개발·감사용 실행 기록", expanded=False):
         st.caption(
             "case_id={} · mode={} · final={} · user_confirmed={}".format(
                 state.case_id,

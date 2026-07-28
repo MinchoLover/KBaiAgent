@@ -445,12 +445,10 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(
             [tab.label for tab in app.tabs],
             [
-                "1  거래 확인",
-                "2  환율 가정",
-                "3  리스크 진단",
-                "4  대응 시뮬레이션",
-                "5  공식 상담 정보",
-                "6  상담 리포트",
+                "1  문서 확인",
+                "2  위험 진단",
+                "3  대응안 비교",
+                "4  상담자료",
             ],
         )
         self.assertEqual(
@@ -463,7 +461,7 @@ class EndToEndTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                "FX_RECEIPT_RISK" in item.value
+                "환율 하락 시 수출대금 원화 수취 감소" in item.value
                 for item in app.markdown
             )
         )
@@ -490,7 +488,7 @@ class EndToEndTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                item.label == "고급 · 실행 기록 및 감사 추적"
+                item.label == "개발·감사용 실행 기록"
                 for item in app.expander
             )
         )

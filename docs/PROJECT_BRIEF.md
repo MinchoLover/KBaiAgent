@@ -12,25 +12,25 @@
 
 ## Primary journey
 
-1. 사용자가 PDF/이미지 무역문서를 안전하게 업로드하거나 가상 데모 문서를 연다.
-2. 추출된 통화·금액·결제일과 원문 근거를 검토하고 명시적으로 확인한다.
-3. 워크플로가 Stage 1의 21거래일 방향·경로위험 JSON과 별도 확인된 spot을 받아
-   모델 분위수와 고정 스트레스를 구분하고 `Decimal` 현금흐름을 계산한다.
-4. 보고서 생성 결과를 독립 critic이 검사하고, 필요하면 한 번만 재작성한 뒤 안전한
-   결정론 보고서까지 포함한 최종 상태와 trace를 보여준다.
+1. `문서 확인`에서 PDF/이미지 또는 가상 데모를 열고 핵심 거래값을 원문과 대조한다.
+2. `위험 진단`에서 환율 범위와 회사 자금 방어선을 입력해 추가 부담과 지급 부족을
+   계산한다.
+3. `대응안 비교`에서 안정성·균형·비용 관점의 계산상 후보와 선택적 공식 정보를
+   비교한다.
+4. `상담자료`에서 은행에 확인할 질문과 준비서류가 포함된 Markdown 보고서를 받는다.
 
 ## Definition of done
 
 A user can:
 
-- 기존 Streamlit 버튼 흐름과 전체 오프라인 데모를 그대로 사용할 수 있다.
+- 네 개의 업무 단계만 보고 전체 오프라인 데모를 완주할 수 있다.
 - 확인 전 계산이 차단되고, Stage 1 HTTP 실패 시 표시된 file/mock fallback 결과를
   받을 수 있다.
 - 21거래일 밖 결제에는 모델 분위수 환율을 적용하지 않고 고정 스트레스만 계산한다.
-- 기업 재무 담당자 관점의 업무 용어로 거래 확인, 환율 가정, 현금 영향, 대응 전략,
-  상담 후보와 리포트 흐름을 이해할 수 있다.
-- JSON, validator code, provider와 workflow trace는 필요할 때만 고급 영역에서 확인할
-  수 있다.
+- 핵심 거래값, 불리한 경우 추가 부담, 최저 현금잔고와 신용 후 부족을 먼저 확인한다.
+- 내부 오류 code, JSON, provider와 workflow trace는 접힌 개발·감사용 영역에서만
+  확인한다.
+- 대응 후보가 금융 추천이 아니라 가정 기반 비교안임을 이해할 수 있다.
 - 각 Stage 상태, provider, fallback, 경고, critic 및 재작성 횟수를 trace에서 확인할 수 있다.
 
 The team can verify:
@@ -41,20 +41,18 @@ The team can verify:
 
 ## P0 scope
 
-1. `krw_forecast_web_v1`을 검증하는 HTTP/file/mock provider와 품질·신선도 경고를
-   구현한다.
-2. 별도 spot provider와 사용자 확인 gate를 두고 v36 상승·v34 하락 분위수를
-   절대환율로 변환한다.
-3. 21거래일 horizon 안에서는 모델 경로위험, 밖에서는 고정 ±3/5/10 스트레스만
-   Stage 2에 전달한다.
-4. fixture 수입·수출 E2E와 Streamlit 상태·보고서·문서를 같은 계약으로 갱신한다.
+1. 기존 여섯 Stage 탭과 일곱 단계 표시를 네 개의 사용자 업무 단계로 통합한다.
+2. 문서 확인에서 핵심 필드와 추가 문서정보를 분리하고 validation code를 쉬운
+   행동 문구로 바꾼다.
+3. 환율 근거·추가 자금·계산표는 접고 위험 상태와 핵심 금액 네 개를 먼저 표시한다.
+4. 대응 후보의 순위 표현을 제거하고 사람이 읽는 상담자료 다운로드를 우선한다.
 
 ## Non-goals
 
 - Stage 1 팀의 예측 모델 또는 JSON/REST 계약 재구현
-- 완전 자율형 멀티에이전트, 자동 금융 자문·상품 승인 판단
-- Stage 2의 이미 검증된 환노출·ledger 정의를 재작성하는 작업
-- 실제 OpenAI 호출, 실제 공식 웹 검색, 배포·인증·중앙 로그 구축
+- Stage 2/3의 환노출·ledger·후보 점수 계산식 변경
+- 자동 금융 자문·상품 승인 판단 또는 실제 은행 견적 연결
+- production 인증·중앙 로그·배포 구조 추가
 
 ## Constraints
 
@@ -70,7 +68,10 @@ The team can verify:
 
 | Journey | Given | When | Then |
 |---|---|---|---|
-| Primary success | 확인된 가상 거래와 offline 설정 | 오케스트레이터를 실행 | Stage 0~5, 최종 보고서, 안전한 trace가 생성된다 |
+| Primary success | 확인된 가상 거래와 offline 설정 | 대표 데모를 실행 | 네 업무 단계에 계산 결과와 상담자료가 표시된다 |
+| Navigation | 초기 앱 | 화면을 연다 | 문서 확인·위험 진단·대응안 비교·상담자료 네 탭만 표시된다 |
+| Information hierarchy | 위험 계산 완료 | 결과를 본다 | 핵심 금액 네 개가 상세 계산표보다 먼저 표시된다 |
+| Plain-language validation | 원문 근거 불일치 | 문서 검토 화면을 본다 | 내부 code 대신 필드명과 확인 행동이 표시된다 |
 | Validation failure | 필수 필드 또는 사용자 확인 누락 | downstream 실행 요청 | `WAITING_FOR_USER`이며 Cashflow가 실행되지 않는다 |
 | External Stage 1 failure | 외부 adapter 오류 | 워크플로 실행 | ±3/5/10 수동 stress로 `FALLBACK`하고 경고를 남긴다 |
 | Stage 1 web success | 제공 web JSON과 확인된 spot | 21일 이내 수입/수출 거래 분석 | 수입은 v36 up, 수출은 v34 down 분위수를 사용한다 |
@@ -84,9 +85,9 @@ The team can verify:
 ## Demo flow
 
 1. `python -m streamlit run app.py`를 실행한다.
-2. 사이드바의 `전체 오프라인 데모 실행`을 누른다.
-3. Stage 2 시나리오, Stage 3 후보, Stage 4 공식 출처, Stage 5 보고서를 확인한다.
-4. 실행 trace expander에서 case ID, Stage 순서, fallback 및 critic 상태를 확인한다.
+2. 첫 화면 또는 사이드바 설정에서 `수입기업 대표 데모`를 불러온다.
+3. 문서 확인 → 위험 진단 → 대응안 비교 → 상담자료 네 화면을 순서대로 확인한다.
+4. 필요할 때만 개발·감사용 실행 기록에서 provider, fallback과 critic을 확인한다.
 
 ## Assumptions to record
 

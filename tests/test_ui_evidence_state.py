@@ -8,10 +8,20 @@ from src.document_intake.confirmation import (
     validate_confirmation,
 )
 from src.ui.state import clear_confirmation_and_later
+from src.ui.components import validation_issue_copy
 from validators import apply_deterministic_review_state
 
 
 class ReviewEvidenceSafetyTests(unittest.TestCase):
+    def test_internal_evidence_code_has_plain_language_ui_copy(self):
+        self.assertEqual(
+            validation_issue_copy(
+                "amount_due",
+                "EVIDENCE_VALUE_MISMATCH",
+            ),
+            "실제 결제금액: 원문 근거와 현재 입력값이 서로 다릅니다.",
+        )
+
     def test_user_edit_drops_model_evidence_and_requires_explicit_override(self):
         initial = sample_extraction("BUYER")
         edited = initial.model_copy(

@@ -16,11 +16,14 @@
 - [x] Stage 1 및 공식상품 fallback, 구조화 critic/revision metadata
 - [x] Stage 1 REST HTTPS/public IP/exact host outbound policy
 - [x] 공식 web cache timezone timestamp, request binding, TTL freshness
-- [x] Streamlit Stage 0~5 UI and downloads
+- [x] 내부 Stage 0~5를 보존한 4단계 사용자 UI와 downloads
 - [x] Streamlit workflow trace view
 - [x] 기업 재무 담당자 중심 업무 언어, 현금 리스크 요약, 대응전략·상담상품 카드 UI
 - [x] JSON, validator, provider/fallback, workflow trace의 고급 영역 분리
-- [x] 다크 테마와 820px 반응형 지표 레이아웃
+- [x] 밝은 B2B 금융 테마와 900/640px 반응형 지표 레이아웃
+- [x] 핵심 거래정보·추가 문서정보 분리와 쉬운 validation 안내
+- [x] 환율 근거·추가 자금·계산표의 점진적 정보 공개
+- [x] 추천 순위를 제거한 대응안 비교 카드와 상담자료 우선 다운로드
 - [x] macOS/Windows launcher and env template
 - [x] 회사 역할·거래 방향·통화·금액·결제일 다섯 필드 사용자 확인 gate
 - [x] 자연어 국가명 ISO 정규화, 통화 evidence 연결, 날짜 placeholder·Net N 검증
@@ -30,7 +33,7 @@
 - [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
 - [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
 - [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
-- [x] 273 API-free tests
+- [x] 274 API-free tests
 - [x] offline evaluation and regression baseline
 - [x] 합성 이미지형 PDF 1건 live OpenAI smoke test
 - [ ] 허가된 실제 문서군 live 품질 benchmark

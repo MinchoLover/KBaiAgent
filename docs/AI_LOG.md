@@ -12,7 +12,7 @@ Stage 2로 전달하지 않습니다. 원문·업로드 bytes·비밀값은 로�
 않았습니다.
 
 금액·결제일 위조 인용, 원문 부재 당사자, textless image, 실제 페이지 번호 복구,
-명시적 사용자 override를 회귀 테스트로 추가했고 `python scripts/verify.py` 273개
+명시적 사용자 override를 회귀 테스트로 추가했고 `python scripts/verify.py` 274개
 테스트가 통과했습니다.
 
 ## 2026-07-27 Stage 0 exact evidence integrity
@@ -145,9 +145,26 @@ Codex가 기존 Stage 2 금융 엔진과 Stage 1 JSON/REST 계약을 유지하�
 
 위험 판정과 상담 패킷 숫자에는 LLM을 사용하지 않았습니다. 상담 후보는 공식 상품
 추천이 아니라 일반 상담 범주이며 모두 은행 검토와 사람 판단을 요구합니다. 수입
-대표 사례의 최소 운영자금 부족 600,000원과 지급 부족 0원을 분리하고, 수출 대표
+대표 사례의 최소 운영자금 부족 2,600,000원과 지급 부족 0원을 분리하고, 수출 대표
 사례에서 환율 하락에 따른 `FX_RECEIPT_RISK`를 검증했습니다.
 
 실제 OpenAI API, 외부 Stage 1 endpoint, 상품 web search, Git push와 배포는 수행하지
 않았습니다. 전체 기능은 로컬 fixture, 수동/고정 스트레스, 결정론 계산·패킷으로
 외부 서비스 없이 재현했습니다.
+
+## 2026-07-28 Four-step UI simplification
+
+Codex가 기존 Stage 0~5 함수, Stage 1 adapter, Stage 2/3 금융 계산과 confirmation
+gate를 유지하면서 Streamlit 정보 구조를 네 개의 사용자 업무 단계로 통합했습니다.
+어두운 운영 대시보드 테마는 밝은 B2B 금융 화면으로 바꾸고, 큰 hero와 복수 진행표를
+간결한 헤더·네 단계 진행표로 축소했습니다.
+
+문서 검토는 핵심 거래정보와 추가 문서정보를 분리하고 내부 evidence code 대신
+필드별 확인 행동을 먼저 표시합니다. 환율 provider, 모델·뉴스 근거, 추가 자금정보,
+시나리오 표, JSON과 trace는 삭제하지 않고 접힌 상세 영역으로 이동했습니다. 대응
+후보는 `검토 순위`를 제거하고 안정성·균형·비용 관점의 계산상 비교안으로 표시하며,
+상담자료는 사람이 읽는 Markdown 다운로드를 우선합니다.
+
+Streamlit AppTest로 수입·수출 원클릭 데모, 네 탭, 사용자 수정 후 confirmation 무효화와
+쉬운 evidence 안내를 검증했습니다. 실제 금융 숫자와 JSON/REST 계약은 변경하지
+않았습니다.

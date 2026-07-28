@@ -3,7 +3,7 @@
 > 2026-07-27 통합 보강: 팀 `kb_macro_ai`의 실제
 > `krw_forecast_web_v1`을 HTTP/file/mock adapter로 연결하고 별도 Spot provider,
 > 21거래일 horizon gate, 수입 v36/수출 v34 scenario, 제약형 Stage 3와 시장정책
-> report critic을 추가했습니다. 현재 검증은 273개 PASS이며 최신 실행·제한은
+> report critic을 추가했습니다. 현재 검증은 274개 PASS이며 최신 실행·제한은
 > `docs/VALIDATION_REPORT.md`, `docs/STAGE1_INTEGRATION.md`,
 > `docs/LIMITATIONS.md`가 우선합니다. 아래 1~6절의 커밋·기준선 설명은 이전
 > 재포지셔닝 작업 당시 기록입니다.
@@ -179,7 +179,7 @@ python scripts/run_decision_demo.py --company-role SELLER --format summary
 | 검증 | 실행 명령 | 실제 결과 |
 | --- | --- | --- |
 | Python compile | `PYTHONPYCACHEPREFIX=/private/tmp/kbai-pycache .venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git|__pycache__)(/|$)' .` | 성공 |
-| 전체 단위·통합·UI | `.venv/bin/python -m unittest discover -s tests -v` | 273개 성공, 0개 실패 |
+| 전체 단위·통합·UI | `.venv/bin/python -m unittest discover -s tests -v` | 274개 성공, 0개 실패 |
 | 오프라인 추출 계약 | `.venv/bin/python scripts/evaluate_extraction.py --mode offline` | 17건, pass rate 82.35%, hallucination 0.00% |
 | 회귀 기준 | `.venv/bin/python scripts/run_regression.py` | 성공 |
 | 의존성 | `.venv/bin/python -m pip check` | broken requirement 없음 |
@@ -318,11 +318,13 @@ P1에서 하위 호환 방식으로 추가해야 합니다.
 ## 17. 3분 데모 실행 순서
 
 1. `수입기업 대표 데모`를 클릭하고 가상 데이터임을 먼저 밝힙니다.
-2. 거래 확인에서 방향·USD 100,000·결제일을 사람이 확인한 상태를 보여줍니다.
-3. 환율 가정의 1,400원과 +5% 1,470원이 예측이 아닌 스트레스임을 설명합니다.
+2. `문서 확인`에서 방향·USD 100,000·결제일을 사람이 확인한 상태를 보여줍니다.
+3. `위험 진단`의 계산 근거에서 1,400원과 +5% 1,470원이 예측이 아닌
+   스트레스임을 설명합니다.
 4. 열린 노출 USD 80,000, 기준 1억 1,200만 원, 추가 비용 560만 원을 보여줍니다.
-5. 결제 후 현금 940만 원, 운영자금 부족 60만 원, 지급 부족 0원을 비교합니다.
-6. `LIQUIDITY_BUFFER_RISK` 근거와 환율 관리·보유외화·결제자금 상담을 펼칩니다.
-7. 상담 패킷에서 질문·서류·계산 버전·입력 hash를 보여주고 Markdown을 내려받습니다.
+5. 결제 후 현금 740만 원, 운영자금 부족 260만 원, 지급 부족 0원을 비교합니다.
+6. 운영자금 방어선 미달 근거와 `대응안 비교`의 세 관점을 보여줍니다.
+7. `상담자료`에서 질문·서류를 보여주고 Markdown을 내려받습니다. 계산 버전과
+   입력 hash는 개발·연동용 데이터에서 확인합니다.
 8. 마지막 10초에 수출 데모를 눌러 환율 하락 시 수취 감소 700만 원과
-   `FX_RECEIPT_RISK`를 보여줍니다.
+   사용자용 위험 설명을 보여줍니다.

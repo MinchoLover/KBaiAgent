@@ -179,3 +179,26 @@ Rationale: 이번 실패는 모델 누락이 아니라 validator의 캐나다 �
 
 Revisit condition: 허가된 live baseline에서 실제 원문 인용 누락이 반복되고, 독립 OCR
 대조를 포함한 evidence-only 보정의 이득이 측정될 때 별도 설계합니다.
+
+## 21. Four user tasks over six internal Stages
+
+Context: 기존 Streamlit은 내부 Stage 0~5를 여섯 탭과 별도 일곱 단계 진행표로
+노출했습니다. 화면 캡처에서는 사용자 확인 항목과 validator code, 긴 데이터 표가
+동시에 보여 비전공자가 현재 행동을 파악하기 어려웠습니다.
+
+Decision: 내부 함수와 workflow state는 그대로 유지하면서 사용자 내비게이션을
+`문서 확인`, `위험 진단`, `대응안 비교`, `상담자료` 네 업무 단계로 통합합니다.
+Stage 1/2와 Stage 3/4는 각각 같은 사용자 탭에 순서대로 표시합니다. 기본 화면은
+핵심 결과와 다음 행동을 우선하고 provider, 원본 JSON, 계산표와 trace는 접힌
+상세 영역에 둡니다.
+
+Rationale: 금융 계산 경계를 바꾸지 않고도 사용자의 의사결정 순서와 내부 구현
+구조를 분리할 수 있습니다. evidence 확인과 사람 confirmation은 숨기지 않고 문서
+단계의 필수 행동으로 유지합니다.
+
+Trade-off: 한 사용자 탭에 두 내부 Stage가 연결되므로 소스의 `with stageN_tab`
+구조는 당분간 남습니다. 대회 프로토타입 이후 화면 모듈을 독립 함수로 분리할 때
+내부 이름을 정리할 수 있습니다.
+
+Revisit condition: 다중 사용자 case 관리나 역할별 화면이 P0가 되면 Streamlit 탭이
+아닌 page router와 별도 상담자 화면을 검토합니다.
