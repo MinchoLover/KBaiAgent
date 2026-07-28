@@ -33,6 +33,9 @@ COUNTRY_ALIASES: Dict[str, str] = {
     "usa": "US",
     "united states": "US",
     "united states of america": "US",
+    "br": "BR",
+    "brazil": "BR",
+    "federative republic of brazil": "BR",
     "kr": "KR",
     "republic of korea": "KR",
     "south korea": "KR",
@@ -76,6 +79,29 @@ COUNTRY_ALIASES: Dict[str, str] = {
     "taiwan roc": "TW",
     "republic of china": "TW",
 }
+
+PARENTHETICAL_ONLY_COUNTRY_NAMES: Dict[str, str] = {
+    "korea": "KR",
+}
+VERIFIED_COUNTRY_CODES: Set[str] = set(COUNTRY_ALIASES.values())
+PARENTHETICAL_COUNTRY_CODE_RE = re.compile(
+    r"^(?P<name>.+?)\s*\(\s*(?P<code>[A-Za-z]{2})\s*\)$"
+)
+
+
+def _country_audit_message(
+    method: str,
+    warning: Optional[str],
+    detail: str,
+) -> str:
+    # NormalizationAuditEntry is a frozen external contract. Preserve the
+    # method and warning in its existing message field instead of changing
+    # the extraction or validation schemas.
+    return "normalization_method={}; warning={}; {}".format(
+        method,
+        warning or "NONE",
+        detail,
+    )
 
 
 def normalize_optional_text(value: Optional[str]) -> Optional[str]:
@@ -130,8 +156,79 @@ def normalize_country_name(
             raw_value=raw_input,
             normalized_value=None,
             status="EMPTY",
-            message="{} 값이 비어 있습니다.".format(field),
+            message=_country_audit_message(
+                "EMPTY",
+                "{} 값이 비어 있습니다.".format(field),
+                "국가 정규화를 수행하지 않았습니다.",
+            ),
         )
+
+    parenthetical = PARENTHETICAL_COUNTRY_CODE_RE.fullmatch(raw)
+    if parenthetical is not None:
+        country_name = normalize_optional_text(
+            parenthetical.group("name")
+        )
+        parenthetical_code = parenthetical.group("code").upper()
+        name_code = (
+            COUNTRY_ALIASES.get(_alias_key(country_name))
+            if country_name is not None
+            else None
+        )
+        if name_code is None and country_name is not None:
+            name_code = PARENTHETICAL_ONLY_COUNTRY_NAMES.get(
+                _alias_key(country_name)
+            )
+        if name_code is None:
+            return "UNKNOWN", NormalizationAuditEntry(
+                field=field,
+                raw_value=raw_input,
+                normalized_value="UNKNOWN",
+                status="UNKNOWN_ALIAS",
+                message=_country_audit_message(
+                    "UNVERIFIED_COUNTRY_NAME_WITH_CODE",
+                    (
+                        "괄호 코드 {}는 국가명 '{}'과 일치하는지 검증할 수 "
+                        "없어 사용하지 않았습니다."
+                    ).format(parenthetical_code, country_name),
+                    (
+                        "유사도 추정 없이 원본은 audit에 보존하고 "
+                        "정규화값은 UNKNOWN으로 처리했습니다."
+                    ),
+                ),
+            )
+        if (
+            parenthetical_code not in VERIFIED_COUNTRY_CODES
+            or name_code != parenthetical_code
+        ):
+            return "UNKNOWN", NormalizationAuditEntry(
+                field=field,
+                raw_value=raw_input,
+                normalized_value="UNKNOWN",
+                status="UNKNOWN_ALIAS",
+                message=_country_audit_message(
+                    "COUNTRY_NAME_CODE_CONFLICT",
+                    (
+                        "국가명 '{}'의 확인 코드 {}와 괄호 코드 {}가 "
+                        "일치하지 않습니다."
+                    ).format(country_name, name_code, parenthetical_code),
+                    "충돌한 국가 표현을 UNKNOWN으로 처리했습니다.",
+                ),
+            )
+        return parenthetical_code, NormalizationAuditEntry(
+            field=field,
+            raw_value=raw_input,
+            normalized_value=parenthetical_code,
+            status="NORMALIZED",
+            message=_country_audit_message(
+                "VERIFIED_COUNTRY_NAME_AND_CODE",
+                None,
+                (
+                    "{} 국가명 '{}'과 괄호 코드 {}의 일치를 검증해 "
+                    "정규화했습니다."
+                ).format(field, country_name, parenthetical_code),
+            ),
+        )
+
     if re.fullmatch(r"[A-Za-z]{2}", raw):
         normalized_code = raw.upper()
         return normalized_code, NormalizationAuditEntry(
@@ -143,11 +240,12 @@ def normalize_country_name(
                 if raw == normalized_code
                 else "NORMALIZED"
             ),
-            message=(
+            message=_country_audit_message(
+                "DIRECT_ALPHA_2",
+                None,
                 "{} 국가 코드를 {}로 사용합니다.".format(
-                    field,
-                    normalized_code,
-                )
+                    field, normalized_code
+                ),
             ),
         )
 
@@ -158,9 +256,13 @@ def normalize_country_name(
             raw_value=raw_input,
             normalized_value=alias,
             status="NORMALIZED",
-            message=(
-                "{}가 '{}'로 추출되어 내부적으로 '{}' 코드로 "
-                "정규화했습니다.".format(field, raw, alias)
+            message=_country_audit_message(
+                "VERIFIED_COUNTRY_ALIAS",
+                None,
+                (
+                    "{}가 '{}'로 추출되어 내부적으로 '{}' 코드로 "
+                    "정규화했습니다."
+                ).format(field, raw, alias),
             ),
         )
     return raw, NormalizationAuditEntry(
@@ -168,9 +270,13 @@ def normalize_country_name(
         raw_value=raw_input,
         normalized_value=raw,
         status="UNKNOWN_ALIAS",
-        message=(
-            "{}의 국가명 '{}'에 대응하는 확인된 ISO 별칭이 없어 "
-            "원본을 유지했습니다.".format(field, raw)
+        message=_country_audit_message(
+            "UNVERIFIED_COUNTRY_ALIAS",
+            (
+                "{}의 국가명 '{}'에 대응하는 확인된 ISO 별칭이 "
+                "없습니다."
+            ).format(field, raw),
+            "유사도 추정 없이 원본 국가 표현을 유지했습니다.",
         ),
     )
 
