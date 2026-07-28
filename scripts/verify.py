@@ -269,6 +269,20 @@ def _check_demo(errors: List[str]) -> None:
         errors.append("import decision demo confuses buffer and payment gap")
     if "FX_RECEIPT_RISK" not in export_packet.risk_summary.risk_codes:
         errors.append("export decision demo lost receipt risk direction")
+    if (
+        import_demo["trade_risk_assessment"].risk_type
+        != "IMPORT_PREPAYMENT_PERFORMANCE_RISK"
+        or import_demo["trade_risk_assessment"].review_priority
+        != "HIGH_REVIEW"
+    ):
+        errors.append("import demo trade settlement risk is invalid")
+    if (
+        export_demo["trade_risk_assessment"].risk_type
+        != "EXPORT_RECEIVABLE_COLLECTION_RISK"
+        or export_demo["trade_risk_assessment"].review_priority
+        != "HIGH_REVIEW"
+    ):
+        errors.append("export demo trade settlement risk is invalid")
 
     integrated_import = run_integrated_decision_demo("BUYER")
     integrated_export = run_integrated_decision_demo("SELLER")
@@ -336,11 +350,14 @@ def _check_imports(errors: List[str]) -> None:
         "src.application.market_integration_service",
         "src.application.consultation_service",
         "src.application.stage2_input_service",
+        "src.application.trade_risk_service",
         "src.consultation.packet",
         "src.consultation.response_mapping",
         "src.consultation.risk_classifier",
+        "src.consultation.trade_settlement_risk",
         "src.domain.consultation_models",
         "src.domain.stage1_web_models",
+        "src.domain.trade_risk_models",
         "src.security.upload_guard",
         "src.stage1.adapter",
         "src.stage1.forecast_provider",

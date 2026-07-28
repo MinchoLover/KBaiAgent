@@ -202,3 +202,41 @@ Trade-off: 한 사용자 탭에 두 내부 Stage가 연결되므로 소스의 `w
 
 Revisit condition: 다중 사용자 case 관리나 역할별 화면이 P0가 되면 Streamlit 탭이
 아닌 page router와 별도 상담자 화면을 검토합니다.
+
+## 22. Settlement risk is a separate confirmed, deterministic assessment
+
+Context: 기존 Stage 1은 환율 경로위험, Stage 2는 현금·유동성, Stage 3은 가정 기반
+환헤지 후보를 담당합니다. 신규 거래처, 수입 선지급, 수출 사후송금, 신용장·보험·
+보증 여부를 이 계산에 섞으면 서로 다른 위험의 대응수단이 혼동됩니다. 또한
+`has_insurance=false` 같은 기본값은 “없다고 확인”과 “정보 없음”을 구분하지
+못합니다.
+
+Decision: 번호가 붙은 새 Stage를 만들지 않고 consultation 보조 분석으로
+`TradeSettlementRiskInput`과 독립 confirmation fingerprint를 둡니다.
+`advance_payment_ratio`의 저장 단위는 0~1 `Decimal` 문자열이고 화면에서만
+0~100%로 변환합니다. 일부 선지급 후 잔액 조건을 표현하기 위해
+`balance_payment_method`를 사용하며 신용장 여부 boolean은 추가하지 않습니다.
+보호수단은 `UNKNOWN`, `NONE_CONFIRMED`, `DETAILS_PROVIDED`와 종류·현재 거래
+적용범위로 나눕니다. 문서 근거가 있는 결제조건만 prefill하고 사용자가 확인한
+snapshot만 규칙 엔진에 전달합니다.
+
+수입은 `IMPORT_PREPAYMENT_PERFORMANCE_RISK`, 수출은
+`EXPORT_RECEIVABLE_COLLECTION_RISK` 규칙표를 따로 사용합니다. 출력은 임의의
+0~100 점수 대신 `STANDARD_REVIEW`, `ELEVATED_REVIEW`, `HIGH_REVIEW`,
+`UNKNOWN` 검토 우선도와 규칙별 근거를 제공합니다. 수출 90일은 공식 등급 경계가
+아닌 공개된 MVP 장기조건 추가 검토 기준입니다. 적용범위가 확인되지 않은 보호수단은
+위험을 낮추지 않으며, 확인된 보호수단도 최대 한 단계만 낮춥니다. 신용장은 발행은행,
+확인 여부, 서류조건을 평가하지 않으므로 그 존재만으로 위험 제거로 처리하지 않습니다.
+
+Boundary: 이 평가는 환율 시나리오, 원화 cash ledger, 헤지 후보 또는 상품 승인·
+보험 인수 가능성을 변경하지 않습니다. 결제·회수 입력 변경은 기존 Stage 1~3 결과를
+보존하고 이 평가와 이를 참조할 수 있는 후속 공동 산출물만 무효화합니다. 문서 확인
+값이 바뀌면 거래 fingerprint가 달라지므로 기존 평가를 폐기합니다.
+
+Trade-off: 국가·은행·거래처 신용 데이터가 없는 MVP이므로 부도확률이나 신용등급을
+제공하지 못하지만, 설문 점수 대신 문서 조건·사용자 확인·결정론 근거의 경계를
+감사할 수 있습니다.
+
+Revisit condition: T4 국가·무역환경 위험 또는 T5~T7 금융 대응·보고서 연결을
+구현할 때도 이 우선도를 환율 위험과 합산하지 않고 별도 축으로 유지합니다. 90일
+기준과 규칙 강도는 전문가 검토 및 사례 데이터로 검증된 뒤 version을 올려 변경합니다.

@@ -1,9 +1,13 @@
 import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sample_data import sample_extraction
 from src.application.consultation_service import build_decision_support
+from src.consultation.trade_settlement_risk import (
+    assess_trade_settlement_risk,
+    create_trade_risk_confirmation,
+)
 from src.config import Settings
 from src.document_intake.confirmation import (
     create_confirmation_record,
@@ -16,6 +20,11 @@ from src.domain.stage2_models import (
     Stage2Input,
 )
 from src.domain.stage1_models import ScenarioPoint, Stage1ScenarioSet
+from src.domain.trade_risk_models import (
+    TradeRiskConfirmationRecord,
+    TradeSettlementRiskAssessment,
+    TradeSettlementRiskInput,
+)
 from src.stage2.binding import confirmed_trade_from_confirmation
 from src.workflow.orchestrator import (
     WorkflowOrchestrator,
@@ -155,6 +164,45 @@ def _decision_scenarios(company_role: str) -> Stage1ScenarioSet:
             ),
         ],
     )
+
+
+def _decision_trade_risk(
+    *,
+    company_role: str,
+    confirmed_trade_sha256: str,
+) -> Tuple[TradeRiskConfirmationRecord, TradeSettlementRiskAssessment]:
+    is_import = company_role == "BUYER"
+    risk_input = TradeSettlementRiskInput(
+        confirmed_trade_sha256=confirmed_trade_sha256,
+        trade_type="IMPORT" if is_import else "EXPORT",
+        counterparty_relationship="NEW",
+        advance_payment_ratio="0.3" if is_import else "0",
+        balance_payment_method=(
+            "DOCUMENTARY_CREDIT" if is_import else "OPEN_ACCOUNT"
+        ),
+        payment_term_days=90,
+        payment_term_basis="EXPLICIT_NET_TERM",
+        protection_information_status="NONE_CONFIRMED",
+        protection_mechanisms=[],
+        field_sources={
+            "counterparty_relationship": "USER_CONFIRMED",
+            "advance_payment_ratio": "USER_CONFIRMED",
+            "balance_payment_method": "USER_CONFIRMED",
+            "payment_term_days": "USER_CONFIRMED",
+            "protection_information_status": "USER_CONFIRMED",
+        },
+    )
+    confirmation: TradeRiskConfirmationRecord = (
+        create_trade_risk_confirmation(
+            confirmed_input=risk_input,
+            confirmed_by="offline-decision-demo",
+            confirmed_at="2026-07-23T09:00:00+09:00",
+        )
+    )
+    assessment: TradeSettlementRiskAssessment = (
+        assess_trade_settlement_risk(confirmation)
+    )
+    return confirmation, assessment
 
 
 def _require_completed(state: WorkflowState) -> None:
@@ -301,6 +349,12 @@ def run_decision_support_demo(
         company_role=company_role,
         confirmed_trade_sha256=confirmed_trade.trade_sha256,
     )
+    trade_risk_confirmation, trade_risk_assessment = (
+        _decision_trade_risk(
+            company_role=company_role,
+            confirmed_trade_sha256=confirmed_trade.trade_sha256,
+        )
+    )
     workflow = orchestrator or WorkflowOrchestrator(
         settings=Settings(
             stage1_provider=(
@@ -347,6 +401,7 @@ def run_decision_support_demo(
         stage1=state.market_risk.data.scenario_set,
         stage2_input=stage2_input,
         stage2_result=state.cashflow.data,
+        trade_settlement_risk=trade_risk_assessment,
         generated_at="2026-07-23T09:00:00+09:00",
     )
     return {
@@ -358,6 +413,8 @@ def run_decision_support_demo(
         "market_integration": state.market_integration,
         "stage2_input": stage2_input,
         "stage2": state.cashflow.data,
+        "trade_risk_confirmation": trade_risk_confirmation,
+        "trade_risk_assessment": trade_risk_assessment,
         "stage3": state.hedge.data,
         "stage4": state.product_search.data,
         "report": state.final_report,

@@ -3,6 +3,7 @@ from typing import Dict, List, Literal, Optional
 from pydantic import Field
 
 from schemas import StrictModel
+from src.domain.trade_risk_models import TradeSettlementRiskAssessment
 
 
 RiskCode = Literal[
@@ -138,6 +139,9 @@ class ConsultationPacketResult(StrictModel):
 
 class DecisionSupportResult(StrictModel):
     risk_assessment: RiskAssessment
+    trade_settlement_risk: Optional[
+        TradeSettlementRiskAssessment
+    ] = None
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )

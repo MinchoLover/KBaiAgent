@@ -7,7 +7,12 @@ from src.document_intake.confirmation import (
     discard_stale_evidence_after_review,
     validate_confirmation,
 )
-from src.ui.state import clear_confirmation_and_later
+from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+from src.ui.state import (
+    clear_confirmation_and_later,
+    clear_downstream,
+    clear_trade_risk_and_related,
+)
 from src.ui.components import validation_issue_copy
 from validators import apply_deterministic_review_state
 
@@ -100,6 +105,8 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
             "stage0_output": {"source": {}},
             "stage2_document_input": {"source": {}},
             "stage2_result": {"result": "stale"},
+            "trade_risk_confirmation": {"risk": "stale"},
+            "trade_risk_assessment": {"priority": "stale"},
             "workflow_state": {"case_id": "stale"},
             "review_audit_trail": [{"before": "kept"}],
             "confirm_currency_widget": True,
@@ -114,13 +121,114 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
             "stage0_output",
             "stage2_document_input",
             "stage2_result",
+            "trade_risk_confirmation",
+            "trade_risk_assessment",
             "workflow_state",
             "confirm_currency_widget",
         ):
             self.assertNotIn(key, state)
 
+    def test_stage2_recalculation_preserves_independent_trade_risk(self):
+        state = {
+            "stage2_input": {"cash": "old"},
+            "stage2_result": {"cash": "old"},
+            "trade_risk_confirmation": {"risk": "confirmed"},
+            "trade_risk_assessment": {"priority": "HIGH_REVIEW"},
+            "stage3_result": {"hedge": "old"},
+            "consultation_packet": {"packet": "old"},
+        }
+
+        clear_downstream(state, 2)
+
+        self.assertIn("trade_risk_confirmation", state)
+        self.assertIn("trade_risk_assessment", state)
+        for key in (
+            "stage2_input",
+            "stage2_result",
+            "stage3_result",
+            "consultation_packet",
+        ):
+            self.assertNotIn(key, state)
+
+    def test_trade_risk_change_only_clears_derived_shared_outputs(self):
+        state = {
+            "stage1_load": {"market": "kept"},
+            "stage2_input": {"cash": "kept"},
+            "stage2_result": {"cash": "kept"},
+            "stage3_result": {"hedge": "kept"},
+            "stage4_result": {"products": "kept"},
+            "trade_risk_confirmation": {"risk": "stale"},
+            "trade_risk_assessment": {"priority": "stale"},
+            "consultation_packet": {"packet": "stale"},
+            "report_result": {"report": "stale"},
+        }
+
+        clear_trade_risk_and_related(state)
+
+        for key in (
+            "stage1_load",
+            "stage2_input",
+            "stage2_result",
+            "stage3_result",
+            "stage4_result",
+        ):
+            self.assertIn(key, state)
+        for key in (
+            "trade_risk_confirmation",
+            "trade_risk_assessment",
+            "consultation_packet",
+            "report_result",
+        ):
+            self.assertNotIn(key, state)
+
 
 class StreamlitReviewEvidenceTests(unittest.TestCase):
+    def test_demo_exposes_trade_risk_without_ui_exception(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        demo = next(
+            button
+            for button in app.button
+            if button.label == "수입기업 대표 데모"
+        )
+        demo.click().run()
+
+        self.assertEqual(len(app.exception), 0)
+        self.assertIn("trade_risk_confirmation", app.session_state)
+        self.assertIn("trade_risk_assessment", app.session_state)
+        assessment = TradeSettlementRiskAssessment.model_validate(
+            app.session_state["trade_risk_assessment"]
+        )
+        self.assertEqual(assessment.review_priority, "HIGH_REVIEW")
+        stage3_before = app.session_state["stage3_result"]
+
+        relationship = next(
+            widget
+            for widget in app.selectbox
+            if widget.key == "trade_risk_relationship_widget"
+        )
+        relationship.set_value("EXISTING")
+        confirmation = next(
+            widget
+            for widget in app.checkbox
+            if widget.key == "trade_risk_confirm_widget"
+        )
+        confirmation.set_value(True)
+        submit = next(
+            button
+            for button in app.button
+            if button.label == "결제·회수 위험 확인"
+        )
+        submit.click().run()
+
+        self.assertEqual(len(app.exception), 0)
+        updated = TradeSettlementRiskAssessment.model_validate(
+            app.session_state["trade_risk_assessment"]
+        )
+        self.assertEqual(updated.review_priority, "ELEVATED_REVIEW")
+        self.assertEqual(app.session_state["stage3_result"], stage3_before)
+
     def test_review_edit_clears_evidence_and_prior_confirmation_state(self):
         from streamlit.testing.v1 import AppTest
 

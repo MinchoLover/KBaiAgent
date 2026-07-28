@@ -8,6 +8,7 @@ from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import DecisionSupportResult
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
+from src.domain.trade_risk_models import TradeSettlementRiskAssessment
 
 
 def build_decision_support(
@@ -18,6 +19,9 @@ def build_decision_support(
     stage1: NormalizedScenarioSet,
     stage2_input: Stage2Input,
     stage2_result: Stage2Result,
+    trade_settlement_risk: Optional[
+        TradeSettlementRiskAssessment
+    ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
 ) -> DecisionSupportResult:
@@ -45,6 +49,7 @@ def build_decision_support(
     )
     return DecisionSupportResult(
         risk_assessment=assessment,
+        trade_settlement_risk=trade_settlement_risk,
         consultation_topics=topics,
         consultation_packet=packet,
     )

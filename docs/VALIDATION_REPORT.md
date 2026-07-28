@@ -9,7 +9,8 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache python -m compileall ...` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 274/274 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 304/304 PASS |
+| 거래·결제 위험 P0 | `python -m unittest tests.test_trade_settlement_risk tests.test_ui_evidence_state -v` | 34/34 PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
@@ -119,6 +120,38 @@ USD 100,000 수취 거래에서 기준 수취액 140,000,000원, -5% 스트레�
 
 두 대표 사례는 90일 결제이므로 Stage 1 모델 분위수가 계산에서 제외되고
 `HORIZON_MISMATCH`가 보고서까지 전달됩니다.
+
+## 거래·결제 위험 검증
+
+수입 선지급·계약이행 위험과 수출대금 회수 위험을 기존 환율·유동성 계산과 분리해
+검증했습니다.
+
+```text
+수입 데모: 신규 거래처 + 30% 선지급 + 보호수단 없음
+결과: IMPORT_PREPAYMENT_PERFORMANCE_RISK / HIGH_REVIEW
+
+수출 데모: 신규 거래처 + Open Account 90일 + 보호수단 없음
+결과: EXPORT_RECEIVABLE_COLLECTION_RISK / HIGH_REVIEW
+```
+
+자동 테스트 범위:
+
+- 선지급 비율 0~1 Decimal 문자열 계약과 화면 % 단위 분리
+- 미확인 선지급과 확인된 0% 구분, 범위·과학표기·float 거부
+- 전액 선지급과 잔여대금 결제방식·기간의 교차 검증
+- `UNKNOWN`, `NONE_CONFIRMED`, 보호수단 상세 상태 구분
+- 수입용 보증과 수출보험·지급보증의 거래방향별 적용 제한
+- 적용범위 미확인 보호수단의 감경 금지와 확인된 보호수단의 제한적 감경
+- Open Account, D/P, D/A, 종류 미확인 추심, 신용장 조건의 구분
+- 사건 기준 결제조건을 임의의 일수로 변환하지 않음
+- 89일과 공개된 MVP 90일 장기조건 검토 경계
+- confirmation fingerprint 결정성 및 변조 거부
+- 문서 변경 시 위험 snapshot 폐기, 위험조건 변경 시 Stage 1~3 결과 보존
+- 수입·수출 대표 데모와 Streamlit 렌더링
+
+이 결과는 숫자 신용점수, 부도확률, 공식 심사등급이 아닙니다. 국가위험, 거래처
+재무정보, 신용장 발행은행·확인 여부·서류불일치, 보험 약관·보증 범위는 이번 P0에서
+평가하지 않았습니다.
 
 ## Stage 3·보고서 검증
 

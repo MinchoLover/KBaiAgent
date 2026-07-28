@@ -21,7 +21,12 @@ from src.application.stage2_input_service import (
     build_stage2_input_from_form,
 )
 from src.application.consultation_service import build_decision_support
+from src.application.trade_risk_service import build_trade_risk_prefill
 from src.config import Settings
+from src.consultation.trade_settlement_risk import (
+    assess_trade_settlement_risk,
+    create_trade_risk_confirmation,
+)
 from src.demo import run_decision_support_demo
 from src.document_intake.confirmation import (
     ConfirmationRecord,
@@ -50,7 +55,14 @@ from src.domain.stage1_models import Stage1LoadResult
 from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.stage3_models import Stage3Assumptions, Stage3Result
+from src.domain.trade_risk_models import (
+    ProtectionMechanism,
+    TradeRiskConfirmationRecord,
+    TradeSettlementRiskAssessment,
+    TradeSettlementRiskInput,
+)
 from src.security.upload_guard import validate_upload
+from src.stage2.binding import confirmed_trade_from_document_input
 from src.ui.components import (
     decimal_text,
     evidence_rows,
@@ -71,6 +83,7 @@ from src.ui.state import (
     clear_confirmation_and_later,
     clear_downstream,
     clear_review_widgets,
+    clear_trade_risk_and_related,
     clear_transaction_widgets,
     input_signature,
     sync_input_signature,
@@ -122,6 +135,11 @@ def _live_source_page_texts(
 
 def _save_decision_support(value: DecisionSupportResult) -> None:
     _save_model("risk_assessment", value.risk_assessment)
+    if value.trade_settlement_risk is not None:
+        _save_model(
+            "trade_risk_assessment",
+            value.trade_settlement_risk,
+        )
     st.session_state["consultation_topics"] = [
         item.model_dump() for item in value.consultation_topics
     ]
@@ -355,6 +373,492 @@ def _stage2_form_defaults(
     return defaults
 
 
+def _trade_risk_form_defaults(
+    *,
+    extraction: TradeDocumentExtraction,
+    confirmation: Optional[TradeRiskConfirmationRecord],
+) -> Dict[str, Any]:
+    if confirmation is None:
+        prefill = build_trade_risk_prefill(extraction)
+        ratio = prefill.advance_payment_ratio
+        return {
+            "relationship": "UNKNOWN",
+            "advance_status": (
+                "UNKNOWN"
+                if ratio is None
+                else "NONE_CONFIRMED"
+                if Decimal(ratio) == 0
+                else "RATIO_CONFIRMED"
+            ),
+            "advance_percent": (
+                float(Decimal(ratio) * Decimal("100"))
+                if ratio is not None
+                else 0.0
+            ),
+            "balance_method": prefill.balance_payment_method,
+            "term_basis": prefill.payment_term_basis,
+            "term_days": prefill.payment_term_days or 0,
+            "protection_status": "UNKNOWN",
+            "protection_types": [],
+            "protection_applicability": "PRESENT_SCOPE_UNVERIFIED",
+        }
+
+    confirmed = confirmation.confirmed_input
+    ratio = confirmed.advance_payment_ratio
+    applicability_values = {
+        item.applicability_status
+        for item in confirmed.protection_mechanisms
+    }
+    return {
+        "relationship": confirmed.counterparty_relationship,
+        "advance_status": (
+            "UNKNOWN"
+            if ratio is None
+            else "NONE_CONFIRMED"
+            if Decimal(ratio) == 0
+            else "RATIO_CONFIRMED"
+        ),
+        "advance_percent": (
+            float(Decimal(ratio) * Decimal("100"))
+            if ratio is not None
+            else 0.0
+        ),
+        "balance_method": confirmed.balance_payment_method,
+        "term_basis": confirmed.payment_term_basis,
+        "term_days": confirmed.payment_term_days or 0,
+        "protection_status": confirmed.protection_information_status,
+        "protection_types": [
+            item.protection_type
+            for item in confirmed.protection_mechanisms
+        ],
+        "protection_applicability": (
+            "CONFIRMED_APPLICABLE"
+            if applicability_values == {"CONFIRMED_APPLICABLE"}
+            else "PRESENT_SCOPE_UNVERIFIED"
+        ),
+    }
+
+
+def _trade_risk_ratio(
+    *,
+    status: str,
+    percent: float,
+) -> Optional[str]:
+    if status == "UNKNOWN":
+        return None
+    if status == "NONE_CONFIRMED":
+        return "0"
+    ratio = Decimal(str(percent)) / Decimal("100")
+    if ratio == 0:
+        return "0"
+    if ratio == 1:
+        return "1"
+    return format(ratio.normalize(), "f")
+
+
+def _trade_risk_priority_copy(
+    value: TradeSettlementRiskAssessment,
+) -> Tuple[str, str, str]:
+    mapping = {
+        "HIGH_REVIEW": (
+            "danger",
+            "우선 검토 필요",
+            "보호수단과 계약조건을 거래 진행 전에 먼저 확인하세요.",
+        ),
+        "ELEVATED_REVIEW": (
+            "warning",
+            "추가 검토 필요",
+            "확인된 위험 신호가 있어 계약조건 보완 검토가 필요합니다.",
+        ),
+        "STANDARD_REVIEW": (
+            "safe",
+            "일반 검토",
+            "확인된 정보에서는 우선 검토를 높일 조합이 발견되지 않았습니다.",
+        ),
+        "UNKNOWN": (
+            "warning",
+            "정보 확인 필요",
+            "미확인 정보가 있어 검토 우선도를 아직 정할 수 없습니다.",
+        ),
+    }
+    return mapping[value.review_priority]
+
+
+def _render_trade_risk_section(
+    *,
+    document_input: Dict[str, Any],
+    extraction: TradeDocumentExtraction,
+) -> None:
+    trade_binding = confirmed_trade_from_document_input(document_input)
+    stored_confirmation = _model_from_state(
+        "trade_risk_confirmation",
+        TradeRiskConfirmationRecord,
+    )
+    if (
+        stored_confirmation is not None
+        and stored_confirmation.confirmed_input.confirmed_trade_sha256
+        != trade_binding.trade_sha256
+    ):
+        clear_trade_risk_and_related(st.session_state)
+        stored_confirmation = None
+    defaults = _trade_risk_form_defaults(
+        extraction=extraction,
+        confirmation=stored_confirmation,
+    )
+
+    with st.expander(
+        "거래·결제조건 확인",
+        expanded=stored_confirmation is None,
+    ):
+        st.caption(
+            "문서에서 확인 가능한 결제조건을 먼저 채웠습니다. 신규 거래처 여부와 "
+            "보호수단은 추측하지 않으므로 직접 확인해 주세요."
+        )
+        with st.form("trade_risk_confirmation_form"):
+            overview_cols = st.columns(2)
+            relationship = overview_cols[0].selectbox(
+                "거래처 관계",
+                ["UNKNOWN", "NEW", "EXISTING"],
+                index=_safe_index(
+                    ["UNKNOWN", "NEW", "EXISTING"],
+                    defaults["relationship"],
+                ),
+                format_func=lambda value: {
+                    "UNKNOWN": "미확인",
+                    "NEW": "신규 거래처",
+                    "EXISTING": "기존 거래처",
+                }[value],
+                key="trade_risk_relationship_widget",
+            )
+            advance_status = overview_cols[1].selectbox(
+                "선지급 조건",
+                ["UNKNOWN", "NONE_CONFIRMED", "RATIO_CONFIRMED"],
+                index=_safe_index(
+                    ["UNKNOWN", "NONE_CONFIRMED", "RATIO_CONFIRMED"],
+                    defaults["advance_status"],
+                ),
+                format_func=lambda value: {
+                    "UNKNOWN": "미확인",
+                    "NONE_CONFIRMED": "선지급 없음",
+                    "RATIO_CONFIRMED": "선지급 비율 확인",
+                }[value],
+                key="trade_risk_advance_status_widget",
+            )
+            advance_percent = 0.0
+            if advance_status == "RATIO_CONFIRMED":
+                advance_percent = st.number_input(
+                    "선지급 비율 · %",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=float(defaults["advance_percent"]),
+                    step=1.0,
+                    help="화면에서는 %로 입력하고 내부 계약에는 0~1 비율로 저장합니다.",
+                    key="trade_risk_advance_percent_widget",
+                )
+
+            method_options = [
+                "UNKNOWN",
+                "OPEN_ACCOUNT",
+                "DOCUMENTARY_CREDIT",
+                "DOCUMENTARY_COLLECTION_DP",
+                "DOCUMENTARY_COLLECTION_DA",
+                "DOCUMENTARY_COLLECTION_UNSPECIFIED",
+                "OTHER",
+            ]
+            term_cols = st.columns(2)
+            balance_method = term_cols[0].selectbox(
+                "잔여대금 결제방식",
+                method_options,
+                index=_safe_index(
+                    method_options,
+                    (
+                        "UNKNOWN"
+                        if defaults["balance_method"] == "NOT_APPLICABLE"
+                        else defaults["balance_method"]
+                    ),
+                ),
+                format_func=lambda value: {
+                    "UNKNOWN": "미확인",
+                    "OPEN_ACCOUNT": "Open Account · 사후송금",
+                    "DOCUMENTARY_CREDIT": "신용장 · L/C",
+                    "DOCUMENTARY_COLLECTION_DP": "추심 D/P",
+                    "DOCUMENTARY_COLLECTION_DA": "추심 D/A",
+                    "DOCUMENTARY_COLLECTION_UNSPECIFIED": "추심 · 방식 미확인",
+                    "OTHER": "기타",
+                }[value],
+                key="trade_risk_balance_method_widget",
+            )
+            term_basis_options = [
+                "UNKNOWN",
+                "EXPLICIT_NET_TERM",
+                "CONFIRMED_DATE_INTERVAL",
+                "EVENT_BASED_UNRESOLVED",
+                "NOT_APPLICABLE",
+            ]
+            term_basis = term_cols[1].selectbox(
+                "잔여대금 기간 기준",
+                term_basis_options,
+                index=_safe_index(
+                    term_basis_options,
+                    defaults["term_basis"],
+                ),
+                format_func=lambda value: {
+                    "UNKNOWN": "미확인",
+                    "EXPLICIT_NET_TERM": "문서에 Net N일 명시",
+                    "CONFIRMED_DATE_INTERVAL": "날짜 간격 직접 확인",
+                    "EVENT_BASED_UNRESOLVED": "선적·B/L·검수 등 사건 기준",
+                    "NOT_APPLICABLE": "해당 없음",
+                }[value],
+                key="trade_risk_term_basis_widget",
+            )
+            term_days = 0
+            if term_basis in {
+                "EXPLICIT_NET_TERM",
+                "CONFIRMED_DATE_INTERVAL",
+            }:
+                term_days = st.number_input(
+                    "잔여대금 회수기간 · 일",
+                    min_value=0,
+                    max_value=3650,
+                    value=int(defaults["term_days"]),
+                    key="trade_risk_term_days_widget",
+                )
+
+            protection_status = st.selectbox(
+                "보호수단 확인 상태",
+                ["UNKNOWN", "NONE_CONFIRMED", "DETAILS_PROVIDED"],
+                index=_safe_index(
+                    ["UNKNOWN", "NONE_CONFIRMED", "DETAILS_PROVIDED"],
+                    defaults["protection_status"],
+                ),
+                format_func=lambda value: {
+                    "UNKNOWN": "미확인",
+                    "NONE_CONFIRMED": "없음 확인",
+                    "DETAILS_PROVIDED": "보호수단 있음",
+                }[value],
+                key="trade_risk_protection_status_widget",
+            )
+            protection_types: List[str] = []
+            protection_applicability = "PRESENT_SCOPE_UNVERIFIED"
+            if protection_status == "DETAILS_PROVIDED":
+                if trade_binding.trade_type == "IMPORT":
+                    protection_options = [
+                        "ADVANCE_PAYMENT_GUARANTEE",
+                        "PERFORMANCE_GUARANTEE",
+                        "OTHER",
+                    ]
+                else:
+                    protection_options = [
+                        "PAYMENT_GUARANTEE",
+                        "EXPORT_CREDIT_INSURANCE",
+                        "STANDBY_LETTER_OF_CREDIT",
+                        "OTHER",
+                    ]
+                protection_types = st.multiselect(
+                    "보호수단 종류",
+                    protection_options,
+                    default=[
+                        value
+                        for value in defaults["protection_types"]
+                        if value in protection_options
+                    ],
+                    format_func=lambda value: {
+                        "ADVANCE_PAYMENT_GUARANTEE": "선급금환급보증",
+                        "PERFORMANCE_GUARANTEE": "계약이행보증",
+                        "PAYMENT_GUARANTEE": "지급보증",
+                        "EXPORT_CREDIT_INSURANCE": "수출신용보험",
+                        "STANDBY_LETTER_OF_CREDIT": "보증신용장 · SBLC",
+                        "OTHER": "기타",
+                    }[value],
+                    key="trade_risk_protection_types_widget",
+                )
+                protection_applicability = st.radio(
+                    "이 거래에 실제 적용되는 범위까지 확인했나요?",
+                    [
+                        "PRESENT_SCOPE_UNVERIFIED",
+                        "CONFIRMED_APPLICABLE",
+                    ],
+                    index=_safe_index(
+                        [
+                            "PRESENT_SCOPE_UNVERIFIED",
+                            "CONFIRMED_APPLICABLE",
+                        ],
+                        defaults["protection_applicability"],
+                    ),
+                    format_func=lambda value: {
+                        "PRESENT_SCOPE_UNVERIFIED": "존재만 확인",
+                        "CONFIRMED_APPLICABLE": "현재 거래 적용범위 확인",
+                    }[value],
+                    horizontal=True,
+                    key="trade_risk_protection_applicability_widget",
+                )
+            confirmed_by_user = st.checkbox(
+                "위 입력값을 확인했습니다.",
+                key="trade_risk_confirm_widget",
+            )
+            submitted = st.form_submit_button(
+                "결제·회수 위험 확인",
+                type="primary",
+            )
+
+        if submitted:
+            try:
+                if not confirmed_by_user:
+                    raise ValueError("입력값 확인 체크가 필요합니다.")
+                ratio = _trade_risk_ratio(
+                    status=advance_status,
+                    percent=advance_percent,
+                )
+                if ratio == "1":
+                    balance_method = "NOT_APPLICABLE"
+                    term_basis = "NOT_APPLICABLE"
+                    term_days_value: Optional[int] = None
+                else:
+                    term_days_value = (
+                        int(term_days)
+                        if term_basis
+                        in {
+                            "EXPLICIT_NET_TERM",
+                            "CONFIRMED_DATE_INTERVAL",
+                        }
+                        else None
+                    )
+                mechanisms = [
+                    ProtectionMechanism(
+                        protection_type=value,
+                        applicability_status=protection_applicability,
+                        source="USER_CONFIRMED",
+                    )
+                    for value in protection_types
+                ]
+                risk_input = TradeSettlementRiskInput(
+                    confirmed_trade_sha256=trade_binding.trade_sha256,
+                    trade_type=trade_binding.trade_type,
+                    counterparty_relationship=relationship,
+                    advance_payment_ratio=ratio,
+                    balance_payment_method=balance_method,
+                    payment_term_days=term_days_value,
+                    payment_term_basis=term_basis,
+                    protection_information_status=protection_status,
+                    protection_mechanisms=mechanisms,
+                    field_sources={
+                        "counterparty_relationship": "USER_CONFIRMED",
+                        "advance_payment_ratio": "USER_CONFIRMED",
+                        "balance_payment_method": "USER_CONFIRMED",
+                        "payment_term_days": "USER_CONFIRMED",
+                        "protection_information_status": "USER_CONFIRMED",
+                    },
+                )
+                record = create_trade_risk_confirmation(
+                    confirmed_input=risk_input,
+                    confirmed_by="streamlit-user",
+                )
+                assessment = assess_trade_settlement_risk(record)
+                clear_trade_risk_and_related(st.session_state)
+                _save_model("trade_risk_confirmation", record)
+                _save_model("trade_risk_assessment", assessment)
+
+                workflow = _workflow_from_state()
+                stage1_load = _model_from_state(
+                    "stage1_load",
+                    Stage1LoadResult,
+                )
+                stage2_input = _model_from_state(
+                    "stage2_input",
+                    Stage2Input,
+                )
+                stage2_result = _model_from_state(
+                    "stage2_result",
+                    Stage2Result,
+                )
+                document_confirmation = _model_from_state(
+                    "confirmation",
+                    ConfirmationRecord,
+                )
+                if (
+                    workflow is not None
+                    and stage1_load is not None
+                    and stage2_input is not None
+                    and stage2_result is not None
+                    and document_confirmation is not None
+                ):
+                    decision_support = build_decision_support(
+                        case_id=workflow.case_id,
+                        extraction=extraction,
+                        confirmation=document_confirmation,
+                        stage1=stage1_load.scenario_set,
+                        stage2_input=stage2_input,
+                        stage2_result=stage2_result,
+                        trade_settlement_risk=assessment,
+                        missing_information=list(
+                            extraction.missing_required_fields
+                        ),
+                    )
+                    _save_decision_support(decision_support)
+                st.success("확인된 거래조건으로 결제·회수 위험을 갱신했습니다.")
+            except (ValueError, TypeError) as exc:
+                st.error("거래조건을 확인하세요: {}".format(exc))
+
+    assessment = _model_from_state(
+        "trade_risk_assessment",
+        TradeSettlementRiskAssessment,
+    )
+    if assessment is None:
+        st.info(
+            "거래처 관계와 결제·보호조건을 확인하면 환율 위험과 별도로 "
+            "결제·회수 검토 우선도를 보여드립니다."
+        )
+        return
+    tone, label, headline = _trade_risk_priority_copy(assessment)
+    risk_name = (
+        "수입 선지급·계약이행"
+        if assessment.risk_type
+        == "IMPORT_PREPAYMENT_PERFORMANCE_RISK"
+        else "수출대금 회수"
+    )
+    st.markdown(
+        "<div class='risk-banner {}'><div class='signal'>{}</div>"
+        "<div><strong>{}</strong><p>{}</p></div>"
+        "<div class='detail'>{}</div></div>".format(
+            tone,
+            escape(label),
+            escape(headline),
+            escape(risk_name),
+            "규칙 기반 사전검토",
+        ),
+        unsafe_allow_html=True,
+    )
+    visible_factors = [
+        item
+        for item in assessment.factors
+        if item.effect in {"RISK_SIGNAL", "INFORMATION_GAP"}
+    ][:3]
+    if visible_factors:
+        st.markdown("**핵심 근거**")
+        for factor in visible_factors:
+            st.markdown("- {}".format(factor.reason))
+    if assessment.review_needs:
+        need_labels = {
+            "ADVANCE_PAYMENT_PROTECTION_REVIEW": "선지급 보호수단 검토",
+            "RECEIVABLE_PROTECTION_REVIEW": "수출대금 회수 보호 검토",
+            "DOCUMENTARY_CREDIT_TERMS_REVIEW": "신용장 세부조건 검토",
+            "TRADE_TERMS_REVIEW": "결제조건 재확인",
+            "HUMAN_REVIEW": "담당자 확인",
+        }
+        st.caption(
+            "다음 검토: {}".format(
+                " · ".join(
+                    need_labels[value]
+                    for value in assessment.review_needs
+                )
+            )
+        )
+    st.caption(
+        "공식 신용등급이나 승인 결과가 아니며, 환헤지 비율과 "
+        "유동성 계산을 직접 변경하지 않습니다."
+    )
+
+
 def _scenario_label(value: str) -> str:
     if value == "BASE":
         return "기준 환율"
@@ -479,6 +983,14 @@ def _demo_all(company_role: str = "BUYER") -> None:
     _save_model("stage1_load", result["stage1_load"])
     _save_model("stage2_input", result["stage2_input"])
     _save_model("stage2_result", result["stage2"])
+    _save_model(
+        "trade_risk_confirmation",
+        result["trade_risk_confirmation"],
+    )
+    _save_model(
+        "trade_risk_assessment",
+        result["trade_risk_assessment"],
+    )
     _save_model("risk_assessment", result["risk_assessment"])
     st.session_state["consultation_topics"] = [
         item.model_dump() for item in result["consultation_topics"]
@@ -2505,6 +3017,15 @@ with stage2_tab:
             "현재 현금과 운영자금 방어선을 입력하면 환율이 불리해질 때의 "
             "추가 부담과 실제 지급 부족 여부를 계산합니다.",
         )
+        extraction_for_trade_risk = _model_from_state(
+            "extraction",
+            TradeDocumentExtraction,
+        )
+        if extraction_for_trade_risk is not None:
+            _render_trade_risk_section(
+                document_input=document_input,
+                extraction=extraction_for_trade_risk,
+            )
         trade = document_input["trade"]
         stored_stage2_input = _model_from_state(
             "stage2_input",
@@ -2770,6 +3291,10 @@ with stage2_tab:
                     stage1=workflow.market_risk.data.scenario_set,
                     stage2_input=stage2_input,
                     stage2_result=result,
+                    trade_settlement_risk=_model_from_state(
+                        "trade_risk_assessment",
+                        TradeSettlementRiskAssessment,
+                    ),
                     missing_information=list(
                         extraction_for_decision.missing_required_fields
                     ),

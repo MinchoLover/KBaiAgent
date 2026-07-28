@@ -15,6 +15,8 @@ PIPELINE_KEYS = (
     "market_integration",
     "stage2_input",
     "stage2_result",
+    "trade_risk_confirmation",
+    "trade_risk_assessment",
     "risk_assessment",
     "consultation_topics",
     "consultation_packet",
@@ -90,6 +92,19 @@ STAGE2_WIDGET_KEYS = (
     "stage2_cost_increase_widget",
 )
 
+TRADE_RISK_WIDGET_KEYS = (
+    "trade_risk_relationship_widget",
+    "trade_risk_advance_status_widget",
+    "trade_risk_advance_percent_widget",
+    "trade_risk_balance_method_widget",
+    "trade_risk_term_basis_widget",
+    "trade_risk_term_days_widget",
+    "trade_risk_protection_status_widget",
+    "trade_risk_protection_types_widget",
+    "trade_risk_protection_applicability_widget",
+    "trade_risk_confirm_widget",
+)
+
 STAGE3_WIDGET_KEYS = (
     "stage3_grid_widget",
     "stage3_stability_widget",
@@ -107,6 +122,7 @@ STAGE4_WIDGET_KEYS = (
 
 DOWNSTREAM_WIDGET_KEYS = (
     CONFIRMATION_WIDGET_KEYS
+    + TRADE_RISK_WIDGET_KEYS
     + STAGE1_WIDGET_KEYS
     + STAGE2_WIDGET_KEYS
     + STAGE3_WIDGET_KEYS
@@ -221,6 +237,8 @@ def clear_confirmation_and_later(state: object) -> None:
             "market_integration",
             "stage2_input",
             "stage2_result",
+            "trade_risk_confirmation",
+            "trade_risk_assessment",
             "risk_assessment",
             "consultation_topics",
             "consultation_packet",
@@ -230,6 +248,18 @@ def clear_confirmation_and_later(state: object) -> None:
             "workflow_state",
         )
         + DOWNSTREAM_WIDGET_KEYS,
+    )
+
+
+def clear_trade_risk_and_related(state: object) -> None:
+    clear_keys(
+        state,
+        (
+            "trade_risk_confirmation",
+            "trade_risk_assessment",
+            "consultation_packet",
+            "report_result",
+        ),
     )
 
 
