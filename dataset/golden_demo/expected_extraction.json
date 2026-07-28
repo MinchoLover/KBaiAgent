@@ -1,0 +1,153 @@
+{
+  "document_type": "SALES_CONTRACT",
+  "document_number": "GOLDEN-EXPORT-BR-2026-001",
+  "seller_name": "Hanbit Precision Co., Ltd.",
+  "seller_country": "KR",
+  "buyer_name": "Aurora Comercio de Equipamentos Ltda.",
+  "buyer_country": "BR",
+  "company_role": "SELLER",
+  "trade_type": "EXPORT",
+  "currency": "USD",
+  "grand_total": "100000.00",
+  "amount_due": "100000.00",
+  "issue_date": null,
+  "contract_date": "2026-07-29",
+  "shipment_date": "2026-08-05",
+  "explicit_due_date": "2026-08-20",
+  "derived_due_date": null,
+  "payment_terms": "Payment Terms: 20% advance; 80% balance by T/T on or before 20 August 2026.",
+  "incoterm": "FOB Busan, Incoterms 2020",
+  "installments": [
+    {
+      "sequence": 1,
+      "amount": "20000.00",
+      "currency": "USD",
+      "due_date": "2026-07-29",
+      "condition": "20% advance on contract date"
+    },
+    {
+      "sequence": 2,
+      "amount": "80000.00",
+      "currency": "USD",
+      "due_date": "2026-08-20",
+      "condition": "80% balance by T/T on or before due date"
+    }
+  ],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "SYNTHETIC SAMPLE - NOT LEGALLY BINDING",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The synthetic non-binding notice is explicit."
+    },
+    {
+      "field": "document_notice",
+      "page": 2,
+      "source_text": "SYNTHETIC SAMPLE - NOT LEGALLY BINDING",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The notice is repeated on every page."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Hanbit Precision Co., Ltd. | Country: Republic of Korea (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Seller label identifies the party."
+    },
+    {
+      "field": "seller_country",
+      "page": 1,
+      "source_text": "Seller: Hanbit Precision Co., Ltd. | Country: Republic of Korea (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Seller country name and ISO code agree."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Aurora Comercio de Equipamentos Ltda. | Country: Brazil (BR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Buyer label identifies the party."
+    },
+    {
+      "field": "buyer_country",
+      "page": 1,
+      "source_text": "Buyer: Aurora Comercio de Equipamentos Ltda. | Country: Brazil (BR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Buyer country name and ISO code agree."
+    },
+    {
+      "field": "contract_date",
+      "page": 1,
+      "source_text": "Contract Date: 29 July 2026",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Contract Date label is explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "The total Contract Price is one hundred thousand United States dollars (USD 100,000).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The total price states the USD code."
+    },
+    {
+      "field": "grand_total",
+      "page": 1,
+      "source_text": "The total Contract Price is one hundred thousand United States dollars (USD 100,000).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The total Contract Price is explicit."
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "The total Contract Price is one hundred thousand United States dollars (USD 100,000).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The full contractual receivable is explicit."
+    },
+    {
+      "field": "explicit_due_date",
+      "page": 2,
+      "source_text": "The remaining eighty percent (80%), equal to USD 80,000, shall be paid by T/T remittance on or before 20 August 2026 (Payment Due Date).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Payment Due Date is explicit."
+    },
+    {
+      "field": "payment_terms",
+      "page": 2,
+      "source_text": "Payment Terms: 20% advance; 80% balance by T/T on or before 20 August 2026.",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The split and T/T due date are explicit."
+    },
+    {
+      "field": "installments",
+      "page": 2,
+      "source_text": "The Buyer shall remit twenty percent (20%), equal to USD 20,000, on 29 July 2026 as an advance payment.",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The advance percentage and amount are explicit."
+    },
+    {
+      "field": "installments",
+      "page": 2,
+      "source_text": "The remaining eighty percent (80%), equal to USD 80,000, shall be paid by T/T remittance on or before 20 August 2026 (Payment Due Date).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The balance percentage, amount, and date are explicit."
+    },
+    {
+      "field": "shipment_date",
+      "page": 2,
+      "source_text": "Shipment Date: 5 August 2026",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Shipment Date label is explicit."
+    },
+    {
+      "field": "incoterm",
+      "page": 2,
+      "source_text": "Delivery Term: FOB Busan, Incoterms 2020",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The delivery term is explicit."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}
