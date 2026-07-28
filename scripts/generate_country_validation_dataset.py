@@ -1382,7 +1382,10 @@ def generate(render_documents: bool = True) -> None:
                 "extraction": label.model_dump(),
                 "metadata": {
                     "mode": "fixture",
+                    "evaluation_mode": "FIXTURE",
                     "fixture_only": True,
+                    "model_accuracy_claim_allowed": False,
+                    "purpose": "EVALUATOR_PIPELINE_VALIDATION",
                     "latency_seconds": "0",
                     "input_tokens": 0,
                     "output_tokens": 0,
@@ -1406,6 +1409,8 @@ def generate(render_documents: bool = True) -> None:
                 "user_confirmed": False,
                 "human_approved": False,
                 "fine_tuning_eligible": False,
+                "synthetic_document": True,
+                "real_customer_document": False,
                 "expected_validation_status": spec[
                     "expected_validation_status"
                 ],

@@ -1,5 +1,28 @@
 # AI Use Log
 
+## 2026-07-29 P1-A guarded Live benchmark evidence
+
+Codex가 기존 evaluator를 교체하지 않고 Live 실행에 양수 `--max-cases`,
+`--confirm-live`, 고유 `--run-id`, 합성 test-only manifest 검증과 immutable
+run 디렉터리를 추가했습니다. 사례별 API 오류·timeout을 안전한 실패로 격리하고
+Git·Python·evaluator·prompt·manifest hash, model, 시간, 성공·실패·token을 raw
+prompt·문서·API response 없이 기록합니다. Fixture prediction에는
+`evaluation_mode=FIXTURE`, `model_accuracy_claim_allowed=false`,
+`purpose=EVALUATOR_PIPELINE_VALIDATION`을 명시했습니다.
+
+mock 기반 신규 11개 테스트를 포함한 API-free 전체 394개 테스트, country fixture
+8건 평가, 기존 regression과 `scripts/verify.py`가 통과한 뒤 사용자가 승인한 합성
+문서 2건만 `gpt-4o-mini`로 호출했습니다. API/구조화 응답은 2건 성공,
+실패·timeout 0건, 평균 latency 9.46초, input/output token 77,623/1,254였습니다.
+공식 단가를 입력하지 않아 비용은 `UNKNOWN`입니다.
+
+통화·금액·분할금액·날짜는 두 사례에서 일치했지만 국가 ISO 정규화와 거래방향은
+실패했습니다. 독립 OCR text layer가 없어 accepted evidence는 0%였고 두 사례 모두
+`OCR_REQUIRED`·사용자 확인 gate로 계산 전달을 차단했습니다. Baseline을 지우거나
+국가 별칭·prompt를 즉시 수정하지 않았습니다. 전체 8건은 두 번째 승인 전 실행하지
+않았고 Live raw artifact, API key, `.env`, 실제 고객문서와 Git push는 범위에서
+제외했습니다.
+
 ## 2026-07-29 US/Brazil synthetic document validation set
 
 Codex가 기존 17건 manifest와 regression baseline을 유지한 채 미국·브라질 합성

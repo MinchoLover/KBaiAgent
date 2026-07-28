@@ -172,10 +172,17 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-28 기준 274개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-29 기준 394개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
+
+미국·브라질 합성문서 Live 평가는 기본 비활성이고, 양수 사례 제한·명시적 확인·
+고유 run ID가 모두 필요합니다. 실행·비용·주장 범위는
+[docs/LIVE_BENCHMARK_RUNBOOK.md](docs/LIVE_BENCHMARK_RUNBOOK.md), 제출 전 사실
+확인은 [docs/SUBMISSION_READINESS.md](docs/SUBMISSION_READINESS.md), 실행한
+합성 2건의 결과는
+[docs/LIVE_BENCHMARK_RESULTS.md](docs/LIVE_BENCHMARK_RESULTS.md)를 봅니다.
 
 ## 11. 현재 구현 상태
 

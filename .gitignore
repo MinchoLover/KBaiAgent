@@ -17,5 +17,7 @@ tmp/
 *.log
 predictions/*.json
 dataset/predictions/live/
+dataset/country_validation/predictions/live/
+reports/country_validation_live/
 artifacts/*.jsonl
 .streamlit/secrets.toml

@@ -41,8 +41,11 @@
 - [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
 - [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
 - [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
-- [x] 383 API-free tests (country validation 전용 12건, T4 신규 회귀 포함)
+- [x] 394 API-free tests (Live gate 신규 11건, country validation·T4 회귀 포함)
 - [x] offline evaluation and regression baseline
 - [x] 합성 이미지형 PDF 1건 live OpenAI smoke test
+- [x] 미국·브라질 합성 세트 guarded Live 2건 baseline smoke와 제출 증거 패키지
+- [x] Fixture/Live metadata·경로 분리, immutable run ID, 실패·timeout 격리
+- [ ] 미국·브라질 합성 세트 전체 8건 Live baseline — 두 번째 사용자 승인 필요
 - [ ] 허가된 실제 문서군 live 품질 benchmark
 - [ ] production auth/malware scanning/CI — follow-up scope

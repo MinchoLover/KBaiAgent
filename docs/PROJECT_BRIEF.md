@@ -118,3 +118,28 @@ The team can verify:
 - Stage 3 비용률·위험계수와 offline KB는 데모 가정/snapshot이며 실제 견적이 아니다.
 - 계산 검증과 Git commit/push는 분리하며, 원격 반영은 명시적으로 요청된 범위에서만
   수행한다.
+
+## P1-A evidence slice
+
+Problem: country-validation fixture의 필드 일치율은 evaluator 회귀만 검증하므로
+실제 OpenAI 추출 성능이나 OCR 정확도로 제시할 수 없습니다.
+
+Primary journey:
+
+1. API 없는 전체 회귀와 8건 fixture pipeline을 검증합니다.
+2. key 존재·model·manifest·최대 사례 수·고유 출력 경로를 원문 없이 확인합니다.
+3. 사용자 승인 뒤 합성문서 최대 2건을 immutable Live run으로 실행합니다.
+4. 성공·실패·timeout, 필드·abstention·evidence·latency·token과 한계를 제출
+   근거로 정리합니다.
+
+Definition of done:
+
+- 기본 실행은 API를 호출하지 않고 Live는 명시적 확인·양수 제한·run ID가 필요합니다.
+- Fixture와 Live의 metadata·디렉터리·주장 범위가 분리됩니다.
+- API key, 실제 문서, 전체 raw prompt·payload·response가 저장되지 않습니다.
+- 일부 사례 실패가 성공으로 집계되지 않고 baseline run을 덮어쓰지 않습니다.
+- 8건 test split은 파인튜닝 후보에서 계속 제외됩니다.
+- Runbook, 제출 준비표, 데모와 심사 Q&A가 실제 실행 상태와 일치합니다.
+
+Non-goals: 추출 prompt 튜닝, model 교체, OCR 엔진 도입, T1~T7/T4 재구현,
+실제 고객문서 평가, regression baseline 갱신, 전체 8건의 무승인 호출.

@@ -65,6 +65,8 @@ ENABLE_DOCUMENT_AI=true
 
 실제 회사 문서는 전송 정책과 허가를 먼저 확인합니다. 키가 없거나 호출이
 실패해도 샘플 인테이크·Stage 1 fixture·결정론 계산·템플릿 보고서는 동작합니다.
+합성문서 품질 평가는 `--confirm-live`, 양수 `--max-cases`, 고유 `--run-id`가
+필요한 [Live benchmark runbook](docs/LIVE_BENCHMARK_RUNBOOK.md)을 따릅니다.
 
 구조와 안전 한계는
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),

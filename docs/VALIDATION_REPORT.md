@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | PASS |
-| 전체 unit/integration/E2E | `.venv/bin/python -m unittest discover -s tests -v` | 383/383 PASS |
+| 전체 unit/integration/E2E | `.venv/bin/python -m unittest discover -s tests -v` | 394/394 PASS |
 | T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 58/58 PASS |
 | 거래·결제 위험·상담·공식 후보 연결 P0 | `.venv/bin/python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 60/60 PASS |
 | T7 통합 보고서·critic | 전체 unittest 내 실행 | 34/34 PASS |
@@ -17,6 +17,7 @@
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
 | 미국·브라질 별도 fixture 평가 | `python scripts/evaluate_extraction.py --mode offline --manifest dataset/country_validation/manifest.jsonl ...` | 8건, fixture field match 100%, 안전 누락 포함 document pass 50%, hallucination 0% |
+| 미국·브라질 guarded Live smoke | `python scripts/evaluate_extraction.py --mode live ... --max-cases 2 --confirm-live --run-id ...` | API 성공 2, 실패·timeout 0, 자동 document pass 0/2 |
 | country validation 전용 | `python -m unittest tests.test_country_validation_dataset -v` | 12/12 PASS |
 | Stage 0 live 합성 PDF | `scripts/live_smoke_test.py samples/demo_net90_contract.pdf --company-role SELLER` | PASS, `SALES_CONTRACT`, 10.14초 |
 | regression | `python scripts/run_regression.py` | PASS |
@@ -95,7 +96,46 @@ fixture는 label 복사로 evaluator 동작만 검증하므로 위 일치율은 
 확인했습니다. 최초 생성 사진의 원근 좌표 순서 오류로 90도 회전하던 결함은
 수정 후 전건 재생성·재검수했습니다. 반복 생성 byte hash, upload guard, 이미지형
 PDF 무텍스트, 정답 schema/evidence, 분할합계, fine-tuning 영구 제외도 자동
-테스트로 확인했습니다. 실제 OpenAI live 평가는 실행하지 않았습니다.
+테스트로 확인했습니다. 데이터셋 생성 당시 실제 OpenAI live 평가는 실행하지
+않았고, 아래 P1-A guarded smoke에서 별도 run으로 2건을 실행했습니다.
+
+## P1-A guarded Live 추출 smoke
+
+API-free compile, 394개 unittest, country fixture 평가, regression과
+`scripts/verify.py`가 모두 통과한 뒤 사용자가 승인한 합성문서 2건만 실행했습니다.
+
+```text
+run ID: baseline-v1-smoke-20260729-0341-kst
+model: gpt-4o-mini
+executed: 2
+API/structured success: 2
+failed: 0
+timeout: 0
+automatic document pass: 0/2
+Stage 2 allowed: 0/2
+average latency: 9.46 seconds
+input/output tokens: 77,623 / 1,254
+estimated cost: UNKNOWN
+```
+
+통화·금액·문서유형·회사역할·명시/파생 날짜는 2/2, buyer country는 1/2,
+seller country는 0/2, trade type은 0/2가 label과 일치했습니다. 분할금액 4/4,
+분할합계 2/2, 선지급 식별 2/2가 일치했고 문서에 없는 통화·날짜·금액 추측은
+관측되지 않았습니다.
+
+미국 사례의 `United States (US)`·`Republic of Korea (KR)`, 브라질 사례의
+`Brazil`이 canonical ISO 국가로 정규화되지 않아 거래방향이 `UNKNOWN`으로
+남았습니다. 두 문서는 독립 OCR text layer가 없으므로 accepted evidence coverage는
+0%이고 `OCR_REQUIRED`, `EVIDENCE_UNVERIFIABLE`과 사용자 확인 gate로 계산 전달을
+차단했습니다. 이는 API 실패가 아니라 의도된 fail-closed 상태입니다.
+
+실행 당시 Git HEAD는 `0a53847`, tracked worktree는 dirty였으므로 evaluator
+`ac0aa62a...2e89`, prompt `39693763...eef5`, manifest
+`be472519...0792` hash를 함께 기록했습니다. raw response·전체 prompt·문서·key는
+기록하지 않았고 Live artifact 경로는 Git에서 제외했습니다.
+
+전체 8건은 별도 승인 전 실행하지 않았습니다. 상세 사례·token·주장 범위는
+`docs/LIVE_BENCHMARK_RESULTS.md`를 따릅니다.
 
 ## Stage 0 매매계약 회귀
 
@@ -330,6 +370,7 @@ K-SURE 공식 페이지는 제도의 위험보호 구조를 확인하는 근거�
 
 ## 미실행
 
+- 미국·브라질 합성 세트 전체 8건 Live baseline: 두 번째 승인 필요
 - 허가된 실제 고객 문서군 OpenAI 추출 benchmark
 - 실제 OpenAI LLM 보고서 생성
 - 한국수출입은행 live 호출: 자격증명 없음

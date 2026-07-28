@@ -1,7 +1,15 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
+  "evaluation_mode": "FIXTURE",
+  "model_accuracy_claim_allowed": false,
+  "purpose": "EVALUATOR_PIPELINE_VALIDATION",
+  "synthetic_dataset": true,
+  "real_customer_documents": false,
+  "statistical_generalization_allowed": false,
   "cases_in_manifest": 8,
   "cases_evaluated": 8,
+  "executed_case_count": 8,
+  "failed_case_count": 0,
   "exact_match_accuracy_per_field": {
     "amount_due": 1.0,
     "buyer_country": 1.0,
@@ -52,6 +60,17 @@
     "trade_type": 1.0,
     "warnings": 1.0
   },
+  "benchmark_field_accuracy": {
+    "amount_due": 1.0,
+    "buyer_country": 1.0,
+    "company_role": 1.0,
+    "currency": 1.0,
+    "derived_due_date": 1.0,
+    "document_type": 1.0,
+    "explicit_due_date": 1.0,
+    "seller_country": 1.0,
+    "trade_type": 1.0
+  },
   "currency_accuracy": 1.0,
   "amount_exact_accuracy": 1.0,
   "amount_tolerance_accuracy": 1.0,
@@ -74,6 +93,140 @@
     "due_date": 1.0,
     "trade_type": 1.0
   },
+  "payment_term_metrics": {
+    "installment_amount_accuracy": 1.0,
+    "installment_amount_count": 6,
+    "installment_total_consistency_accuracy": 1.0,
+    "installment_case_count": 3,
+    "advance_payment_identification_accuracy": 1.0,
+    "event_based_condition_preservation_accuracy": 1.0,
+    "event_based_case_count": 2,
+    "unknown_due_date_abstention_accuracy": 1.0,
+    "unknown_due_date_case_count": 3
+  },
+  "safety_metrics": {
+    "unsupported_currency_guess_count": 0,
+    "unsupported_date_guess_count": 0,
+    "unsupported_amount_guess_count": 0,
+    "false_positive_field_count": 0,
+    "abstention_accuracy": 1.0,
+    "abstention_field_count": 30,
+    "human_review_identification_accuracy": 1.0,
+    "user_confirmation_required_case_count": 8,
+    "user_confirmation_required_identified_count": 8,
+    "blocked_case_accuracy": 1.0,
+    "blocked_case_count": 3
+  },
+  "evidence_metrics": {
+    "core_field_evidence_coverage": 1.0,
+    "evidence_field_link_consistency": 1.0,
+    "confirmed_value_without_evidence_count": 0,
+    "confirmed_value_without_source_text_count": 0,
+    "image_evidence_safety_accuracy": 0.0,
+    "image_evidence_case_count": 0,
+    "image_evidence_interpretation": "NOT_APPLICABLE_TO_FIXTURE_PIPELINE_VALIDATION"
+  },
+  "operational_metrics": {
+    "success_count": 8,
+    "failed_count": 0,
+    "timeout_count": 0,
+    "per_case": {
+      "us_import_split_scan_001": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      },
+      "br_import_advance_photo_002": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      },
+      "us_export_net60_scan_003": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      },
+      "br_export_bl_event_photo_004": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      },
+      "us_import_balance_scan_005": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      },
+      "br_export_mixed_split_scan_006": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      },
+      "us_import_missing_currency_photo_007": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      },
+      "br_export_occluded_due_photo_008": {
+        "status": "SUCCESS",
+        "latency_seconds": "0",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": null,
+        "estimated_api_cost": "0",
+        "cost_status": "KNOWN",
+        "model": null,
+        "error_type": null
+      }
+    },
+    "average_latency_seconds": "0",
+    "total_input_tokens": 0,
+    "total_output_tokens": 0,
+    "estimated_total_api_cost": "0",
+    "estimated_api_cost_status": "KNOWN",
+    "models_used": []
+  },
   "case_results": {
     "us_import_split_scan_001": {
       "passed": true,
@@ -84,7 +237,28 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "PDF",
+        "counterparty_country": "US",
+        "trade_type": "IMPORT",
+        "expected_validation_status": "CONDITIONAL_REVIEW",
+        "due_date_type": "INSTALLMENT_OR_EVENT_DATE",
+        "currency_presence": "EXPLICIT_CURRENCY"
+      }
     },
     "br_import_advance_photo_002": {
       "passed": true,
@@ -95,7 +269,28 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "JPG",
+        "counterparty_country": "BR",
+        "trade_type": "IMPORT",
+        "expected_validation_status": "CONDITIONAL_REVIEW",
+        "due_date_type": "INSTALLMENT_OR_EVENT_DATE",
+        "currency_presence": "EXPLICIT_CURRENCY"
+      }
     },
     "us_export_net60_scan_003": {
       "passed": true,
@@ -106,7 +301,28 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "PDF",
+        "counterparty_country": "US",
+        "trade_type": "EXPORT",
+        "expected_validation_status": "CONDITIONAL_REVIEW",
+        "due_date_type": "DERIVED_DATE",
+        "currency_presence": "EXPLICIT_CURRENCY"
+      }
     },
     "br_export_bl_event_photo_004": {
       "passed": false,
@@ -117,7 +333,28 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "JPG",
+        "counterparty_country": "BR",
+        "trade_type": "EXPORT",
+        "expected_validation_status": "CONDITIONAL_REVIEW",
+        "due_date_type": "UNRESOLVED_EVENT_DATE",
+        "currency_presence": "EXPLICIT_CURRENCY"
+      }
     },
     "us_import_balance_scan_005": {
       "passed": true,
@@ -128,7 +365,28 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "PDF",
+        "counterparty_country": "US",
+        "trade_type": "IMPORT",
+        "expected_validation_status": "CONDITIONAL_REVIEW",
+        "due_date_type": "EXPLICIT_DATE",
+        "currency_presence": "EXPLICIT_CURRENCY"
+      }
     },
     "br_export_mixed_split_scan_006": {
       "passed": false,
@@ -139,7 +397,28 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "PDF",
+        "counterparty_country": "BR",
+        "trade_type": "EXPORT",
+        "expected_validation_status": "BLOCKED",
+        "due_date_type": "INSTALLMENT_OR_EVENT_DATE",
+        "currency_presence": "EXPLICIT_CURRENCY"
+      }
     },
     "us_import_missing_currency_photo_007": {
       "passed": false,
@@ -150,7 +429,28 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "JPG",
+        "counterparty_country": "US",
+        "trade_type": "IMPORT",
+        "expected_validation_status": "BLOCKED",
+        "due_date_type": "EXPLICIT_DATE",
+        "currency_presence": "MISSING_CURRENCY"
+      }
     },
     "br_export_occluded_due_photo_008": {
       "passed": false,
@@ -161,7 +461,280 @@
         "due_date": true,
         "trade_type": true
       },
-      "validation_critical_codes": []
+      "benchmark_fields": {
+        "currency": true,
+        "amount_due": true,
+        "explicit_due_date": true,
+        "derived_due_date": true,
+        "trade_type": true,
+        "company_role": true,
+        "seller_country": true,
+        "buyer_country": true,
+        "document_type": true
+      },
+      "validation_critical_codes": [],
+      "prediction_succeeded": true,
+      "operation_status": "SUCCESS",
+      "dimensions": {
+        "document_format": "JPG",
+        "counterparty_country": "BR",
+        "trade_type": "EXPORT",
+        "expected_validation_status": "BLOCKED",
+        "due_date_type": "UNRESOLVED_EVENT_DATE",
+        "currency_presence": "EXPLICIT_CURRENCY"
+      }
+    }
+  },
+  "breakdowns": {
+    "document_format": {
+      "JPG": {
+        "case_count": 4,
+        "successful_prediction_count": 4,
+        "document_pass_count": 1,
+        "document_pass_rate": 0.25,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "PDF": {
+        "case_count": 4,
+        "successful_prediction_count": 4,
+        "document_pass_count": 3,
+        "document_pass_rate": 0.75,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      }
+    },
+    "counterparty_country": {
+      "BR": {
+        "case_count": 4,
+        "successful_prediction_count": 4,
+        "document_pass_count": 1,
+        "document_pass_rate": 0.25,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "US": {
+        "case_count": 4,
+        "successful_prediction_count": 4,
+        "document_pass_count": 3,
+        "document_pass_rate": 0.75,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      }
+    },
+    "trade_type": {
+      "EXPORT": {
+        "case_count": 4,
+        "successful_prediction_count": 4,
+        "document_pass_count": 1,
+        "document_pass_rate": 0.25,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "IMPORT": {
+        "case_count": 4,
+        "successful_prediction_count": 4,
+        "document_pass_count": 3,
+        "document_pass_rate": 0.75,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      }
+    },
+    "expected_validation_status": {
+      "BLOCKED": {
+        "case_count": 3,
+        "successful_prediction_count": 3,
+        "document_pass_count": 0,
+        "document_pass_rate": 0.0,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "CONDITIONAL_REVIEW": {
+        "case_count": 5,
+        "successful_prediction_count": 5,
+        "document_pass_count": 4,
+        "document_pass_rate": 0.8,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      }
+    },
+    "due_date_type": {
+      "DERIVED_DATE": {
+        "case_count": 1,
+        "successful_prediction_count": 1,
+        "document_pass_count": 1,
+        "document_pass_rate": 1.0,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "EXPLICIT_DATE": {
+        "case_count": 2,
+        "successful_prediction_count": 2,
+        "document_pass_count": 1,
+        "document_pass_rate": 0.5,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "INSTALLMENT_OR_EVENT_DATE": {
+        "case_count": 3,
+        "successful_prediction_count": 3,
+        "document_pass_count": 2,
+        "document_pass_rate": 0.666667,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "UNRESOLVED_EVENT_DATE": {
+        "case_count": 2,
+        "successful_prediction_count": 2,
+        "document_pass_count": 0,
+        "document_pass_rate": 0.0,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      }
+    },
+    "currency_presence": {
+      "EXPLICIT_CURRENCY": {
+        "case_count": 7,
+        "successful_prediction_count": 7,
+        "document_pass_count": 4,
+        "document_pass_rate": 0.571429,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      },
+      "MISSING_CURRENCY": {
+        "case_count": 1,
+        "successful_prediction_count": 1,
+        "document_pass_count": 0,
+        "document_pass_rate": 0.0,
+        "benchmark_field_accuracy": {
+          "currency": 1.0,
+          "amount_due": 1.0,
+          "explicit_due_date": 1.0,
+          "derived_due_date": 1.0,
+          "trade_type": 1.0,
+          "company_role": 1.0,
+          "seller_country": 1.0,
+          "buyer_country": 1.0,
+          "document_type": 1.0
+        }
+      }
     }
   }
 }

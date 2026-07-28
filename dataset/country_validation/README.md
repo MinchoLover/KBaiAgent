@@ -82,7 +82,14 @@ python scripts/evaluate_extraction.py \
   --manifest dataset/country_validation/manifest.jsonl \
   --predictions-dir dataset/country_validation/predictions/live \
   --reports-dir reports/country_validation_live \
-  --max-cases 2
+  --max-cases 2 \
+  --confirm-live \
+  --run-id baseline-v1-smoke-YYYYMMDD-HHMM \
+  --baseline-version baseline-v1
 ```
 
-이 데이터셋 생성 작업에서는 live 평가를 실행하지 않았습니다.
+`--mode live`만으로는 호출되지 않으며 양수 `--max-cases`,
+`--confirm-live`, 고유 `--run-id`가 모두 필요합니다. evaluator는 지정 root 아래
+run ID별 디렉터리를 만들고 기존 결과를 덮어쓰지 않습니다. 먼저 2건 결과를
+보고한 뒤 전체 8건은 별도 사용자 승인을 받아야 합니다. 자세한 절차는
+`docs/LIVE_BENCHMARK_RUNBOOK.md`를 따릅니다.

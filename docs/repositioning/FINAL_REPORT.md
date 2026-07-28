@@ -3,9 +3,12 @@
 > 2026-07-27 통합 보강: 팀 `kb_macro_ai`의 실제
 > `krw_forecast_web_v1`을 HTTP/file/mock adapter로 연결하고 별도 Spot provider,
 > 21거래일 horizon gate, 수입 v36/수출 v34 scenario, 제약형 Stage 3와 시장정책
-> report critic을 추가했습니다. 현재 검증은 274개 PASS이며 최신 실행·제한은
+> report critic을 추가했습니다. 2026-07-29 P1-A 기준 API-free 394개가 PASS했고,
+> 미국·브라질 합성문서 Live smoke 2건을 별도 run으로 실행했습니다. 실제
+> 고객문서 품질이나 OCR 일반 성능은 검증하지 않았습니다. 최신 실행·제한은
 > `docs/VALIDATION_REPORT.md`, `docs/STAGE1_INTEGRATION.md`,
-> `docs/LIMITATIONS.md`가 우선합니다. 아래 1~6절의 커밋·기준선 설명은 이전
+> `docs/LIMITATIONS.md`, `docs/LIVE_BENCHMARK_RESULTS.md`가 우선합니다.
+> 아래 1~6절의 커밋·기준선 설명은 이전
 > 재포지셔닝 작업 당시 기록입니다.
 
 ## 1. 기준 브랜치와 커밋
@@ -268,9 +271,9 @@ Streamlit과 CLI가 같은 `run_decision_support_demo` 및 서비스 계층을 �
 
 API-free 제출 데모를 막는 확인된 P0 문제는 없습니다.
 
-다만 실제 문서 OpenAI 호출은 API 키가 없어 미확인이고, 실제 기업 문서 품질은 별도
-live benchmark가 필요합니다. 이 상태를 “완료”로 과장하지 않고
-`외부 자격증명 필요`·`검증 필요`로 표시합니다. 공용 기업 현금 필드의
+다만 실제 고객문서 OpenAI 품질은 미확인이고, 합성문서 2건 smoke를 실제 기업
+문서 품질로 일반화할 수 없습니다. 이 상태를 “완료”로 과장하지 않고
+`제한된 합성 검증`·`추가 승인 필요`로 표시합니다. 공용 기업 현금 필드의
 `KNOWN/UNKNOWN/USER_ESTIMATE` 상태는 권장 모델이지만 현재 DTO에는 미구현이며,
 P1에서 하위 호환 방식으로 추가해야 합니다.
 

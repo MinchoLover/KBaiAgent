@@ -407,3 +407,36 @@ US·BR 외 국가는 `INSUFFICIENT_INFORMATION`으로 처리합니다. 개별 �
 Revisit condition: 공식 원자료를 사람이 재검증해 새 snapshot version과 hash를
 승인하거나 지원 국가를 확장할 명시적 범위가 생길 때 rule version·경계 테스트와
 함께 재검토합니다.
+
+## 28. Live benchmark runs are guarded, immutable evidence artifacts
+
+Context: 기존 evaluator는 offline/live를 모두 지원했지만 `--mode live`만으로 전체
+manifest를 호출할 수 있었고 기존 prediction을 덮어쓸 수 있었습니다. 한 사례의 API
+오류가 전체 실행을 중단했으며 Git SHA, evaluator·prompt·manifest hash와 실행
+상태를 묶는 run metadata도 없었습니다.
+
+Decision: 기존 evaluator를 유지하면서 Live에 양수 `--max-cases`,
+`--confirm-live`, 고유 `--run-id`를 모두 요구합니다. manifest는
+`synthetic_document=true`, `real_customer_document=false`, test split,
+파인튜닝 제외와 승인된 합성문서 경로를 fail closed로 검사합니다. prediction과
+report는 `<root>/<run-id>`에 새로 만들고 기존 run은 덮어쓰지 않습니다. API 오류와
+timeout은 원문·예외 메시지를 저장하지 않는 안전한 사례 실패 record로 남기고 다음
+사례를 계속 평가합니다.
+
+Run metadata는 호출 전에 `RUNNING`으로 먼저 쓰고 Git HEAD·dirty 여부, Python,
+evaluator·prompt·manifest hash, model, 대상 건수와 시간대를 기록한 뒤
+`COMPLETED`, `COMPLETED_WITH_FAILURES`, `INTERRUPTED`로 갱신합니다. API key,
+전체 prompt·문서·payload·raw response는 저장하지 않습니다. Fixture에는
+`model_accuracy_claim_allowed=false`와
+`purpose=EVALUATOR_PIPELINE_VALIDATION`을 명시합니다.
+
+Rationale: baseline 실패를 지우거나 성공처럼 합치지 않고, 코드·prompt·데이터
+버전을 재현 가능한 최소 metadata로 고정할 수 있습니다. Live raw artifact는 Git에서
+제외하되 합성 정답·fixture·manifest와 집계 근거 문서는 계속 추적합니다.
+
+Trade-off: 실패 run을 같은 ID로 resume하지 못하고 새 ID로 재실행해야 합니다.
+표본 8건과 독립 OCR 부재 때문에 Live 결과도 실제 고객문서 성능으로 일반화할 수
+없습니다.
+
+Revisit condition: 승인된 운영 benchmark 저장소와 접근통제·보존정책이 생기면
+immutable artifact ID, 중앙 cost ledger와 승인 audit을 별도 서비스로 이동합니다.

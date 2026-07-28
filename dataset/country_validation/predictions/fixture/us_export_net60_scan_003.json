@@ -111,7 +111,10 @@
   },
   "metadata": {
     "mode": "fixture",
+    "evaluation_mode": "FIXTURE",
     "fixture_only": true,
+    "model_accuracy_claim_allowed": false,
+    "purpose": "EVALUATOR_PIPELINE_VALIDATION",
     "latency_seconds": "0",
     "input_tokens": 0,
     "output_tokens": 0,

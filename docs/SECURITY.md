@@ -3,6 +3,8 @@
 ## 적용된 통제
 
 - `.env`, Streamlit secrets, 실제 업로드와 live prediction 출력 Git 제외
+- 합성 Live benchmark는 확인 플래그·양수 사례 제한·고유 run ID가 없으면 호출 차단
+- Live run은 기존 fixture·baseline을 덮어쓰지 않고 API 오류도 안전한 상태 code만 저장
 - 설정 객체에서 API key repr 제외, 오류 메시지에 key·원문 응답 미포함
 - PDF/PNG/JPEG 확장자·MIME·magic bytes·크기·PDF 페이지 검증
 - 실제 문서는 메모리 처리하며 dataset이나 trace에 자동 저장하지 않음
@@ -12,6 +14,8 @@
 - 공식 상품 검색은 HTTPS 공식 도메인 allowlist와 기준일·출처 필수
 - LLM report 입력에서 문서 `source_text`와 confirmation `original_values` 제외
 - trace는 case/status/time/provider/fallback만 저장
+- benchmark metadata는 key 값·Authorization header·전체 prompt·문서·raw API
+  payload/response를 저장하지 않고 존재 여부와 version hash만 기록
 
 ## 남은 운영 위험
 

@@ -78,7 +78,9 @@
   길이가 큽니다. view 함수 분리는 후속 UI 리팩터링 범위입니다.
 - macOS Python 3.9.6에서 검증했습니다. Windows launcher는 제공했지만 이 환경에서
   직접 실행 검증하지 못했습니다.
-- 실제 OpenAI 호출과 공식 web search는 API 키가 없어 실행하지 않았습니다.
+- 미국·브라질 합성문서 2건의 OpenAI Live smoke는 실행했지만 실제 고객문서와
+  전체 8건 baseline은 실행하지 않았습니다. 공식 web search와 공식 환율 API는
+  이번 검증에서 실행하지 않았습니다.
 - Stage 1 REST endpoint는 HTTPS/public IP, redirect 금지, 선택적 exact host
   allowlist를 적용합니다. DNS 검증과 실제 연결 사이 rebinding 위험을 더 줄이려면
   production egress proxy 또는 방화벽 allowlist가 추가로 필요합니다.

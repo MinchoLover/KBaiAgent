@@ -4,11 +4,17 @@
 
 ```bash
 python scripts/verify.py
+python scripts/evaluate_extraction.py \
+  --mode offline \
+  --manifest dataset/country_validation/manifest.jsonl \
+  --predictions-dir dataset/country_validation/predictions/fixture \
+  --reports-dir reports/country_validation
 python scripts/run_decision_demo.py --company-role BUYER --format summary
 python -m streamlit run app.py
 ```
 
 Stage 1 서버 없이도 mock forecast와 fixture spot으로 동작합니다.
+Fixture 평가는 evaluator pipeline 확인용이며 실제 AI 정확도라고 설명하지 않습니다.
 
 ## 화면 순서
 
@@ -61,16 +67,33 @@ Stage 1 서버 없이도 mock forecast와 fixture spot으로 동작합니다.
 “실제 견적이 아니므로 전부 시뮬레이션 후보입니다. 제약을 만족하는 해가 없으면
 추천하지 않고 자금·결제조건 상담으로 넘깁니다.”
 
-### 2:25~2:45 — 공식자료와 보고서
+### 2:25~2:50 — 국가환경·공식자료와 보고서
+
+같은 판매자·통화·Open Account 90일·보호수단 없음 조건에서 상대국만 미국과
+브라질로 바꿔 국가환경 검토를 비교합니다.
+
+- OECD 지급·이전, World Bank 거시환경, WTO 무역환경을 한 점수로 합치지 않음
+- 미국의 OECD 미분류를 `LOW`나 안전으로 바꾸지 않음
+- 브라질 OECD raw class `4`를 서비스 신용등급처럼 표시하지 않음
+- 결과는 국가 신용등급이 아니라 보험·보증·신용장·결제조건의 거래 검토 우선도
+- 국가 신호가 Stage 2 현금흐름이나 Stage 3 환헤지 비율을 변경하지 않음
+- 상담 우선순위와 확인 질문에만 반영
+
+“미국과 브라질을 하나의 자체 점수로 줄 세우지 않습니다. 공식 원값과 관측기간을
+축별로 보존하고, 이 거래에서 무엇을 먼저 확인할지만 제시합니다.”
 
 공식 URL·기준일·상담 필요 표시와 `상담자료`의 질문·준비서류를 보여줍니다.
 상품 가입 가능·승인·최적 비율을 확정하지 않는다고 말합니다.
 
-### 2:45~3:00 — 마무리
+### 2:50~3:00 — 마무리
 
 “이 서비스는 환율을 맞히는 서비스가 아닙니다. 시장모델의 위험 구간을 특정
 기업의 결제와 현금흐름에 연결하고, 기업과 KB 담당자가 상담을 더 빨리 시작할 수
 있는 근거와 준비사항을 만듭니다.”
+
+Live benchmark를 실행하지 않았다면 정확도 숫자를 말하지 않습니다. 실행했다면
+`docs/LIVE_BENCHMARK_RESULTS.md`에 기록된 합성 사례 수·성공·실패와 한계를 함께
+말하고, fixture 수치와 분리합니다.
 
 ## 수출 전환 한 문장
 

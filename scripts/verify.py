@@ -56,6 +56,9 @@ REQUIRED_FILES = (
     "docs/SECURITY.md",
     "docs/SECURITY_PRIVACY.md",
     "docs/LIMITATIONS.md",
+    "docs/LIVE_BENCHMARK_RESULTS.md",
+    "docs/LIVE_BENCHMARK_RUNBOOK.md",
+    "docs/SUBMISSION_READINESS.md",
     "docs/DEMO_SCRIPT_KO.md",
     "docs/JUDGE_QA_KO.md",
     "docs/TEAM_HANDOFF.md",
@@ -102,7 +105,14 @@ def _check_required_files(errors: List[str]) -> None:
 
 def _check_env_and_secrets(errors: List[str]) -> None:
     ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
-    for required in (".env", ".venv/", "real_uploads/", ".cache/"):
+    for required in (
+        ".env",
+        ".venv/",
+        "real_uploads/",
+        ".cache/",
+        "dataset/country_validation/predictions/live/",
+        "reports/country_validation_live/",
+    ):
         if required not in ignore_text:
             errors.append(".gitignore missing {}".format(required))
     example = (ROOT / "env.template").read_text(encoding="utf-8")
