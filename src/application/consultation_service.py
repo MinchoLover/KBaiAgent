@@ -12,6 +12,7 @@ from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import (
     ConsultationTopic,
     DecisionSupportResult,
+    InstallmentPaymentStatus,
 )
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
@@ -95,6 +96,9 @@ def build_decision_support(
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
     ] = None,
+    installment_payment_statuses: Optional[
+        List[InstallmentPaymentStatus]
+    ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
 ) -> DecisionSupportResult:
@@ -133,6 +137,7 @@ def build_decision_support(
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
         official_candidate_shortlist=official_candidate_shortlist,
+        installment_payment_statuses=installment_payment_statuses,
         missing_information=missing_information,
         generated_at=generated_at,
     )

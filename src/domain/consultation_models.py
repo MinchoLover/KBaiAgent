@@ -7,7 +7,10 @@ from src.domain.country_environment_models import (
     CountryEnvironmentReviewNeed,
     CountryTradeEnvironmentAssessment,
 )
-from src.domain.product_models import OfficialCandidateShortlist
+from src.domain.product_models import (
+    OfficialCandidateShortlist,
+    ProductCandidate,
+)
 from src.domain.trade_risk_models import (
     TradeRiskReviewNeed,
     TradeSettlementRiskAssessment,
@@ -99,6 +102,62 @@ class ConsultationTopic(StrictModel):
     ] = "USER_AND_KB_REPRESENTATIVE"
 
 
+class InstallmentPaymentStatus(StrictModel):
+    installment_sequence: int = Field(ge=1)
+    status: Literal[
+        "UNKNOWN",
+        "CONFIRMED_RECEIVED",
+        "CONFIRMED_NOT_RECEIVED",
+    ] = "UNKNOWN"
+    actual_payment_date: Optional[str] = None
+    confirmed_by: Optional[str] = None
+    confirmed_at: Optional[str] = None
+    source: Literal[
+        "UNCONFIRMED",
+        "USER_CONFIRMED",
+    ] = "UNCONFIRMED"
+
+
+class ConsultationRationaleItem(StrictModel):
+    label: str
+    value: str
+    unit: Literal[
+        "FX",
+        "KRW",
+        "DATE",
+        "STATUS",
+        "TEXT",
+        "COUNT",
+    ]
+    currency: Optional[str] = None
+    source_paths: List[str] = Field(min_length=1)
+
+
+class ConsultationPriorityView(StrictModel):
+    rank: int = Field(ge=1, le=3)
+    category: str
+    title: str
+    priority_reason: str
+    numeric_rationale: List[ConsultationRationaleItem] = Field(
+        default_factory=list
+    )
+    triggered_by: List[str] = Field(default_factory=list)
+    missing_information: List[str] = Field(default_factory=list)
+    preparation_documents: List[str] = Field(default_factory=list)
+    bank_questions: List[str] = Field(default_factory=list)
+    expected_decision: str
+    next_action: str
+    official_candidates: List[ProductCandidate] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    source_topic_ids: List[str] = Field(default_factory=list)
+    priority_rule_code: str
+    category_tie_break: str
+    human_review_required: bool = True
+    disclaimer: str
+
+
 class CompanySummary(StrictModel):
     trade_type: Literal["IMPORT", "EXPORT"]
     currency: str
@@ -157,6 +216,26 @@ class ConsultationPacket(StrictModel):
     )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
+    )
+    consultation_priorities: List[ConsultationPriorityView] = Field(
+        default_factory=list,
+        max_length=3,
+        exclude_if=lambda value: not value,
+    )
+    other_consultation_topics: List[ConsultationTopic] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
+    consultation_priority_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+        exclude_if=lambda value: value is None,
+    )
+    installment_payment_statuses: List[
+        InstallmentPaymentStatus
+    ] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
     )
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist

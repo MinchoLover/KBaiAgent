@@ -5,6 +5,9 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from schemas import TradeDocumentExtraction
+from src.consultation.prioritization import (
+    build_consultation_priorities,
+)
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import (
     CompanySummary,
@@ -12,6 +15,7 @@ from src.domain.consultation_models import (
     ConsultationPacketResult,
     ConsultationTopic,
     ExposureSummary,
+    InstallmentPaymentStatus,
     PacketRiskSummary,
     RiskAssessment,
     SourceDocumentReference,
@@ -48,6 +52,9 @@ def _input_hash(
     ] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
+    ] = None,
+    installment_payment_statuses: Optional[
+        List[InstallmentPaymentStatus]
     ] = None,
 ) -> str:
     canonical: Dict[str, Any] = {
@@ -90,6 +97,11 @@ def _input_hash(
                 .unmatched_consultation_categories
             ),
         }
+    if installment_payment_statuses:
+        canonical["installment_payment_statuses"] = [
+            item.model_dump()
+            for item in installment_payment_statuses
+        ]
     serialized = json.dumps(
         canonical,
         ensure_ascii=False,
@@ -497,6 +509,9 @@ def build_consultation_packet(
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
     ] = None,
+    installment_payment_statuses: Optional[
+        List[InstallmentPaymentStatus]
+    ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
 ) -> ConsultationPacketResult:
@@ -507,10 +522,33 @@ def build_consultation_packet(
         if stage2_result.trade_type == "IMPORT"
         else extraction.buyer_country
     )
+    (
+        consultation_priorities,
+        other_consultation_topics,
+        priority_fingerprint,
+        materialized_payment_statuses,
+    ) = build_consultation_priorities(
+        extraction=extraction,
+        stage2_input=stage2_input,
+        stage2_result=stage2_result,
+        assessment=assessment,
+        consultation_topics=consultation_topics,
+        trade_settlement_risk=trade_settlement_risk,
+        country_environment=country_environment,
+        official_candidate_shortlist=official_candidate_shortlist,
+        installment_payment_statuses=installment_payment_statuses,
+    )
+    priority_missing = [
+        value
+        for priority in consultation_priorities
+        for value in priority.missing_information
+    ]
     gaps = list(
         dict.fromkeys(
             item.strip()
-            for item in (missing_information or [])
+            for item in (
+                priority_missing + (missing_information or [])
+            )
             if item and item.strip()
         )
     )
@@ -549,6 +587,9 @@ def build_consultation_packet(
             trade_settlement_risk=trade_settlement_risk,
             country_environment=country_environment,
             official_candidate_shortlist=official_candidate_shortlist,
+            installment_payment_statuses=(
+                materialized_payment_statuses
+            ),
         ),
         exchange_rate_as_of=stage1.as_of,
         scenario_ids=[
@@ -581,6 +622,10 @@ def build_consultation_packet(
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
         consultation_topics=consultation_topics,
+        consultation_priorities=consultation_priorities,
+        other_consultation_topics=other_consultation_topics,
+        consultation_priority_fingerprint=priority_fingerprint,
+        installment_payment_statuses=materialized_payment_statuses,
         official_candidate_shortlist=official_candidate_shortlist,
         missing_information=gaps,
         required_documents=_required_documents(consultation_topics),
