@@ -22,12 +22,28 @@ shasum -a 256 dataset/golden_demo/golden_export_contract.pdf
 python -m unittest tests.test_golden_trade_demo -v
 python scripts/run_decision_demo.py --company-role SELLER --format summary
 python scripts/verify.py
-python -m streamlit run app.py
+APP_ENV=presentation python -m streamlit run app.py
 ```
 
 Golden PDF의 기대 SHA-256은
 `5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`입니다.
 발표 직전에는 생성기로 덮어쓰지 않고 이 지문과 테스트로 무결성을 확인합니다.
+
+## 발표 모드 실행
+
+발표 직전에는 저장소 루트에서 다음과 같이 실행합니다.
+
+```bash
+APP_ENV=presentation python -m streamlit run app.py
+```
+
+발표 모드는 첫 화면과 사이드바의 미국·수입 API-free 샘플 실행 버튼을 숨기고
+`브라질 Golden 문서 등록하기`만 주 CTA로 표시합니다. 또한 발표자가 아래
+업로드 영역으로 바로 이동해도 미국 fixture가 선택되지 않도록 문서 등록 모드로
+고정합니다. 이 환경변수는 UI 진입 경로만 바꾸며 Golden 결과를 자동 주입하거나,
+금융 계산·상담 순위·ConsultationPacket·문서 추출 provider를 변경하지 않습니다.
+기본 개발 모드는 `APP_ENV=development`이거나 `APP_ENV`를 지정하지 않은
+상태이며 기존 샘플 버튼과 데모 모드 선택이 그대로 표시됩니다.
 
 앱 첫 화면의 `미국 수출 샘플로 체험하기`는 실제 고객정보가 없는 미국 수출
 fixture로 정식 서비스 여정을 빠르게 확인하는 별도 경로입니다. 발표에서는

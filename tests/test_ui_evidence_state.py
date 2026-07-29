@@ -1,6 +1,7 @@
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 from sample_data import sample_extraction
 from schemas import TradeDocumentExtraction
@@ -309,7 +310,16 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
     def test_service_entry_uses_customer_journey_and_primary_ctas(self):
         from streamlit.testing.v1 import AppTest
 
-        app = AppTest.from_file("app.py", default_timeout=20).run()
+        environment = patch.dict(
+            "os.environ",
+            {"APP_ENV": "development"},
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+        app = AppTest.from_file(
+            "app.py",
+            default_timeout=20,
+        ).run()
 
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(
@@ -359,6 +369,76 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "거래문서 업로드",
             [item.label for item in app.get("file_uploader")],
         )
+
+    def test_presentation_mode_shows_only_golden_registration_path(self):
+        from streamlit.testing.v1 import AppTest
+
+        with patch.dict(
+            "os.environ",
+            {"APP_ENV": "presentation"},
+        ):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=20,
+            ).run()
+
+            self.assertEqual(len(app.exception), 0)
+            button_labels = [item.label for item in app.button]
+            self.assertIn(
+                "브라질 Golden 문서 등록하기",
+                button_labels,
+            )
+            for hidden_sample in (
+                "미국 수출 샘플로 체험하기",
+                "미국 수출 샘플",
+                "수입기업 대표 데모",
+            ):
+                self.assertNotIn(hidden_sample, button_labels)
+
+            visible_text = " ".join(
+                [item.value for item in app.markdown]
+                + [item.value for item in app.caption]
+            )
+            self.assertIn(
+                "브라질 Golden 수출 계약 검증 시작",
+                visible_text,
+            )
+            self.assertIn(
+                "문서 등록 전용 진입 화면",
+                visible_text,
+            )
+            self.assertNotIn(
+                "미국 수출 샘플",
+                visible_text,
+            )
+            self.assertNotIn(
+                "consultation_packet",
+                app.session_state,
+            )
+            self.assertNotIn(
+                "분석할 문서",
+                [item.label for item in app.radio],
+            )
+
+            register = next(
+                button
+                for button in app.button
+                if button.key == "service_register_document"
+            )
+            register.click().run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertEqual(
+                app.session_state["run_mode_widget"],
+                "실제 문서 분석",
+            )
+            self.assertIn(
+                "거래문서 업로드",
+                [item.label for item in app.get("file_uploader")],
+            )
+            self.assertNotIn(
+                "consultation_packet",
+                app.session_state,
+            )
 
     def test_export_sample_summary_uses_existing_packet_values(self):
         from streamlit.testing.v1 import AppTest
@@ -512,6 +592,9 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         self.assertIn("미국 수출 샘플로 체험하기", normalized)
         self.assertIn("브라질 Golden", normalized)
         self.assertIn("발표에서는 브라질 Golden", normalized)
+        self.assertIn("APP_ENV=presentation", normalized)
+        self.assertIn("브라질 Golden 문서 등록하기", normalized)
+        self.assertIn("Golden 결과를 자동 주입하거나", normalized)
         self.assertNotIn("수출기업 대표 데모", normalized)
 
     def test_amount_due_widget_uses_directional_scheduled_label(self):

@@ -1739,6 +1739,7 @@ def _start_document_registration() -> None:
 
 load_dotenv()
 settings = Settings.from_env()
+presentation_mode = settings.app_env == "presentation"
 orchestrator = WorkflowOrchestrator(settings=settings)
 
 
@@ -2372,14 +2373,21 @@ with st.sidebar:
         width="stretch",
         on_click=_reset_state,
     )
-    with st.expander("샘플 및 분석 환경", expanded=False):
+    environment_label = (
+        "발표 환경" if presentation_mode else "샘플 및 분석 환경"
+    )
+    with st.expander(environment_label, expanded=False):
         live_label = "실제 문서 분석"
-        mode_label = st.radio(
-            "분석할 문서",
-            ["데모 모드", live_label],
-            key="run_mode_widget",
-            help="API 키는 서버 환경변수에서만 읽습니다.",
-        )
+        if presentation_mode:
+            mode_label = live_label
+            st.caption("분석할 문서 · 브라질 Golden 수출 계약")
+        else:
+            mode_label = st.radio(
+                "분석할 문서",
+                ["데모 모드", live_label],
+                key="run_mode_widget",
+                help="API 키는 서버 환경변수에서만 읽습니다.",
+            )
         run_mode = "LIVE" if mode_label == live_label else "DEMO"
         if run_mode == "LIVE" and not settings.live_extraction_ready:
             st.warning(
@@ -2397,21 +2405,27 @@ with st.sidebar:
             )
         )
         st.caption("모델은 서버 환경변수로 관리됩니다.")
-        st.button(
-            "수입기업 대표 데모",
-            type="primary",
-            width="stretch",
-            on_click=_demo_all,
-            args=("BUYER",),
-            key="sidebar_import_sample",
-        )
-        st.button(
-            "미국 수출 샘플",
-            width="stretch",
-            on_click=_demo_all,
-            args=("SELLER",),
-            key="sidebar_export_sample",
-        )
+        if presentation_mode:
+            st.caption(
+                "발표 모드에서는 브라질 Golden 계약을 거래문서 등록 "
+                "경로에서만 검토합니다."
+            )
+        else:
+            st.button(
+                "수입기업 대표 데모",
+                type="primary",
+                width="stretch",
+                on_click=_demo_all,
+                args=("BUYER",),
+                key="sidebar_import_sample",
+            )
+            st.button(
+                "미국 수출 샘플",
+                width="stretch",
+                on_click=_demo_all,
+                args=("SELLER",),
+                key="sidebar_export_sample",
+            )
     loaded_demo = st.session_state.pop("demo_just_loaded", None)
     if loaded_demo:
         st.success("{} 샘플의 전체 분석 결과를 준비했습니다.".format(
@@ -2441,10 +2455,17 @@ else:
 if hero_stage2 is None:
     hero_tone = "safe"
     hero_signal_label = "진행 상태"
-    hero_signal_title = "거래문서를 등록해 주세요"
-    hero_signal_detail = (
-        "미국 수출 샘플로 전체 상담 준비 흐름을 먼저 체험할 수도 있습니다."
-    )
+    if presentation_mode:
+        hero_signal_title = "브라질 Golden 계약서를 등록해 주세요"
+        hero_signal_detail = (
+            "발표에서는 거래문서 등록 경로만 사용합니다."
+        )
+    else:
+        hero_signal_title = "거래문서를 등록해 주세요"
+        hero_signal_detail = (
+            "미국 수출 샘플로 전체 상담 준비 흐름을 먼저 체험할 수도 "
+            "있습니다."
+        )
 else:
     (
         hero_tone,
@@ -2479,7 +2500,13 @@ st.markdown(
     "<aside class='hero-signal {}'>"
     "<small>{}</small><strong>{}</strong><p>{}</p>"
     "</aside></section>".format(
-        "합성문서 샘플" if run_mode == "DEMO" else "거래문서 분석",
+        (
+            "브라질 Golden 검증"
+            if presentation_mode
+            else "합성문서 샘플"
+            if run_mode == "DEMO"
+            else "거래문서 분석"
+        ),
         escape(progress_label),
         hero_tone,
         escape(hero_signal_label),
@@ -2492,34 +2519,52 @@ with st.container(
     border=True,
     key="service_entry_actions",
 ):
-    st.markdown("#### 수출입 거래 분석 시작")
-    st.write(
-        "거래문서를 등록해 새 분석을 시작하거나, 미국 합성 수출 "
-        "거래로 전체 상담 준비 흐름을 먼저 확인하세요."
-    )
-    entry_columns = st.columns(2)
-    entry_columns[0].button(
-        "거래문서 등록하기",
-        type="primary",
-        width="stretch",
-        on_click=_start_document_registration,
-        key="service_register_document",
-    )
-    entry_columns[1].button(
-        "미국 수출 샘플로 체험하기",
-        width="stretch",
-        on_click=_demo_all,
-        args=("SELLER",),
-        key="service_sample_export",
-    )
-    st.caption(
-        "미국 수출 샘플 · 실제 고객정보가 없는 API-free 합성문서 · "
-        "금융상품 가입·승인 결과가 아닙니다."
-    )
-    st.caption(
-        "발표용 검증 사례 · 브라질 Golden 수출 계약 · "
-        "미국 샘플과 결과를 혼합하지 않음"
-    )
+    if presentation_mode:
+        st.markdown("#### 브라질 Golden 수출 계약 검증 시작")
+        st.write(
+            "발표에서는 브라질 Golden 합성문서를 거래문서 등록 경로로 "
+            "검토합니다."
+        )
+        st.button(
+            "브라질 Golden 문서 등록하기",
+            type="primary",
+            width="stretch",
+            on_click=_start_document_registration,
+            key="service_register_document",
+        )
+        st.caption(
+            "발표 모드 · 실제 고객정보가 없는 합성문서 · "
+            "문서 등록 전용 진입 화면"
+        )
+    else:
+        st.markdown("#### 수출입 거래 분석 시작")
+        st.write(
+            "거래문서를 등록해 새 분석을 시작하거나, 미국 합성 수출 "
+            "거래로 전체 상담 준비 흐름을 먼저 확인하세요."
+        )
+        entry_columns = st.columns(2)
+        entry_columns[0].button(
+            "거래문서 등록하기",
+            type="primary",
+            width="stretch",
+            on_click=_start_document_registration,
+            key="service_register_document",
+        )
+        entry_columns[1].button(
+            "미국 수출 샘플로 체험하기",
+            width="stretch",
+            on_click=_demo_all,
+            args=("SELLER",),
+            key="service_sample_export",
+        )
+        st.caption(
+            "미국 수출 샘플 · 실제 고객정보가 없는 API-free 합성문서 · "
+            "금융상품 가입·승인 결과가 아닙니다."
+        )
+        st.caption(
+            "발표용 검증 사례 · 브라질 Golden 수출 계약 · "
+            "미국 샘플과 결과를 혼합하지 않음"
+        )
 render_stepper(completed_stage)
 
 stage0_tab, risk_tab, response_tab, stage5_tab = (
