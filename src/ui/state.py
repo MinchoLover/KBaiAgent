@@ -22,6 +22,7 @@ PIPELINE_KEYS = (
     "country_environment_trace",
     "risk_assessment",
     "consultation_topics",
+    "installment_payment_statuses",
     "consultation_packet",
     "stage3_result",
     "stage4_result",
@@ -124,6 +125,10 @@ STAGE4_WIDGET_KEYS = (
     "stage4_search_mode_widget",
 )
 
+CONSULTATION_WIDGET_KEYS = (
+    "consultation_payment_status_editor",
+)
+
 DOWNSTREAM_WIDGET_KEYS = (
     CONFIRMATION_WIDGET_KEYS
     + TRADE_RISK_WIDGET_KEYS
@@ -131,6 +136,7 @@ DOWNSTREAM_WIDGET_KEYS = (
     + STAGE2_WIDGET_KEYS
     + STAGE3_WIDGET_KEYS
     + STAGE4_WIDGET_KEYS
+    + CONSULTATION_WIDGET_KEYS
 )
 
 TRANSACTION_WIDGET_KEYS = REVIEW_WIDGET_KEYS + DOWNSTREAM_WIDGET_KEYS
@@ -183,6 +189,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "stage2_result",
             "risk_assessment",
             "consultation_topics",
+            "installment_payment_statuses",
             "consultation_packet",
             "stage3_result",
             "stage4_result",
@@ -223,6 +230,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             + STAGE2_WIDGET_KEYS
             + STAGE3_WIDGET_KEYS
             + STAGE4_WIDGET_KEYS
+            + CONSULTATION_WIDGET_KEYS
         ),
         2: STAGE2_WIDGET_KEYS + STAGE3_WIDGET_KEYS + STAGE4_WIDGET_KEYS,
         3: STAGE3_WIDGET_KEYS + STAGE4_WIDGET_KEYS,
@@ -255,6 +263,7 @@ def clear_confirmation_and_later(state: object) -> None:
             "country_environment_trace",
             "risk_assessment",
             "consultation_topics",
+            "installment_payment_statuses",
             "consultation_packet",
             "stage3_result",
             "stage4_result",

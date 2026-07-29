@@ -30,6 +30,7 @@ from src.application.official_candidate_service import (
 )
 from src.application.trade_risk_service import build_trade_risk_prefill
 from src.config import Settings
+from src.consultation.packet import rationale_display_text
 from src.consultation.trade_settlement_risk import (
     assess_trade_settlement_risk,
     create_trade_risk_confirmation,
@@ -56,8 +57,10 @@ from src.document_intake.normalization import (
 from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.domain.consultation_models import (
     ConsultationPacketResult,
+    ConsultationPriorityView,
     ConsultationTopic,
     DecisionSupportResult,
+    InstallmentPaymentStatus,
     RiskAssessment,
 )
 from src.domain.country_environment_models import (
@@ -177,6 +180,13 @@ def _save_decision_support(value: DecisionSupportResult) -> None:
             "official_candidate_shortlist",
             None,
         )
+    st.session_state["installment_payment_statuses"] = [
+        item.model_dump()
+        for item in (
+            value.consultation_packet.packet
+            .installment_payment_statuses
+        )
+    ]
     _save_model("consultation_packet", value.consultation_packet)
 
 
@@ -185,6 +195,116 @@ def _consultation_topics_from_state() -> List[ConsultationTopic]:
         ConsultationTopic.model_validate(item)
         for item in st.session_state.get("consultation_topics", [])
     ]
+
+
+def _installment_payment_statuses_from_state(
+) -> List[InstallmentPaymentStatus]:
+    return [
+        InstallmentPaymentStatus.model_validate(item)
+        for item in st.session_state.get(
+            "installment_payment_statuses",
+            [],
+        )
+    ]
+
+
+def _render_priority_card(
+    priority: ConsultationPriorityView,
+) -> None:
+    with st.container(border=True):
+        st.caption(
+            "{}순위 · {} · 결정론적 검토 순서".format(
+                priority.rank,
+                priority.category,
+            )
+        )
+        st.markdown("#### {}".format(priority.title))
+        st.write(priority.priority_reason)
+        for item in priority.numeric_rationale:
+            st.markdown(
+                "- **{}**: {}".format(
+                    item.label,
+                    rationale_display_text(item),
+                )
+            )
+        if priority.missing_information:
+            st.warning(
+                "아직 확인할 정보 · {}".format(
+                    " · ".join(priority.missing_information)
+                )
+            )
+        st.markdown(
+            "**상담에서 기대하는 결정**  \n{}".format(
+                priority.expected_decision
+            )
+        )
+        st.markdown(
+            "**다음 행동**  \n{}".format(priority.next_action)
+        )
+        with st.expander("준비자료·질문·공식 후보"):
+            st.markdown("**준비자료**")
+            for item in priority.preparation_documents:
+                st.write("· {}".format(item))
+            st.markdown("**은행에 물어볼 질문**")
+            for item in priority.bank_questions:
+                st.write("· {}".format(item))
+            st.markdown("**공식 후보**")
+            if priority.official_candidates:
+                for candidate in priority.official_candidates:
+                    st.markdown(
+                        "- [{} · {}]({}) · 확인일 {}  \n"
+                        "  연결 이유: {}  \n"
+                        "  eligibility=UNKNOWN · "
+                        "approval=CONSULTATION_REQUIRED".format(
+                            candidate.institution,
+                            candidate.name,
+                            candidate.source.url,
+                            candidate.source.verified_at,
+                            candidate.strategy_connection_reason,
+                        )
+                    )
+            else:
+                st.info(
+                    "현재 검증된 공식 후보가 없습니다. 최신 상담 가능 "
+                    "구조는 KB 영업점 또는 기업금융·외환 상담에서 "
+                    "확인하세요."
+                )
+
+
+def _render_consultation_priorities(
+    value: ConsultationPacketResult,
+    *,
+    key_prefix: str,
+    show_download: bool = False,
+) -> None:
+    priorities = value.packet.consultation_priorities
+    if not priorities:
+        return
+    st.markdown("### 먼저 확인할 상담")
+    st.caption(priorities[0].disclaimer)
+    for priority in priorities:
+        _render_priority_card(priority)
+    if value.packet.other_consultation_topics:
+        with st.expander("기타 확인사항", expanded=False):
+            for topic in value.packet.other_consultation_topics:
+                st.markdown("- **{}**: {}".format(
+                    topic.title,
+                    topic.explanation,
+                ))
+    if show_download:
+        st.download_button(
+            "상담 패킷 다운로드",
+            data=value.markdown,
+            file_name="kb_consultation_handoff.md",
+            mime="text/markdown",
+            key="{}_handoff_download".format(key_prefix),
+            type="primary",
+            width="stretch",
+        )
+        st.caption(
+            "다운로드는 상담 준비자료 생성이며 실제 예약·RM 전송·신청 "
+            "완료를 의미하지 않습니다."
+        )
 
 
 def _workflow_from_state() -> Optional[WorkflowState]:
@@ -196,6 +316,63 @@ def _workflow_from_state() -> Optional[WorkflowState]:
 
 def _save_workflow(value: WorkflowState) -> None:
     _save_model("workflow_state", value)
+
+
+def _rebuild_consultation_with_payment_statuses(
+    statuses: List[InstallmentPaymentStatus],
+) -> None:
+    workflow = _workflow_from_state()
+    extraction = _model_from_state(
+        "extraction",
+        TradeDocumentExtraction,
+    )
+    confirmation = _model_from_state(
+        "confirmation",
+        ConfirmationRecord,
+    )
+    stage1_load = _model_from_state(
+        "stage1_load",
+        Stage1LoadResult,
+    )
+    stage2_input = _model_from_state("stage2_input", Stage2Input)
+    stage2_result = _model_from_state("stage2_result", Stage2Result)
+    if (
+        workflow is None
+        or extraction is None
+        or confirmation is None
+        or stage1_load is None
+        or stage2_input is None
+        or stage2_result is None
+    ):
+        raise ValueError(
+            "입금 확인을 반영할 확정 거래와 Stage 2 결과가 없습니다."
+        )
+    decision_support = build_decision_support(
+        case_id=workflow.case_id,
+        extraction=extraction,
+        confirmation=confirmation,
+        stage1=stage1_load.scenario_set,
+        stage2_input=stage2_input,
+        stage2_result=stage2_result,
+        trade_settlement_risk=_model_from_state(
+            "trade_risk_assessment",
+            TradeSettlementRiskAssessment,
+        ),
+        country_environment=_model_from_state(
+            "country_environment_assessment",
+            CountryTradeEnvironmentAssessment,
+        ),
+        official_candidate_shortlist=_model_from_state(
+            "official_candidate_shortlist",
+            OfficialCandidateShortlist,
+        ),
+        installment_payment_statuses=statuses,
+        missing_information=list(
+            extraction.missing_required_fields
+        ),
+    )
+    _save_decision_support(decision_support)
+    clear_downstream(st.session_state, 5)
 
 
 def _demo_fixture(
@@ -1050,6 +1227,9 @@ def _render_trade_risk_section(
                         stage2_result=stage2_result,
                         trade_settlement_risk=assessment,
                         country_environment=country_assessment,
+                        installment_payment_statuses=(
+                            _installment_payment_statuses_from_state()
+                        ),
                         missing_information=list(
                             extraction.missing_required_fields
                         ),
@@ -1076,6 +1256,9 @@ def _render_trade_risk_section(
                             trade_settlement_risk=assessment,
                             country_environment=country_assessment,
                             official_candidate_shortlist=shortlist,
+                            installment_payment_statuses=(
+                                _installment_payment_statuses_from_state()
+                            ),
                             missing_information=list(
                                 extraction.missing_required_fields
                             ),
@@ -3615,6 +3798,9 @@ with stage2_tab:
                         "country_environment_assessment",
                         CountryTradeEnvironmentAssessment,
                     ),
+                    installment_payment_statuses=(
+                        _installment_payment_statuses_from_state()
+                    ),
                     missing_information=list(
                         extraction_for_decision.missing_required_fields
                     ),
@@ -3891,11 +4077,22 @@ with stage2_tab:
                         "현재 입력에서는 구조화된 주요 위험 기준을 넘지 않았습니다."
                     )
 
+            if (
+                consultation_packet is not None
+                and consultation_packet.packet.consultation_priorities
+            ):
+                st.divider()
+                _render_consultation_priorities(
+                    consultation_packet,
+                    key_prefix="stage2",
+                )
+
             if consultation_topics:
-                st.markdown("### 검토할 금융 대응")
+                st.markdown("### 전체 상담 범주와 근거")
                 st.caption(
-                    "아래 항목은 규칙 기반 상담 범주입니다. 상품 추천·승인·"
-                    "최적 헤지 확정이 아니며 실제 조건은 KB 담당자 검토가 필요합니다."
+                    "Top 3에 반영된 항목과 기타 확인사항의 원래 규칙 기반 "
+                    "상담 범주입니다. 상품 추천·승인·최적 헤지 확정이 "
+                    "아니며 실제 조건은 KB 담당자 검토가 필요합니다."
                 )
                 for topic in consultation_topics:
                     with st.expander(topic.title, expanded=False):
@@ -4381,6 +4578,9 @@ with stage4_tab:
                         CountryTradeEnvironmentAssessment,
                     ),
                     official_candidate_shortlist=shortlist,
+                    installment_payment_statuses=(
+                        _installment_payment_statuses_from_state()
+                    ),
                     missing_information=list(
                         extraction.missing_required_fields
                     ),
@@ -4510,6 +4710,135 @@ with stage5_tab:
             "LLM이 다시 계산하거나 변형하지 않았습니다.</p></div></div>",
             unsafe_allow_html=True,
         )
+        _render_consultation_priorities(
+            consultation_packet,
+            key_prefix="stage5",
+            show_download=True,
+        )
+        if packet.installment_payment_statuses:
+            st.markdown("### 선지급 실제 입금 상태 확인")
+            st.caption(
+                "이 확인은 상담용 부족정보만 갱신합니다. 계약상 예정 "
+                "수취 노출액과 Stage 2 계산값은 변경하지 않습니다."
+            )
+            schedule_by_sequence = {
+                item.sequence: item
+                for item in packet.company_summary.payment_schedule
+            }
+            status_rows = []
+            for item in packet.installment_payment_statuses:
+                schedule = schedule_by_sequence.get(
+                    item.installment_sequence
+                )
+                status_rows.append(
+                    {
+                        "회차": item.installment_sequence,
+                        "예정금액": (
+                            "{} {}".format(
+                                schedule.currency,
+                                schedule.amount_fx,
+                            )
+                            if (
+                                schedule is not None
+                                and schedule.amount_fx is not None
+                            )
+                            else "미확인"
+                        ),
+                        "예정일": (
+                            schedule.scheduled_date
+                            if schedule is not None
+                            else None
+                        ),
+                        "실제 입금 상태": item.status,
+                        "실제 입금일": (
+                            item.actual_payment_date or ""
+                        ),
+                    }
+                )
+            edited_payment_statuses = st.data_editor(
+                status_rows,
+                key="consultation_payment_status_editor",
+                hide_index=True,
+                width="stretch",
+                disabled=["회차", "예정금액", "예정일"],
+                column_config={
+                    "실제 입금 상태": st.column_config.SelectboxColumn(
+                        options=[
+                            "UNKNOWN",
+                            "CONFIRMED_RECEIVED",
+                            "CONFIRMED_NOT_RECEIVED",
+                        ],
+                        required=True,
+                    ),
+                    "실제 입금일": st.column_config.TextColumn(
+                        help=(
+                            "CONFIRMED_RECEIVED이면 YYYY-MM-DD로 "
+                            "입력하세요."
+                        )
+                    ),
+                },
+            )
+            if st.button(
+                "선지급 입금 상태 반영",
+                key="confirm_installment_payment_status",
+            ):
+                try:
+                    updated_statuses: List[
+                        InstallmentPaymentStatus
+                    ] = []
+                    for row in edited_payment_statuses.to_dict(
+                        "records"
+                    ):
+                        status = str(row["실제 입금 상태"])
+                        actual_date = _date_or_none(
+                            row.get("실제 입금일")
+                        )
+                        if (
+                            status == "CONFIRMED_RECEIVED"
+                            and actual_date is None
+                        ):
+                            raise ValueError(
+                                "입금 확인 회차에는 실제 입금일이 "
+                                "필요합니다."
+                            )
+                        updated_statuses.append(
+                            InstallmentPaymentStatus(
+                                installment_sequence=int(row["회차"]),
+                                status=status,
+                                actual_payment_date=(
+                                    actual_date
+                                    if status
+                                    == "CONFIRMED_RECEIVED"
+                                    else None
+                                ),
+                                confirmed_by=(
+                                    "streamlit-user"
+                                    if status != "UNKNOWN"
+                                    else None
+                                ),
+                                confirmed_at=(
+                                    datetime.now(
+                                        timezone.utc
+                                    ).isoformat()
+                                    if status != "UNKNOWN"
+                                    else None
+                                ),
+                                source=(
+                                    "USER_CONFIRMED"
+                                    if status != "UNKNOWN"
+                                    else "UNCONFIRMED"
+                                ),
+                            )
+                        )
+                    _rebuild_consultation_with_payment_statuses(
+                        updated_statuses
+                    )
+                    st.success(
+                        "상담용 실제 입금 확인 상태를 반영했습니다."
+                    )
+                    st.rerun()
+                except (TypeError, ValueError) as exc:
+                    st.error(str(exc))
         packet_metrics = st.columns(4)
         packet_metrics[0].metric(
             "거래 방향",
@@ -4529,15 +4858,6 @@ with stage5_tab:
         packet_metrics[3].metric(
             "대출한도 반영 후 부족",
             format_krw(packet.risk_summary.payment_gap_krw),
-        )
-        st.download_button(
-            "상담용 보고서 다운로드",
-            data=consultation_packet.markdown,
-            file_name="fx_flow_consultation_report.md",
-            mime="text/markdown",
-            key="download_consultation_packet_markdown_stage5",
-            type="primary",
-            width="stretch",
         )
         with st.expander("개발·연동용 데이터", expanded=False):
             st.caption(

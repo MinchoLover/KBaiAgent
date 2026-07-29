@@ -13,10 +13,14 @@ from src.domain.consultation_models import (
     CompanySummary,
     ConsultationPacket,
     ConsultationPacketResult,
+    ConsultationPriorityView,
+    ConsultationRationaleItem,
     ConsultationTopic,
     ExposureSummary,
     InstallmentPaymentStatus,
     PacketRiskSummary,
+    PaymentScheduleSummary,
+    ProtectionStatusSummary,
     RiskAssessment,
     SourceDocumentReference,
 )
@@ -37,6 +41,29 @@ DISCLAIMER = (
     " 거래·결제 검토 우선도는 금융기관의 공식 심사등급이나 부도확률이 "
     "아닙니다."
 )
+
+SAFETY_BOUNDARIES = [
+    (
+        "분석 대상 예정 결제 노출액은 계약상 예정 금액이며 실제 현재 "
+        "미수잔액 또는 미지급잔액을 확정하지 않습니다."
+    ),
+    (
+        "Stage 3 후보는 입력 가정 아래 계산상 비교안이며 최적 헤지나 "
+        "실행 지시가 아닙니다."
+    ),
+    (
+        "국가환경 snapshot은 OECD·World Bank·WTO 원자료 문맥이며 "
+        "KB 또는 KBaiAgent의 공식 국가신용등급이 아닙니다."
+    ),
+    (
+        "공식 후보의 eligibility와 approval은 UNKNOWN 또는 상담 필요이며 "
+        "가입·대출·보험 인수를 보장하지 않습니다."
+    ),
+    (
+        "상담 순위는 검토 순서이며 상품 승인·보험 인수·대출 심사 "
+        "결과가 아닙니다."
+    ),
+]
 
 
 def _input_hash(
@@ -151,23 +178,120 @@ def _settlement_date(stage2_result: Stage2Result) -> str:
 
 def _required_documents(
     topics: List[ConsultationTopic],
+    priorities: Optional[List[ConsultationPriorityView]] = None,
 ) -> List[str]:
     return list(
         dict.fromkeys(
-            document
-            for topic in topics
-            for document in topic.required_documents
+            (
+                [
+                    document
+                    for priority in priorities or []
+                    for document in priority.preparation_documents
+                ]
+                + [
+                    document
+                    for topic in topics
+                    for document in topic.required_documents
+                ]
+            )
         )
     )
 
 
-def _questions(topics: List[ConsultationTopic]) -> List[str]:
+def _questions(
+    topics: List[ConsultationTopic],
+    priorities: Optional[List[ConsultationPriorityView]] = None,
+) -> List[str]:
     return list(
         dict.fromkeys(
-            question
-            for topic in topics
-            for question in topic.questions
+            (
+                [
+                    question
+                    for priority in priorities or []
+                    for question in priority.bank_questions
+                ]
+                + [
+                    question
+                    for topic in topics
+                    for question in topic.questions
+                ]
+            )
         )
+    )
+
+
+def _protection_summary(
+    *,
+    stage2_result: Stage2Result,
+    trade_settlement_risk: Optional[
+        TradeSettlementRiskAssessment
+    ],
+    payment_statuses: List[InstallmentPaymentStatus],
+) -> ProtectionStatusSummary:
+    factor_codes = {
+        item.code
+        for item in (
+            trade_settlement_risk.factors
+            if trade_settlement_risk is not None
+            else []
+        )
+    }
+    if "DOCUMENTARY_CREDIT_DETAILS_NOT_ASSESSED" in factor_codes:
+        documentary_credit = "PRESENT_DETAILS_NOT_ASSESSED"
+    elif (
+        "NO_APPLICABLE_EXPORT_PROTECTION" in factor_codes
+        or "NO_APPLICABLE_IMPORT_PROTECTION" in factor_codes
+    ):
+        documentary_credit = "NONE_CONFIRMED"
+    else:
+        documentary_credit = "UNKNOWN"
+    no_protection = bool(
+        {
+            "NO_APPLICABLE_EXPORT_PROTECTION",
+            "NO_APPLICABLE_IMPORT_PROTECTION",
+        }.intersection(factor_codes)
+    )
+    has_protection = bool(
+        {
+            "APPLICABLE_EXPORT_PROTECTION",
+            "APPLICABLE_IMPORT_PROTECTION",
+        }.intersection(factor_codes)
+    )
+    if no_protection:
+        insurance = "NONE_CONFIRMED"
+        guarantee = "NONE_CONFIRMED"
+    elif has_protection:
+        insurance = "PROTECTION_PRESENT_TYPE_NOT_EXPOSED"
+        guarantee = "PROTECTION_PRESENT_TYPE_NOT_EXPOSED"
+    else:
+        insurance = "UNKNOWN"
+        guarantee = "UNKNOWN"
+    if not payment_statuses:
+        receipt_status = "NOT_APPLICABLE"
+    elif any(item.status == "UNKNOWN" for item in payment_statuses):
+        receipt_status = "UNKNOWN"
+    elif all(
+        item.status == "CONFIRMED_RECEIVED"
+        for item in payment_statuses
+    ):
+        receipt_status = "CONFIRMED_RECEIVED"
+    elif all(
+        item.status == "CONFIRMED_NOT_RECEIVED"
+        for item in payment_statuses
+    ):
+        receipt_status = "CONFIRMED_NOT_RECEIVED"
+    else:
+        receipt_status = "MIXED_USER_CONFIRMED"
+    return ProtectionStatusSummary(
+        documentary_credit=documentary_credit,
+        credit_insurance=insurance,
+        independent_payment_guarantee=guarantee,
+        existing_hedge=(
+            "NONE_IN_CALCULATION_INPUT"
+            if Decimal(stage2_result.hedged_amount) == 0
+            else "PRESENT_IN_CALCULATION_INPUT"
+        ),
+        advance_payment_receipt=receipt_status,
     )
 
 
@@ -266,6 +390,21 @@ def _country_environment_lines(
     return "\n".join(lines)
 
 
+def rationale_display_text(
+    item: ConsultationRationaleItem,
+) -> str:
+    if item.unit in {"FX", "KRW"}:
+        value = Decimal(item.value)
+        if value == value.to_integral():
+            number = "{:,.0f}".format(value)
+        else:
+            number = "{:,.2f}".format(value).rstrip("0").rstrip(".")
+        if item.unit == "KRW":
+            return "{}원".format(number)
+        return "{} {}".format(item.currency or "FX", number)
+    return item.value
+
+
 def _markdown(packet: ConsultationPacket) -> str:
     risk_lines = (
         "\n".join(
@@ -332,6 +471,100 @@ def _markdown(packet: ConsultationPacket) -> str:
     country_environment_lines = _country_environment_lines(
         packet.country_environment
     )
+    schedule_lines = (
+        "\n".join(
+            "- {}회차: {} · 예정일 {} · 조건 {}".format(
+                item.sequence,
+                (
+                    "{} {}".format(
+                        item.currency
+                        or packet.company_summary.currency,
+                        "{:,.0f}".format(Decimal(item.amount_fx)),
+                    )
+                    if item.amount_fx is not None
+                    else "금액 미확인"
+                ),
+                item.scheduled_date or "미확인",
+                item.condition or "미확인",
+            )
+            for item in packet.company_summary.payment_schedule
+        )
+        or "- 문서에서 구조화된 분할 결제 schedule이 없습니다."
+    )
+    priority_sections: List[str] = []
+    for priority in packet.consultation_priorities:
+        rationale_lines = "\n".join(
+            "  - {}: {}  \n"
+            "    source path: `{}`".format(
+                item.label,
+                rationale_display_text(item),
+                "`, `".join(item.source_paths),
+            )
+            for item in priority.numeric_rationale
+        ) or "  - 추가 수치 근거 없음"
+        priority_missing = (
+            "\n".join(
+                "  - {}".format(item)
+                for item in priority.missing_information
+            )
+            or "  - 이 카드에 별도로 등록된 미확인 항목 없음"
+        )
+        priority_candidates = (
+            "\n".join(
+                "  - {} · {} · [공식 출처]({}) · 확인일 {}  \n"
+                "    연결 이유: {}  \n"
+                "    eligibility=UNKNOWN · "
+                "approval=CONSULTATION_REQUIRED".format(
+                    item.name,
+                    item.institution,
+                    item.source.url,
+                    item.source.verified_at,
+                    item.strategy_connection_reason,
+                )
+                for item in priority.official_candidates
+            )
+            or (
+                "  - 현재 검증된 공식 후보가 없습니다. 최신 상담 가능 "
+                "구조는 KB 영업점 또는 기업금융·외환 상담에서 확인하세요."
+            )
+        )
+        priority_sections.append(
+            """### {rank}순위 · {title}
+
+- 검토 순서 근거: {priority_reason}
+- primary trigger: {triggered_by}
+- 결정 규칙: `{rule_code}` · tie-break `{tie_break}`
+- 숫자·조건 근거:
+{rationale_lines}
+- 아직 확인할 정보:
+{missing_lines}
+- 상담에서 기대하는 결정: {expected_decision}
+- 다음 행동: {next_action}
+- 연결된 공식 후보:
+{candidate_lines}
+
+{disclaimer}
+""".format(
+                rank=priority.rank,
+                title=priority.title,
+                priority_reason=priority.priority_reason,
+                triggered_by=(
+                    ", ".join(priority.triggered_by) or "HUMAN_REVIEW"
+                ),
+                rule_code=priority.priority_rule_code,
+                tie_break=priority.category_tie_break,
+                rationale_lines=rationale_lines,
+                missing_lines=priority_missing,
+                expected_decision=priority.expected_decision,
+                next_action=priority.next_action,
+                candidate_lines=priority_candidates,
+                disclaimer=priority.disclaimer,
+            )
+        )
+    priority_lines = (
+        "\n".join(priority_sections)
+        or "현재 입력에서 생성된 우선 상담 카드가 없습니다."
+    )
     topic_lines = "\n".join(
         "- **{}**: {} 최종 판단은 사용자와 KB 담당자가 합니다.".format(
             item.title,
@@ -341,11 +574,13 @@ def _markdown(packet: ConsultationPacket) -> str:
     )
     if packet.official_candidate_shortlist is None:
         official_candidate_lines = (
-            "- 공식 후보 검색을 아직 실행하지 않았습니다."
+            "- 현재 검증된 공식 후보가 없습니다. 최신 상담 가능 구조는 "
+            "KB 영업점 또는 기업금융·외환 상담에서 확인하세요."
         )
     elif not packet.official_candidate_shortlist.candidates:
         official_candidate_lines = (
-            "- 상담 필요 항목과 직접 연결되는 공식 후보를 찾지 못했습니다. "
+            "- 현재 검증된 공식 후보가 없습니다. 최신 상담 가능 구조는 "
+            "KB 영업점 또는 기업금융·외환 상담에서 확인하세요. "
             "후보를 임의로 만들지 않았습니다."
         )
     else:
@@ -370,11 +605,20 @@ def _markdown(packet: ConsultationPacket) -> str:
         or "- 상담 과정에서 필요한 서류를 확인해야 합니다."
     )
     question_lines = (
-        "\n".join("- {}".format(item) for item in _questions(
-            packet.consultation_topics
-        ))
+        "\n".join("- {}".format(item) for item in packet.bank_questions)
         or "- 실제 이용 가능 조건과 추가 확인사항은 무엇인가?"
     )
+    safety_lines = "\n".join(
+        "- {}".format(item) for item in packet.safety_boundaries
+    )
+    other_topic_lines = (
+        "\n".join(
+            "- **{}**: {}".format(item.title, item.explanation)
+            for item in packet.other_consultation_topics
+        )
+        or "- Top 3 외 별도 확인사항이 없습니다."
+    )
+    protection = packet.protection_summary
     loss_label = (
         "추가 원화 비용"
         if packet.company_summary.trade_type == "IMPORT"
@@ -382,15 +626,70 @@ def _markdown(packet: ConsultationPacket) -> str:
     )
     return """# KB 상담 준비 패킷
 
+> 이 첫 요약은 `ConsultationPacket` JSON에서 결정론적으로 생성했습니다.
+
 ## 1. 거래 요약
 
 - Case ID: `{case_id}`
+- 회사 역할: {company_role}
 - 거래 방향: {trade_type}
 - 통화·금액: {currency} {trade_amount}
 - 거래 상대국: {counterparty}
 - 결제·수취일: {settlement_date}
+- Incoterm: {incoterm}
+- 결제조건: {payment_terms}
 - 열린 환노출: {currency} {open_exposure}
 - 사용자 확인 필드: {confirmed_fields}
+
+결제 회차:
+
+{schedule_lines}
+
+## 2. 상담 Top 3
+
+{priority_lines}
+
+## 3. 보호수단 현황
+
+- 신용장: {documentary_credit}
+- 보험: {credit_insurance}
+- 독립 지급보증: {payment_guarantee}
+- 기존 헤지: {existing_hedge}
+- 선지급 실제 입금 확인: {advance_receipt}
+
+## 4. 준비할 자료
+
+{document_lines}
+
+## 5. 은행에 물어볼 질문
+
+{question_lines}
+
+## 6. 공식 출처 상담 후보
+
+{official_candidate_lines}
+
+후보는 최대 3개이며, 자격·승인·가격·한도는 제공 기관에서 다시 확인해야 합니다.
+
+## 7. 안전 경계
+
+{safety_lines}
+
+## 8. Trace
+
+- 원문 document hash: `{document_hash}`
+- 사용자 확인 필드: {confirmed_fields}
+- 입력 hash: `{input_hash}`
+- 거래위험 fingerprint: `{trade_risk_fingerprint}`
+- 상담 priority fingerprint: `{priority_fingerprint}`
+- 계산 버전: `{calculation_version}`
+- 환율 기준시각: `{exchange_rate_as_of}`
+- 시나리오 ID: {scenario_ids}
+- 생성시각: `{generated_at}`
+
+---
+
+# 상세 근거 부록
 
 ## 2. 핵심 계산 결과
 
@@ -425,11 +724,13 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 위 항목은 금융상품 추천이나 승인 결과가 아니라 상담 범주입니다.
 
+## 5A. 기타 확인사항
+
+{other_topic_lines}
+
 ## 6. 공식 출처 상담 후보
 
 {official_candidate_lines}
-
-후보는 최대 3개이며, 자격·승인·가격·한도는 제공 기관에서 다시 확인해야 합니다.
 
 ## 7. 아직 확인할 정보
 
@@ -456,11 +757,15 @@ def _markdown(packet: ConsultationPacket) -> str:
 {disclaimer}
 """.format(
         case_id=packet.case_id,
+        company_role=packet.company_summary.company_role or "미확인",
         trade_type=packet.company_summary.trade_type,
         currency=packet.company_summary.currency,
         trade_amount=packet.company_summary.trade_amount_fx,
         counterparty=packet.company_summary.counterparty_country or "미확인",
         settlement_date=packet.company_summary.settlement_date,
+        incoterm=packet.company_summary.incoterm or "미확인",
+        payment_terms=packet.company_summary.payment_terms or "미확인",
+        schedule_lines=schedule_lines,
         open_exposure=packet.exposure_summary.open_exposure_fx,
         confirmed_fields=(
             ", ".join(packet.user_confirmed_fields) or "없음"
@@ -476,11 +781,32 @@ def _markdown(packet: ConsultationPacket) -> str:
         trade_risk_lines=trade_risk_lines,
         trade_risk_assumptions=trade_risk_assumptions,
         country_environment_lines=country_environment_lines,
+        priority_lines=priority_lines,
         topic_lines=topic_lines,
+        other_topic_lines=other_topic_lines,
         official_candidate_lines=official_candidate_lines,
         missing_lines=missing_lines,
         document_lines=document_lines,
         question_lines=question_lines,
+        safety_lines=safety_lines,
+        documentary_credit=protection.documentary_credit,
+        credit_insurance=protection.credit_insurance,
+        payment_guarantee=protection.independent_payment_guarantee,
+        existing_hedge=protection.existing_hedge,
+        advance_receipt=protection.advance_payment_receipt,
+        document_hash=(
+            packet.source_documents[0].document_id
+            if packet.source_documents
+            else "UNKNOWN"
+        ),
+        trade_risk_fingerprint=(
+            packet.trade_settlement_risk.input_fingerprint
+            if packet.trade_settlement_risk is not None
+            else "NOT_AVAILABLE"
+        ),
+        priority_fingerprint=(
+            packet.consultation_priority_fingerprint or "NOT_AVAILABLE"
+        ),
         calculation_version=packet.calculation_version,
         input_hash=packet.input_hash,
         exchange_rate_as_of=packet.exchange_rate_as_of,
@@ -601,6 +927,19 @@ def build_consultation_packet(
             counterparty_country=counterparty_country,
             settlement_date=_settlement_date(stage2_result),
             trade_amount_fx=stage2_result.total_foreign_amount,
+            company_role=extraction.company_role,
+            incoterm=extraction.incoterm,
+            payment_terms=extraction.payment_terms,
+            payment_schedule=[
+                PaymentScheduleSummary(
+                    sequence=item.sequence or index + 1,
+                    amount_fx=item.amount,
+                    currency=item.currency or extraction.currency,
+                    scheduled_date=item.due_date,
+                    condition=item.condition,
+                )
+                for index, item in enumerate(extraction.installments)
+            ],
         ),
         exposure_summary=ExposureSummary(
             gross_exposure_fx=stage2_result.total_foreign_amount,
@@ -618,6 +957,11 @@ def build_consultation_packet(
             payment_gap_krw=worst.post_credit_shortfall,
             risk_codes=assessment.risk_codes,
         ),
+        protection_summary=_protection_summary(
+            stage2_result=stage2_result,
+            trade_settlement_risk=trade_settlement_risk,
+            payment_statuses=materialized_payment_statuses,
+        ),
         risk_findings=assessment.findings,
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
@@ -628,7 +972,15 @@ def build_consultation_packet(
         installment_payment_statuses=materialized_payment_statuses,
         official_candidate_shortlist=official_candidate_shortlist,
         missing_information=gaps,
-        required_documents=_required_documents(consultation_topics),
+        required_documents=_required_documents(
+            consultation_topics,
+            consultation_priorities,
+        ),
+        bank_questions=_questions(
+            consultation_topics,
+            consultation_priorities,
+        ),
+        safety_boundaries=SAFETY_BOUNDARIES,
         source_documents=[
             SourceDocumentReference(
                 document_id=confirmation.source_sha256,

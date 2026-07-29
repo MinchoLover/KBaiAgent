@@ -158,12 +158,27 @@ class ConsultationPriorityView(StrictModel):
     disclaimer: str
 
 
+class PaymentScheduleSummary(StrictModel):
+    sequence: int = Field(ge=1)
+    amount_fx: Optional[str] = None
+    currency: Optional[str] = None
+    scheduled_date: Optional[str] = None
+    condition: Optional[str] = None
+
+
 class CompanySummary(StrictModel):
     trade_type: Literal["IMPORT", "EXPORT"]
     currency: str
     counterparty_country: Optional[str] = None
     settlement_date: str
     trade_amount_fx: str
+    company_role: Optional[Literal["BUYER", "SELLER"]] = None
+    incoterm: Optional[str] = None
+    payment_terms: Optional[str] = None
+    payment_schedule: List[PaymentScheduleSummary] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+    )
 
 
 class ExposureSummary(StrictModel):
@@ -184,6 +199,14 @@ class PacketRiskSummary(StrictModel):
     risk_codes: List[RiskCode] = Field(default_factory=list)
 
 
+class ProtectionStatusSummary(StrictModel):
+    documentary_credit: str = "UNKNOWN"
+    credit_insurance: str = "UNKNOWN"
+    independent_payment_guarantee: str = "UNKNOWN"
+    existing_hedge: str = "UNKNOWN"
+    advance_payment_receipt: str = "NOT_APPLICABLE"
+
+
 class SourceDocumentReference(StrictModel):
     document_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     filename: str
@@ -201,6 +224,9 @@ class ConsultationPacket(StrictModel):
     company_summary: CompanySummary
     exposure_summary: ExposureSummary
     risk_summary: PacketRiskSummary
+    protection_summary: ProtectionStatusSummary = Field(
+        default_factory=ProtectionStatusSummary
+    )
     risk_findings: List[RiskFinding] = Field(default_factory=list)
     trade_settlement_risk: Optional[
         TradeSettlementRiskAssessment
@@ -245,6 +271,8 @@ class ConsultationPacket(StrictModel):
     )
     missing_information: List[str] = Field(default_factory=list)
     required_documents: List[str] = Field(default_factory=list)
+    bank_questions: List[str] = Field(default_factory=list)
+    safety_boundaries: List[str] = Field(default_factory=list)
     source_documents: List[SourceDocumentReference] = Field(
         default_factory=list
     )

@@ -26,6 +26,9 @@ from src.ui.components import (
     amount_due_user_label,
     validation_issue_copy,
 )
+from tests.golden_consultation_fixture import (
+    build_golden_consultation_fixture,
+)
 from validators import apply_deterministic_review_state
 
 
@@ -443,6 +446,89 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         self.assertIn(
             "검증된 OECD 원자료를 확인할 수 없습니다",
             warnings,
+        )
+
+    def test_export_demo_shows_ranked_consultation_cards_and_cta(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        demo = next(
+            button
+            for button in app.button
+            if button.label == "수출기업 대표 데모"
+        )
+        demo.click().run()
+
+        self.assertEqual(len(app.exception), 0)
+        visible_text = " ".join(
+            [item.value for item in app.markdown]
+            + [item.value for item in app.caption]
+            + [item.value for item in app.warning]
+            + [item.value for item in app.info]
+        )
+        for expected in (
+            "먼저 확인할 상담",
+            "1순위",
+            "수출대금 회수 보호 상담",
+            "2순위",
+            "환율 관리 상담",
+            "3순위",
+            "운영자금 버퍼·수출대금 회수시점 상담",
+            "7,000,000원",
+            "2,000,000원",
+            "cash deficit",
+            "payment/post-credit deficit",
+            "상품 승인·보험 인수·대출 심사 결과가 아닙니다",
+        ):
+            self.assertIn(expected, visible_text)
+        self.assertIn(
+            "상담 패킷 다운로드",
+            [item.label for item in app.get("download_button")],
+        )
+        for prohibited in (
+            "승인될 것입니다",
+            "최적 상품입니다",
+            "상담 예약 완료",
+            "RM에게 전송 완료",
+        ):
+            self.assertNotIn(prohibited, visible_text)
+
+    def test_golden_packet_ui_marks_advance_receipt_unknown(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        demo = next(
+            button
+            for button in app.button
+            if button.label == "수출기업 대표 데모"
+        )
+        demo.click().run()
+        packet_result = build_golden_consultation_fixture()[
+            "decision"
+        ].consultation_packet
+        app.session_state["consultation_packet"] = (
+            packet_result.model_dump()
+        )
+        app.session_state["installment_payment_statuses"] = [
+            item.model_dump()
+            for item in packet_result.packet.installment_payment_statuses
+        ]
+        app.run()
+
+        self.assertEqual(len(app.exception), 0)
+        visible_text = " ".join(
+            [item.value for item in app.markdown]
+            + [item.value for item in app.warning]
+        )
+        self.assertIn(
+            "USD 20,000 선지급의 실제 입금 여부와 입금일",
+            visible_text,
+        )
+        self.assertIn("선지급 실제 입금 여부", visible_text)
+        self.assertIn("UNKNOWN", visible_text)
+        self.assertIn(
+            "선지급 입금 상태 반영",
+            [item.label for item in app.button],
         )
 
     def test_review_edit_clears_evidence_and_prior_confirmation_state(self):

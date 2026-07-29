@@ -207,6 +207,85 @@ class GoldenConsultationPriorityTests(unittest.TestCase):
             self.assertTrue(priority.expected_decision)
             self.assertTrue(priority.next_action)
 
+    def test_one_page_handoff_contains_trade_and_protection_snapshot(self):
+        company = self.packet.company_summary
+        protection = self.packet.protection_summary
+        self.assertEqual(company.company_role, "SELLER")
+        self.assertEqual(company.trade_type, "EXPORT")
+        self.assertEqual(company.counterparty_country, "BR")
+        self.assertEqual(company.incoterm, "FOB Busan, Incoterms 2020")
+        self.assertEqual(
+            [item.amount_fx for item in company.payment_schedule],
+            ["20000.00", "80000.00"],
+        )
+        self.assertEqual(
+            [item.scheduled_date for item in company.payment_schedule],
+            ["2026-07-29", "2026-08-20"],
+        )
+        self.assertEqual(
+            protection.documentary_credit,
+            "NONE_CONFIRMED",
+        )
+        self.assertEqual(
+            protection.credit_insurance,
+            "NONE_CONFIRMED",
+        )
+        self.assertEqual(
+            protection.independent_payment_guarantee,
+            "NONE_CONFIRMED",
+        )
+        self.assertEqual(
+            protection.existing_hedge,
+            "NONE_IN_CALCULATION_INPUT",
+        )
+        self.assertEqual(
+            protection.advance_payment_receipt,
+            "UNKNOWN",
+        )
+
+    def test_markdown_and_json_use_same_priority_order_and_values(self):
+        markdown = self.fixture["decision"].consultation_packet.markdown
+        positions = [
+            markdown.index(
+                "{}순위 · {}".format(item.rank, item.title)
+            )
+            for item in self.packet.consultation_priorities
+        ]
+        self.assertEqual(positions, sorted(positions))
+        for priority in self.packet.consultation_priorities:
+            self.assertIn(priority.priority_reason, markdown)
+            self.assertIn(priority.expected_decision, markdown)
+            self.assertIn(priority.next_action, markdown)
+            for rationale in priority.numeric_rationale:
+                self.assertIn(rationale.label, markdown)
+        self.assertIn("USD 80,000", markdown)
+        self.assertIn("7,000,000원", markdown)
+        self.assertIn("2,000,000원", markdown)
+        self.assertIn("cash deficit: 0원", markdown)
+        self.assertIn(
+            "payment/post-credit deficit: 0원",
+            markdown,
+        )
+
+    def test_handoff_has_safety_boundaries_and_trace(self):
+        markdown = self.fixture["decision"].consultation_packet.markdown
+        self.assertTrue(self.packet.safety_boundaries)
+        self.assertIn(
+            "실제 현재 미수잔액",
+            " ".join(self.packet.safety_boundaries),
+        )
+        self.assertIn("## 8. Trace", markdown)
+        self.assertIn(
+            self.packet.consultation_priority_fingerprint,
+            markdown,
+        )
+        self.assertIn(
+            self.packet.source_documents[0].document_id,
+            markdown,
+        )
+        self.assertNotIn("RM에게 전송 완료", markdown)
+        self.assertNotIn("상담 예약 완료", markdown)
+
 
 if __name__ == "__main__":
     unittest.main()
