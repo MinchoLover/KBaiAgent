@@ -138,15 +138,18 @@ python scripts/run_decision_demo.py --company-role BUYER --format markdown
 두 사례의 결제일은 21거래일 밖이므로 모델 분위수는 시장 문맥으로만 보이고
 결제 숫자는 고정 스트레스에서 나옵니다.
 
-메인 발표용 텍스트 레이어 Golden 수출계약서는 별도로 생성합니다.
+메인 발표용 텍스트 레이어 Golden 수출계약서는 저장소의 불변 fixture를 사용합니다.
 
 ```bash
-python scripts/generate_golden_trade_demo.py
+shasum -a 256 dataset/golden_demo/golden_export_contract.pdf
 python -m unittest tests.test_golden_trade_demo -v
 ```
 
 `dataset/golden_demo/golden_export_contract.pdf`는 KR 판매자·BR 구매자,
 USD 100,000, 20/80 분할결제와 2026-08-20 잔금일을 가진 합성 계약서입니다.
+기대 SHA-256은
+`5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`이며,
+일상 preflight에서는 generator로 덮어쓰지 않습니다.
 Expected evidence와 사용자 입력은 같은 디렉터리의 JSON에 있으며 Golden Live
 v1은 핵심값 일치 후 amount/due-date evidence 검증에서 차단됐습니다. 결정론
 복구 수정은 API-free 검증만 완료했으며 별도 승인 재실행 전까지 end-to-end
@@ -233,6 +236,14 @@ Baseline v1/v2 합성 8건씩의 결과는
 [ARCHITECTURE.md](ARCHITECTURE.md), 감사는
 [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md), 과거 리팩터링 내역은
 [REFACTORING_REPORT.md](REFACTORING_REPORT.md)를 봅니다.
+
+2026-07-29 제출 직전 통합 사실기록은 다음 문서를 canonical 최종 감사 묶음으로
+사용합니다.
+
+- [최종 프로젝트 보고서](docs/FINAL_PROJECT_REPORT.md)
+- [최종 기술 감사](docs/FINAL_TECHNICAL_AUDIT.md)
+- [상담 강화 보고서](docs/CONSULTATION_STRENGTHENING_REPORT.md)
+- [최종 실행 계획](docs/FINAL_ACTION_PLAN.md)
 
 ## 12. 미구현 기능과 향후 확장
 

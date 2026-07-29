@@ -145,12 +145,16 @@ Live end-to-end 성공을 아직 주장하지 않습니다.
 ## 데모 전 확인
 
 ```bash
-python scripts/generate_golden_trade_demo.py
+shasum -a 256 dataset/golden_demo/golden_export_contract.pdf
 python -m unittest tests.test_golden_trade_demo -v
 python scripts/verify.py
 python scripts/run_decision_demo.py --company-role SELLER --format summary
 python -m streamlit run app.py
 ```
+
+기대 Golden PDF SHA-256은
+`5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`입니다.
+제출 preflight에서는 generator로 Golden을 덮어쓰지 않습니다.
 
 수정된 Golden Live를 사용하려면 별도 승인 후 현재 commit과 새 실행 식별값을
 기록해 재검증하고, 실패하면 `docs/DEMO_SCRIPT_KO.md`의 API-free fallback을

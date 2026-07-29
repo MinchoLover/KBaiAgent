@@ -16,12 +16,16 @@
 ## 발표 전 API-free 확인
 
 ```bash
-python scripts/generate_golden_trade_demo.py
+shasum -a 256 dataset/golden_demo/golden_export_contract.pdf
 python -m unittest tests.test_golden_trade_demo -v
 python scripts/run_decision_demo.py --company-role SELLER --format summary
 python scripts/verify.py
 python -m streamlit run app.py
 ```
+
+Golden PDF의 기대 SHA-256은
+`5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`입니다.
+발표 직전에는 생성기로 덮어쓰지 않고 이 지문과 테스트로 무결성을 확인합니다.
 
 Expected data와 수동 입력은 다음 두 파일을 옆 화면에 준비합니다.
 
@@ -91,7 +95,7 @@ Country validation의 스캔형 8건은 메인 성공 데모에 사용하지 않
 | 5. 환율 시장 문맥 확인 | 같은 탭의 환율 상세 펼치기 | 하락 0.712·상승 0.288, q90 하락 3.6%, `보정확률 아님` | “방향점수와 q90은 실제 발생확률이 아니며 뉴스도 금융 숫자를 바꾸지 않습니다.” | Stage 1 fixture JSON의 hash·고정 값을 표시 |
 | 6. 원화 현금 영향 확인 | 현금 20,000,000; 버퍼 10,000,000; 한도 0; 운영비 145,000,000 입력 후 계산 | 기준 수취 140,000,000원; -5% 수취 133,000,000원; 감소 7,000,000원; 결제 후 8,000,000원; 버퍼 부족 2,000,000원; 지급부족 0원 | “환율 하락 손실, 운영자금 버퍼 부족, 지급불능을 서로 다른 숫자로 분리합니다.” | `test_demo_finance_inputs_produce_meaningful_existing_stage2_result` 결과 제시 |
 | 7. 환헤지 비교안 확인 | `3 대응안 비교`의 안정성·균형·비용 후보 열기 | 후보별 비율·비용 가정·최저 현금, 최대 3개 | “이 값은 실제 견적이나 자동 추천이 아니라 동일 입력의 계산상 비교안입니다.” | `수출기업 대표 데모`의 결정론 Stage 3 결과 사용 |
-| 8. 국가·무역환경 확인 | 브라질 국가환경 섹션과 공식 근거 펼치기 | OECD raw 4, World Bank·WTO 별도 축, `HIGH_REVIEW` 거래 검토 우선도 | “세 공식 축을 국가 신용점수로 합치지 않고 이 거래에서 확인할 상담 순서만 제시합니다.” | versioned offline snapshot과 T4 테스트 결과 제시 |
+| 8. 국가·무역환경 확인 | 브라질 국가환경 섹션과 공식 근거 펼치기 | OECD raw 4, World Bank·WTO 별도 축, 국가환경 `STANDARD_REVIEW`; 별도 거래·회수 위험 `ELEVATED_REVIEW` | “세 공식 축을 국가 신용점수로 합치지 않고 이 거래에서 확인할 상담 순서만 제시합니다.” | versioned offline snapshot과 T4 테스트 결과 제시 |
 | 9. 공식 상담 후보 확인 | 같은 탭의 공식 후보 최대 3개 확인 | 공식 URL·검증일·상담 필요, 승인·가격은 UNKNOWN | “공식 출처와 상담범주가 맞는 후보만 연결하고 가입 가능성은 확정하지 않습니다.” | offline KB snapshot을 사용하고 후보가 없으면 빈 상태 유지 |
 | 10. 최종 상담자료 확인 | `4 상담자료` → Markdown 미리보기·다운로드 | 거래·환율·현금·회수위험·국가 근거와 은행 질문 | “AI가 승인 결론을 내리는 것이 아니라 KB 상담을 시작할 근거와 준비사항을 만듭니다.” | 결정론 report fallback을 다운로드 |
 
