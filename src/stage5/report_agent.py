@@ -28,6 +28,16 @@ q90은 90% 발생확률이 아니라 모델 예측분포의 상위 경로위험 
 HORIZON_MISMATCH이면 모델 분위수를 결제기간 예측처럼 표현하지 마라.
 뉴스는 시장 설명용이며 환율·손실 숫자를 변경한 것처럼 쓰지 마라.
 consultation이 있으면 거래·결제 위험과 상담 항목은 그 경로만 근거로 사용하라.
+consultation.consultation_priorities가 있으면 rank·title·priority_reason·
+numeric_rationale·missing_information·expected_decision·next_action·
+official_candidates·disclaimer를 순서와 값 그대로 유지하라.
+상담 priority를 LLM이 생성·재정렬하거나 승인등급·보험 인수등급·대출등급으로
+바꾸지 마라.
+buffer shortfall과 cash deficit·payment deficit를 구분하고, 뒤 두 값이 0이면
+지급불능이나 대출 필요성으로 표현하지 마라.
+예정 결제 노출액을 실제 현재 미수·미지급잔액으로 표현하지 마라.
+Stage 3 후보를 최적 추천으로 표현하지 마라.
+Markdown 다운로드를 실제 RM 전송·상담 예약·신청 완료로 표현하지 마라.
 consultation.country_environment가 있으면 OECD 지급·이전, World Bank 거시환경,
 WTO 무역·시장접근을 분리하고 공식 URL·자료기간·원값·해석·한계를 표시하라.
 Brazil OECD 4는 공식 원자료 분류로만 쓰고 KBaiAgent 국가등급으로 쓰지 마라.

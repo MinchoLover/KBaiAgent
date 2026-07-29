@@ -222,6 +222,81 @@ def _consultation_topic_lines(
         or not consultation_packet.consultation_topics
     ):
         return ["- 별도로 구조화된 금융 상담 항목이 없습니다."]
+    if consultation_packet.consultation_priorities:
+        lines: List[str] = []
+        authoritative_product_ids = {
+            item.product_id
+            for item in (
+                consultation_packet.official_candidate_shortlist.candidates
+                if (
+                    consultation_packet.official_candidate_shortlist
+                    is not None
+                )
+                else []
+            )
+        }
+        for index, priority in enumerate(
+            consultation_packet.consultation_priorities
+        ):
+            rationale = " · ".join(
+                "{} {} {}".format(
+                    item.label,
+                    item.value,
+                    (
+                        item.currency
+                        if item.unit == "FX"
+                        else item.unit
+                    ),
+                )
+                for item in priority.numeric_rationale
+            ) or "별도 수치 없음"
+            missing = (
+                " / ".join(priority.missing_information)
+                or "별도 등록 없음"
+            )
+            grounded_priority_candidates = [
+                item
+                for item in priority.official_candidates
+                if item.product_id in authoritative_product_ids
+            ]
+            candidates = (
+                " / ".join(
+                    "{}({})".format(
+                        item.name,
+                        item.institution,
+                    )
+                    for item in grounded_priority_candidates
+                )
+                or "현재 검증된 공식 후보 없음"
+            )
+            lines.append(
+                "- **{rank}순위 {title}** — 검토 순서 근거: "
+                "{reason} 숫자·조건: {rationale}. 부족정보: {missing}. "
+                "상담에서 기대하는 결정: {decision}. 다음 행동: "
+                "{action}. 공식 후보: {candidates}. {disclaimer} "
+                "[source: consultation.consultation_priorities.{index}]"
+                .format(
+                    rank=priority.rank,
+                    title=priority.title,
+                    reason=priority.priority_reason,
+                    rationale=rationale,
+                    missing=missing,
+                    decision=priority.expected_decision,
+                    action=priority.next_action,
+                    candidates=candidates,
+                    disclaimer=priority.disclaimer,
+                    index=index,
+                )
+            )
+        for index, topic in enumerate(
+            consultation_packet.other_consultation_topics
+        ):
+            lines.append(
+                "- 기타 확인사항 — **{}**: {} "
+                "[source: consultation.other_consultation_topics.{}]"
+                .format(topic.title, topic.explanation, index)
+            )
+        return lines
     return [
         "- **{}**: {} [source: consultation.consultation_topics.{}]".format(
             topic.title,
@@ -262,6 +337,19 @@ def _question_lines(
         ]
     rows: List[str] = []
     seen = set()
+    for priority_index, priority in enumerate(
+        consultation_packet.consultation_priorities
+    ):
+        for question in priority.bank_questions:
+            if question in seen:
+                continue
+            seen.add(question)
+            rows.append(
+                "- {} [source: consultation.consultation_priorities.{}]"
+                .format(question, priority_index)
+            )
+            if len(rows) == 5:
+                return rows
     for topic_index, topic in enumerate(
         consultation_packet.consultation_topics
     ):
@@ -364,6 +452,12 @@ def build_report_source_bundle(
                 "amount_due": extraction.amount_due,
                 "payment_terms": extraction.payment_terms,
                 "incoterm": extraction.incoterm,
+                "seller_country": extraction.seller_country,
+                "buyer_country": extraction.buyer_country,
+                "installments": [
+                    item.model_dump()
+                    for item in extraction.installments
+                ],
                 "evidence_ids": [
                     "stage0.extraction.evidence.{}".format(item.field)
                     for item in extraction.evidence

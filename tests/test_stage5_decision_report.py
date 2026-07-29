@@ -465,6 +465,100 @@ class Stage5DecisionReportTests(unittest.TestCase):
             )
         )
 
+    def test_stage5_preserves_consultation_top3_order_and_numbers(self):
+        report = self.export_demo["report"]
+        packet = self.export_demo["consultation_packet"].packet
+        positions = [
+            report.markdown.index(
+                "{}순위 {}".format(item.rank, item.title)
+            )
+            for item in packet.consultation_priorities
+        ]
+
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(
+            [
+                item.category
+                for item in packet.consultation_priorities
+            ],
+            [
+                "EXPORT_RECEIVABLE_PROTECTION",
+                "FX_RISK_MANAGEMENT",
+                "EXPORT_LIQUIDITY_REVIEW",
+            ],
+        )
+        self.assertIn("7000000.00 KRW", report.markdown)
+        self.assertIn("2000000.00 KRW", report.markdown)
+        self.assertIn("cash deficit 0.00 KRW", report.markdown)
+        self.assertIn(
+            "payment/post-credit deficit 0.00 KRW",
+            report.markdown,
+        )
+        self.assertTrue(report.critique.passed)
+
+    def test_critic_rejects_priority_as_approval_grade(self):
+        unsafe = (
+            "{}\n상담 1순위는 대출 승인등급입니다. "
+            "[source: consultation.consultation_priorities.0]"
+        ).format(self.br_report.markdown)
+        critique = self._critique_brazil(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "상담 검토 순위를 승인·인수·대출 등급으로 표현했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_buffer_shortfall_as_insolvency(self):
+        unsafe = (
+            "{}\nbuffer 부족 때문에 지급불능이며 대출이 필요합니다. "
+            "[source: consultation.consultation_priorities.2]"
+        ).format(self.br_report.markdown)
+        critique = self._critique_brazil(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "buffer shortfall을 지급불능 또는 대출 필요성으로 표현했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_scheduled_exposure_as_actual_receivable(self):
+        unsafe = (
+            "{}\n예정 수취 노출액 USD 100000.00은 실제 현재 "
+            "미수잔액입니다. [source: stage2.total_foreign_amount]"
+        ).format(self.br_report.markdown)
+        critique = self._critique_brazil(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "예정 결제 노출액을 실제 현재 미수·미지급잔액으로 "
+            "표현했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_stage3_optimal_recommendation(self):
+        unsafe = (
+            "{}\nStage 3 후보는 최적 헤지 추천입니다. "
+            "[source: stage3.status]"
+        ).format(self.br_report.markdown)
+        critique = self._critique_brazil(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "Stage 3 계산상 후보를 최적 추천 또는 실행 지시로 "
+            "표현했습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_download_as_rm_transfer(self):
+        unsafe = (
+            "{}\nMarkdown 다운로드가 RM에게 전송 완료되었습니다. "
+            "[source: consultation.input_hash]"
+        ).format(self.br_report.markdown)
+        critique = self._critique_brazil(unsafe)
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "다운로드 또는 상담 준비를 실제 RM 전송·예약·신청으로 "
+            "표현했습니다.",
+            critique.issues,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
