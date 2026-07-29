@@ -545,6 +545,41 @@ def map_consultation_topics(
             ],
         )
 
+    if (
+        trade_type == "EXPORT"
+        and "LIQUIDITY_BUFFER_RISK" in risks
+    ):
+        topics["EXPORT_LIQUIDITY_REVIEW"] = _topic(
+            category="EXPORT_LIQUIDITY_REVIEW",
+            title="운영자금 버퍼·수출대금 회수시점 상담",
+            triggered_by=["LIQUIDITY_BUFFER_RISK"],
+            explanation=(
+                "불리한 환율 조건에서 결제·수취 후 현금이 목표 운영자금 "
+                "버퍼보다 낮아질 수 있어, 실제 자금계획·회수시점·가용한도와 "
+                "검토 가능한 단기 유동성 수단을 사람 상담에서 확인하는 "
+                "항목입니다. 버퍼 부족만으로 지급불능이나 대출 필요성을 "
+                "판단하지 않습니다."
+            ),
+            required_information=[
+                "최신 원화 자금계획과 확정 입출금 일정",
+                "수출대금 실제 회수일과 지연 가능성",
+                "실제 사용 가능한 신용한도와 만기",
+                "결제·수취 일정 조정 가능성",
+            ],
+            required_documents=[
+                "수출 계약서 또는 인보이스",
+                "최신 자금계획표와 입출금 일정",
+                "기존 신용한도 확인 자료(있는 경우)",
+            ],
+            questions=[
+                "최신 자금계획에서 목표 운영자금 버퍼를 유지하려면 어떤 "
+                "일정과 조건을 확인해야 하는가?",
+                "수출대금 회수시점이 바뀔 때 검토 가능한 단기 유동성 "
+                "수단과 필요 서류는 무엇인가?",
+                "실제 사용 가능한 신용한도·비용·심사요건은 무엇인가?",
+            ],
+        )
+
     if "PAYMENT_CAPACITY_RISK" in risks:
         topics["PAYMENT_CAPACITY_REVIEW"] = _topic(
             category="PAYMENT_CAPACITY_REVIEW",

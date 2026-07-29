@@ -255,6 +255,48 @@ class DecisionSupportExportTests(unittest.TestCase):
         )
         self.assertEqual(packet.company_summary.trade_type, "EXPORT")
 
+    def test_export_liquidity_risk_maps_to_review_topic(self):
+        assessment = self.demo["risk_assessment"]
+        result = self.demo["stage2"]
+        topic = next(
+            item
+            for item in self.demo["consultation_topics"]
+            if item.category == "EXPORT_LIQUIDITY_REVIEW"
+        )
+
+        self.assertIn(
+            "LIQUIDITY_BUFFER_RISK",
+            assessment.risk_codes,
+        )
+        self.assertEqual(
+            topic.title,
+            "운영자금 버퍼·수출대금 회수시점 상담",
+        )
+        self.assertEqual(
+            topic.triggered_by,
+            ["LIQUIDITY_BUFFER_RISK"],
+        )
+        self.assertIn("지급불능이나 대출 필요성을 판단하지", topic.explanation)
+        self.assertNotIn("대출이 반드시 필요", topic.explanation)
+
+        stress = next(
+            item
+            for item in result.scenario_results
+            if item.scenario_name == "STRESS_-5PCT"
+        )
+        self.assertEqual(stress.cash_deficit, "0.00")
+        self.assertEqual(stress.post_credit_shortfall, "0.00")
+
+    def test_import_liquidity_mapping_is_unchanged(self):
+        import_demo = run_decision_support_demo("BUYER")
+        categories = {
+            item.category
+            for item in import_demo["consultation_topics"]
+        }
+
+        self.assertIn("IMPORT_SETTLEMENT_FINANCE", categories)
+        self.assertNotIn("EXPORT_LIQUIDITY_REVIEW", categories)
+
     def test_export_trade_risk_maps_only_to_receivable_protection(self):
         categories = {
             item.category for item in self.demo["consultation_topics"]
