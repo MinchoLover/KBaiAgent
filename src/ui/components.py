@@ -39,6 +39,22 @@ SCHEDULED_EXPOSURE_WARNING = (
     "별도 확인이 필요합니다."
 )
 
+CONSULTATION_RATIONALE_LABELS = {
+    "-5% ending cash": "-5% 스트레스 후 예상 현금",
+    "buffer shortfall": "목표 현금 버퍼 부족",
+    "cash deficit": "현금 적자",
+    "payment/post-credit deficit": "지급·신용한도 반영 후 부족",
+    "trade review": "거래 검토 우선도",
+    "목표 buffer": "목표 현금 버퍼",
+}
+
+CONSULTATION_STATUS_LABELS = {
+    "ELEVATED_REVIEW": "추가 검토 우선도",
+    "HIGH_REVIEW": "높은 검토 우선도",
+    "STANDARD_REVIEW": "정기 확인",
+    "UNKNOWN": "확인 필요",
+}
+
 USER_ISSUE_MESSAGES = {
     "MISSING_CORE_EVIDENCE": "원문 근거를 확인해 주세요.",
     "INFERRED_CRITICAL_FIELD": "AI가 추론한 값이므로 원문 대조가 필요합니다.",
@@ -62,6 +78,48 @@ def amount_due_user_label(trade_type: Optional[str]) -> str:
     if trade_type == "IMPORT":
         return "분석 대상 예정 지급액"
     return "분석 대상 예정 결제액"
+
+
+def consultation_priority_reason_copy(value: str) -> str:
+    replacements = [
+        (
+            "Open Account 등 회수 보호 검토 finding과",
+            "Open Account 등 결제·회수 보호 필요와",
+        ),
+        (
+            "기존 LOSS_LIMIT_EXCEEDED finding과",
+            "기존 허용손실 초과 신호와",
+        ),
+        (
+            "기존 LIQUIDITY_BUFFER_RISK finding에 따라",
+            "목표 현금 버퍼 부족 신호에 따라",
+        ),
+        (
+            "기존 PAYMENT_CAPACITY_RISK finding의",
+            "지급능력 확인 신호의",
+        ),
+        (
+            "기존 구조화 risk finding 또는 review need가 생성한 "
+            "상담 항목을 명시적 category tie-break에 따라",
+            "기존 구조화 위험 신호 또는 검토 필요가 생성한 "
+            "상담 항목을 정해진 상담 순서에 따라",
+        ),
+        ("HIGH_REVIEW", "높은 검토 우선도"),
+        ("ELEVATED_REVIEW", "추가 검토 우선도"),
+        ("STANDARD_REVIEW", "정기 확인"),
+    ]
+    result = value
+    for source, target in replacements:
+        result = result.replace(source, target)
+    return result
+
+
+def consultation_rationale_label(value: str) -> str:
+    return CONSULTATION_RATIONALE_LABELS.get(value, value)
+
+
+def consultation_status_label(value: str) -> str:
+    return CONSULTATION_STATUS_LABELS.get(value, value)
 
 
 def format_decimal_display(

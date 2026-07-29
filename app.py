@@ -86,6 +86,9 @@ from src.stage2.binding import confirmed_trade_from_document_input
 from src.ui.components import (
     SCHEDULED_EXPOSURE_WARNING,
     amount_due_user_label,
+    consultation_priority_reason_copy,
+    consultation_rationale_label,
+    consultation_status_label,
     decimal_text,
     evidence_rows,
     format_decimal_display,
@@ -221,12 +224,19 @@ def _render_priority_card(
             "{}순위 · 결정론적 검토 순서".format(priority.rank)
         )
         st.markdown("#### {}".format(priority.title))
-        st.write(priority.priority_reason)
+        st.write(
+            consultation_priority_reason_copy(priority.priority_reason)
+        )
         for item in priority.numeric_rationale:
+            display_value = (
+                consultation_status_label(item.value)
+                if item.unit == "STATUS"
+                else rationale_display_text(item)
+            )
             st.markdown(
                 "- **{}**: {}".format(
-                    item.label,
-                    rationale_display_text(item),
+                    consultation_rationale_label(item.label),
+                    display_value,
                 )
             )
         if priority.missing_information:
@@ -1713,7 +1723,7 @@ def _demo_all(company_role: str = "BUYER") -> None:
     }
     st.session_state["skip_signature_sync_once"] = True
     st.session_state["demo_just_loaded"] = (
-        "수입기업" if company_role == "BUYER" else "수출기업"
+        "수입기업" if company_role == "BUYER" else "미국 수출"
     )
 
 
@@ -1770,7 +1780,7 @@ st.set_page_config(
     page_title="KBaiAgent · 수출입 거래 금융 리스크 분석",
     page_icon="₩",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 st.markdown(
     """
@@ -1825,6 +1835,7 @@ div[data-testid="stDownloadButton"] > button:hover {
   border-color: #93b4f5;
 }
 div[data-testid="stButton"] > button[kind="primary"],
+div[data-testid="stDownloadButton"] > button[kind="primary"],
 div[data-testid="stFormSubmitButton"] > button[kind="primary"],
 div[data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"] {
   background: #2563eb;
@@ -1833,6 +1844,7 @@ div[data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"] {
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.18);
 }
 div[data-testid="stButton"] > button[kind="primary"] *,
+div[data-testid="stDownloadButton"] > button[kind="primary"] *,
 div[data-testid="stFormSubmitButton"] > button[kind="primary"] *,
 div[data-testid="stFormSubmitButton"] > button[kind="primaryFormSubmit"] * {
   color: #ffffff !important;
@@ -2231,8 +2243,23 @@ div[data-testid="stMetric"] {
 }
 @media (max-width: 640px) {
   .block-container {padding-left: 1rem; padding-right: 1rem;}
-  .hero-shell {padding: 1.35rem; border-radius: 18px;}
-  .hero-copy h1 {font-size: 2rem;}
+  .hero-shell {
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 14px;
+  }
+  .hero-copy h1 {font-size: 1.75rem;}
+  .hero-copy p {font-size: 0.88rem;}
+  .hero-pills {gap: 0.3rem; margin-top: 0.6rem;}
+  .hero-pill {padding: 0.3rem 0.5rem; font-size: 0.7rem;}
+  .hero-pills .hero-pill:last-child {display: none;}
+  .hero-signal {padding: 0.8rem 0.9rem;}
+  .hero-signal strong {font-size: 1.08rem; margin-bottom: 0.25rem;}
+  .hero-signal p {font-size: 0.75rem;}
+  .section-intro h2 {font-size: 1.55rem; word-break: keep-all;}
+  div[data-testid="stHorizontalBlock"]:has(.journey-step) {
+    display: none;
+  }
   .st-key-service_entry_actions [data-testid="stHorizontalBlock"] {
     display: grid;
     grid-template-columns: 1fr;
@@ -2245,9 +2272,15 @@ div[data-testid="stMetric"] {
     min-width: 0 !important;
     flex: none !important;
   }
+  .stTabs [data-baseweb="tab-list"] {
+    gap: 0.1rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
   .stTabs [data-baseweb="tab"] {
-    padding: 0 0.55rem;
-    font-size: 0.78rem;
+    padding: 0 0.2rem;
+    font-size: 0.72rem;
+    white-space: nowrap;
   }
   div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {
     grid-template-columns: 1fr;
@@ -2373,7 +2406,7 @@ with st.sidebar:
             key="sidebar_import_sample",
         )
         st.button(
-            "수출기업 대표 데모",
+            "미국 수출 샘플",
             width="stretch",
             on_click=_demo_all,
             args=("SELLER",),
@@ -2410,7 +2443,7 @@ if hero_stage2 is None:
     hero_signal_label = "진행 상태"
     hero_signal_title = "거래문서를 등록해 주세요"
     hero_signal_detail = (
-        "샘플 수출 거래로 전체 상담 준비 흐름을 먼저 체험할 수도 있습니다."
+        "미국 수출 샘플로 전체 상담 준비 흐름을 먼저 체험할 수도 있습니다."
     )
 else:
     (
@@ -2419,6 +2452,15 @@ else:
         hero_signal_title,
         hero_signal_detail,
     ) = _risk_summary(hero_stage2)
+    if hero_consultation is not None:
+        hero_signal_detail = "현금 적자 {} · 지급 부족 {}".format(
+            format_krw(
+                hero_consultation.packet.risk_summary.cash_deficit_krw
+            ),
+            format_krw(
+                hero_consultation.packet.risk_summary.payment_gap_krw
+            ),
+        )
 
 st.markdown(
     "<section class='hero-shell'>"
@@ -2452,8 +2494,8 @@ with st.container(
 ):
     st.markdown("#### 수출입 거래 분석 시작")
     st.write(
-        "거래문서를 등록해 새 분석을 시작하거나, 합성 수출 거래로 "
-        "전체 상담 준비 흐름을 먼저 확인하세요."
+        "거래문서를 등록해 새 분석을 시작하거나, 미국 합성 수출 "
+        "거래로 전체 상담 준비 흐름을 먼저 확인하세요."
     )
     entry_columns = st.columns(2)
     entry_columns[0].button(
@@ -2464,15 +2506,19 @@ with st.container(
         key="service_register_document",
     )
     entry_columns[1].button(
-        "샘플 수출 거래로 체험하기",
+        "미국 수출 샘플로 체험하기",
         width="stretch",
         on_click=_demo_all,
         args=("SELLER",),
         key="service_sample_export",
     )
     st.caption(
-        "샘플은 실제 고객정보가 없는 합성문서의 API-free 경로이며, "
+        "미국 수출 샘플 · 실제 고객정보가 없는 API-free 합성문서 · "
         "금융상품 가입·승인 결과가 아닙니다."
+    )
+    st.caption(
+        "발표용 검증 사례 · 브라질 Golden 수출 계약 · "
+        "미국 샘플과 결과를 혼합하지 않음"
     )
 render_stepper(completed_stage)
 
@@ -5135,8 +5181,11 @@ with stage5_tab:
                 filename="kb_consultation_packet.json",
                 key="download_consultation_packet_json_stage5",
             )
-        st.markdown("### 상담 준비서 미리보기")
-        st.markdown(consultation_packet.markdown)
+        with st.expander(
+            "상담 준비서 미리보기",
+            expanded=False,
+        ):
+            st.markdown(consultation_packet.markdown)
 
     extraction = _model_from_state("extraction", TradeDocumentExtraction)
     confirmation = _model_from_state("confirmation", ConfirmationRecord)
@@ -5229,9 +5278,11 @@ with stage5_tab:
                     filename="trade_finance_decision_report.json",
                     key="download_report_json",
                 )
-            st.divider()
-            st.markdown("### 리포트 미리보기")
-            st.markdown(report_result.markdown)
+            with st.expander(
+                "통합 상담 리포트 미리보기",
+                expanded=False,
+            ):
+                st.markdown(report_result.markdown)
             with st.expander("고급 · 보고서 검수 기록", expanded=False):
                 st.caption(
                     "상태: {} · critic={} · score={} · rewrite={} · "

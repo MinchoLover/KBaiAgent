@@ -1,5 +1,6 @@
 import unittest
 from decimal import Decimal
+from pathlib import Path
 
 from sample_data import sample_extraction
 from schemas import TradeDocumentExtraction
@@ -26,6 +27,9 @@ from src.ui.state import (
 from src.ui.components import (
     SCHEDULED_EXPOSURE_WARNING,
     amount_due_user_label,
+    consultation_priority_reason_copy,
+    consultation_rationale_label,
+    consultation_status_label,
     validation_issue_copy,
 )
 from tests.golden_consultation_fixture import (
@@ -35,6 +39,27 @@ from validators import apply_deterministic_review_state
 
 
 class ReviewEvidenceSafetyTests(unittest.TestCase):
+    def test_consultation_display_copy_hides_internal_rule_terms(self):
+        self.assertEqual(
+            consultation_priority_reason_copy(
+                "기존 LOSS_LIMIT_EXCEEDED finding과 허용손실을 "
+                "함께 확인합니다."
+            ),
+            "기존 허용손실 초과 신호와 허용손실을 함께 확인합니다.",
+        )
+        self.assertEqual(
+            consultation_rationale_label("trade review"),
+            "거래 검토 우선도",
+        )
+        self.assertEqual(
+            consultation_rationale_label("buffer shortfall"),
+            "목표 현금 버퍼 부족",
+        )
+        self.assertEqual(
+            consultation_status_label("HIGH_REVIEW"),
+            "높은 검토 우선도",
+        )
+
     def test_internal_evidence_code_has_plain_language_ui_copy(self):
         self.assertEqual(
             validation_issue_copy(
@@ -298,7 +323,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         )
         button_labels = [item.label for item in app.button]
         self.assertIn("거래문서 등록하기", button_labels)
-        self.assertIn("샘플 수출 거래로 체험하기", button_labels)
+        self.assertIn("미국 수출 샘플로 체험하기", button_labels)
         visible_text = " ".join(
             [item.value for item in app.markdown]
             + [item.value for item in app.caption]
@@ -311,6 +336,10 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "금융상품 가입·승인 결과가 아닙니다",
             "원문 근거가 확인된 값만 분석",
             "사용자 확인 전 금융계산 차단",
+            "미국 수출 샘플",
+            "발표용 검증 사례",
+            "브라질 Golden 수출 계약",
+            "미국 샘플과 결과를 혼합하지 않음",
         ):
             self.assertIn(expected, visible_text)
         self.assertNotIn("Golden 데모 시작", visible_text)
@@ -415,6 +444,23 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         ]
         self.assertIn("상담 준비서 다운로드", download_labels)
         self.assertIn("JSON 데이터 내려받기", download_labels)
+        self.assertLess(
+            download_labels.index("상담 준비서 다운로드"),
+            download_labels.index("JSON 데이터 내려받기"),
+        )
+        self.assertNotIn(
+            "한국 (KR) 판매자 → 브라질 (BR) 구매자",
+            visible_text,
+        )
+        self.assertNotIn("잔금 예정: USD 80,000", visible_text)
+        self.assertIn(
+            "상담 준비서 미리보기",
+            [item.label for item in app.expander],
+        )
+        self.assertIn(
+            "통합 상담 리포트 미리보기",
+            [item.label for item in app.expander],
+        )
         for prohibited in (
             "상담사에게 전송 완료",
             "상담 예약 완료",
@@ -438,21 +484,42 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         )
         self.assertIn(".st-key-service_entry_actions", css)
         self.assertIn("grid-template-columns: 1fr", css)
+        self.assertIn("overflow-x: auto", css)
+        self.assertIn("padding: 0 0.2rem", css)
+        self.assertIn(":has(.journey-step)", css)
+        self.assertIn(
+            'div[data-testid="stDownloadButton"] > '
+            'button[kind="primary"]',
+            css,
+        )
+        self.assertIn("initial_sidebar_state=\"auto\"", Path(
+            "app.py"
+        ).read_text(encoding="utf-8"))
         self.assertIn(
             "거래문서 등록하기",
             [item.label for item in app.button],
         )
         self.assertIn(
-            "샘플 수출 거래로 체험하기",
+            "미국 수출 샘플로 체험하기",
             [item.label for item in app.button],
         )
+
+    def test_demo_script_separates_us_sample_from_golden_presentation(self):
+        script = Path("docs/DEMO_SCRIPT_KO.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(script.split())
+        self.assertIn("미국 수출 샘플로 체험하기", normalized)
+        self.assertIn("브라질 Golden", normalized)
+        self.assertIn("발표에서는 브라질 Golden", normalized)
+        self.assertNotIn("수출기업 대표 데모", normalized)
 
     def test_amount_due_widget_uses_directional_scheduled_label(self):
         from streamlit.testing.v1 import AppTest
 
         cases = (
             ("수입기업 대표 데모", "분석 대상 예정 지급액"),
-            ("수출기업 대표 데모", "분석 대상 예정 수취액"),
+            ("미국 수출 샘플", "분석 대상 예정 수취액"),
         )
         for button_label, expected_label in cases:
             with self.subTest(button_label=button_label):
@@ -623,7 +690,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         demo = next(
             button
             for button in app.button
-            if button.label == "수출기업 대표 데모"
+            if button.label == "미국 수출 샘플"
         )
         demo.click().run()
 
@@ -644,8 +711,9 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "운영자금 버퍼·수출대금 회수시점 상담",
             "7,000,000원",
             "2,000,000원",
-            "cash deficit",
-            "payment/post-credit deficit",
+            "현금 적자",
+            "지급·신용한도 반영 후 부족",
+            "높은 검토 우선도",
             "상품 승인·보험 인수·대출 심사 결과가 아닙니다",
         ):
             self.assertIn(expected, visible_text)
@@ -668,7 +736,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         demo = next(
             button
             for button in app.button
-            if button.label == "수출기업 대표 데모"
+            if button.label == "미국 수출 샘플"
         )
         demo.click().run()
         golden = build_golden_consultation_fixture()

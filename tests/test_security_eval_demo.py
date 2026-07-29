@@ -438,7 +438,7 @@ class EndToEndTests(unittest.TestCase):
         export_demo = next(
             button
             for button in app.button
-            if button.label == "수출기업 대표 데모"
+            if button.label == "미국 수출 샘플"
         )
         export_demo.click().run()
         self.assertEqual(len(app.exception), 0)
