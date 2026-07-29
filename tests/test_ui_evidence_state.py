@@ -1,4 +1,5 @@
 import unittest
+from decimal import Decimal
 
 from sample_data import sample_extraction
 from schemas import TradeDocumentExtraction
@@ -10,6 +11,7 @@ from src.document_intake.confirmation import (
     discard_stale_evidence_after_review,
     validate_confirmation,
 )
+from src.domain.consultation_models import ConsultationPacketResult
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
@@ -58,9 +60,9 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
         self.assertEqual(
             SCHEDULED_EXPOSURE_WARNING,
             (
-                "계약서에 명시된 예정 결제액을 기준으로 분석합니다. "
-                "실제 입금·지급 이력이 확인되면 이미 이행된 금액을 "
-                "제외해야 합니다."
+                "현재 분석은 계약서에 명시된 예정 결제액을 기준으로 합니다. "
+                "실제 입금·지급 이력을 반영한 현재 미수·미지급 잔액은 "
+                "별도 확인이 필요합니다."
             ),
         )
 
@@ -279,6 +281,172 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
 
 
 class StreamlitReviewEvidenceTests(unittest.TestCase):
+    def test_service_entry_uses_customer_journey_and_primary_ctas(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+
+        self.assertEqual(len(app.exception), 0)
+        self.assertEqual(
+            [item.label for item in app.tabs],
+            [
+                "1  거래 확인",
+                "2  금융 리스크 분석",
+                "3  상담 준비",
+                "4  결과 및 전달",
+            ],
+        )
+        button_labels = [item.label for item in app.button]
+        self.assertIn("거래문서 등록하기", button_labels)
+        self.assertIn("샘플 수출 거래로 체험하기", button_labels)
+        visible_text = " ".join(
+            [item.value for item in app.markdown]
+            + [item.value for item in app.caption]
+        )
+        for expected in (
+            "수출입 거래 금융 리스크 분석",
+            "합성문서",
+            "실제 고객정보가 없는",
+            "API-free",
+            "금융상품 가입·승인 결과가 아닙니다",
+            "원문 근거가 확인된 값만 분석",
+            "사용자 확인 전 금융계산 차단",
+        ):
+            self.assertIn(expected, visible_text)
+        self.assertNotIn("Golden 데모 시작", visible_text)
+
+        register = next(
+            button
+            for button in app.button
+            if button.key == "service_register_document"
+        )
+        register.click().run()
+        self.assertEqual(len(app.exception), 0)
+        self.assertEqual(
+            app.session_state["run_mode_widget"],
+            "실제 문서 분석",
+        )
+        self.assertIn(
+            "거래문서 업로드",
+            [item.label for item in app.get("file_uploader")],
+        )
+
+    def test_export_sample_summary_uses_existing_packet_values(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        sample = next(
+            button
+            for button in app.button
+            if button.key == "service_sample_export"
+        )
+        sample.click().run()
+
+        self.assertEqual(len(app.exception), 0)
+        consultation = ConsultationPacketResult.model_validate(
+            app.session_state["consultation_packet"]
+        )
+        packet = consultation.packet
+        self.assertEqual(
+            packet.company_summary.trade_amount_fx,
+            "100000.00",
+        )
+        self.assertEqual(
+            packet.risk_summary.additional_cost_or_receipt_loss_krw,
+            "7000000.00",
+        )
+        self.assertEqual(
+            packet.risk_summary.cash_after_settlement_krw,
+            "8000000.00",
+        )
+        self.assertEqual(
+            packet.risk_summary.buffer_shortfall_krw,
+            "2000000.00",
+        )
+        self.assertEqual(
+            Decimal(packet.risk_summary.cash_deficit_krw),
+            Decimal("0"),
+        )
+        self.assertEqual(
+            Decimal(packet.risk_summary.payment_gap_krw),
+            Decimal("0"),
+        )
+        self.assertIsNotNone(packet.official_candidate_shortlist)
+        self.assertLessEqual(
+            len(packet.official_candidate_shortlist.candidates),
+            3,
+        )
+
+        visible_text = " ".join(
+            [item.value for item in app.markdown]
+            + [item.value for item in app.caption]
+            + [item.value for item in app.warning]
+            + [item.value for item in app.info]
+            + [
+                "{} {}".format(item.label, item.value)
+                for item in app.metric
+            ]
+        )
+        for expected in (
+            "한국 (KR) 판매자 → 미국 (US) 구매자",
+            "금융 리스크 분석 요약",
+            "분석 대상 예정 수취액",
+            "USD 100,000",
+            "환율 변동 시 원화 수취 감소",
+            "7,000,000원",
+            "스트레스 후 예상 현금",
+            "8,000,000원",
+            "목표 현금 버퍼",
+            "10,000,000원",
+            "목표 현금 버퍼 부족",
+            "2,000,000원",
+            "현금 적자 / 지급 부족",
+            "0원 / 0원",
+            "현재 미수·미지급 잔액은",
+            "지급불능 또는 필요 대출금이 아닙니다",
+            "준비자료",
+            "은행에 물어볼 질문",
+            "상담에서 기대하는 결정",
+            "공식 출처 확인",
+        ):
+            self.assertIn(expected, visible_text)
+        download_labels = [
+            item.label for item in app.get("download_button")
+        ]
+        self.assertIn("상담 준비서 다운로드", download_labels)
+        self.assertIn("JSON 데이터 내려받기", download_labels)
+        for prohibited in (
+            "상담사에게 전송 완료",
+            "상담 예약 완료",
+            "신청 완료되었습니다",
+            "KB 내부 전달 완료",
+            "금융상품 가입 가능",
+            "승인 예상",
+        ):
+            self.assertNotIn(prohibited, visible_text)
+
+    def test_service_ctas_keep_explicit_narrow_screen_layout(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+
+        self.assertEqual(len(app.exception), 0)
+        css = next(
+            item.value
+            for item in app.markdown
+            if "@media (max-width: 640px)" in item.value
+        )
+        self.assertIn(".st-key-service_entry_actions", css)
+        self.assertIn("grid-template-columns: 1fr", css)
+        self.assertIn(
+            "거래문서 등록하기",
+            [item.label for item in app.button],
+        )
+        self.assertIn(
+            "샘플 수출 거래로 체험하기",
+            [item.label for item in app.button],
+        )
+
     def test_amount_due_widget_uses_directional_scheduled_label(self):
         from streamlit.testing.v1 import AppTest
 
@@ -482,7 +650,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         ):
             self.assertIn(expected, visible_text)
         self.assertIn(
-            "상담 패킷 다운로드",
+            "상담 준비서 다운로드",
             [item.label for item in app.get("download_button")],
         )
         for prohibited in (
@@ -503,9 +671,11 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             if button.label == "수출기업 대표 데모"
         )
         demo.click().run()
-        packet_result = build_golden_consultation_fixture()[
-            "decision"
-        ].consultation_packet
+        golden = build_golden_consultation_fixture()
+        packet_result = golden["decision"].consultation_packet
+        app.session_state["extraction"] = golden[
+            "extraction"
+        ].model_dump()
         app.session_state["consultation_packet"] = (
             packet_result.model_dump()
         )
@@ -519,11 +689,27 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         visible_text = " ".join(
             [item.value for item in app.markdown]
             + [item.value for item in app.warning]
+            + [item.value for item in app.caption]
+            + [
+                "{} {}".format(item.label, item.value)
+                for item in app.metric
+            ]
         )
         self.assertIn(
             "USD 20,000 선지급의 실제 입금 여부와 입금일",
             visible_text,
         )
+        for expected in (
+            "한국 (KR) 판매자 → 브라질 (BR) 구매자",
+            "USD 100,000",
+            "7,000,000원",
+            "8,000,000원",
+            "10,000,000원",
+            "2,000,000원",
+            "0원 / 0원",
+            "현재 미수·미지급 잔액은",
+        ):
+            self.assertIn(expected, visible_text)
         self.assertIn("선지급 실제 입금 여부", visible_text)
         self.assertIn("UNKNOWN", visible_text)
         self.assertIn(

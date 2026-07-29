@@ -34,8 +34,9 @@ USER_FIELD_LABELS = {
 }
 
 SCHEDULED_EXPOSURE_WARNING = (
-    "계약서에 명시된 예정 결제액을 기준으로 분석합니다. "
-    "실제 입금·지급 이력이 확인되면 이미 이행된 금액을 제외해야 합니다."
+    "현재 분석은 계약서에 명시된 예정 결제액을 기준으로 합니다. "
+    "실제 입금·지급 이력을 반영한 현재 미수·미지급 잔액은 "
+    "별도 확인이 필요합니다."
 )
 
 USER_ISSUE_MESSAGES = {
@@ -101,7 +102,12 @@ def format_ratio(value: Any) -> str:
 
 
 def render_stepper(completed_stage: int) -> None:
-    labels = ["문서 확인", "위험 진단", "대응안 비교", "상담자료"]
+    labels = [
+        "거래 확인",
+        "금융 리스크 분석",
+        "상담 준비",
+        "결과 및 전달",
+    ]
     completion_thresholds = [1, 3, 4, 6]
     cells = st.columns(len(labels))
     for index, (cell, label) in enumerate(zip(cells, labels)):
@@ -285,7 +291,7 @@ def json_download(
 
 
 def render_workflow_trace(state: WorkflowState) -> None:
-    with st.expander("개발·감사용 실행 기록", expanded=False):
+    with st.expander("분석 근거 및 기술 정보 보기", expanded=False):
         st.caption(
             "case_id={} · mode={} · final={} · user_confirmed={}".format(
                 state.case_id,

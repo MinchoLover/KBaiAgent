@@ -445,10 +445,10 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(
             [tab.label for tab in app.tabs],
             [
-                "1  문서 확인",
-                "2  위험 진단",
-                "3  대응안 비교",
-                "4  상담자료",
+                "1  거래 확인",
+                "2  금융 리스크 분석",
+                "3  상담 준비",
+                "4  결과 및 전달",
             ],
         )
         self.assertEqual(
@@ -488,7 +488,7 @@ class EndToEndTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                item.label == "개발·감사용 실행 기록"
+                item.label == "분석 근거 및 기술 정보 보기"
                 for item in app.expander
             )
         )
