@@ -20,7 +20,8 @@ Stage 4 공식 근거 후보가 비어 있어도 LLM을 호출하지 않고 fall
 공식 후보의 권위 있는 근거입니다.
 
 - 거래·결제 위험: `consultation.trade_settlement_risk`
-- 금융 대응: `consultation.consultation_topics`
+- 상담 Top 3: `consultation.consultation_priorities`
+- 기타 확인사항: `consultation.other_consultation_topics`
 - 공식 후보: `consultation.official_candidate_shortlist.candidates`
 
 이때 Stage 4 원시 검색 후보의 이름·기관·URL은 LLM bundle에서 제거하고 검색 mode,
@@ -35,6 +36,8 @@ Stage 4 후보로 보충하지 않습니다.
 - 공식 후보를 URL과 함께 정리
 - 확인된 거래·결제 위험과 검토 우선도를 별도 축으로 설명
 - 구조화된 금융 대응·질문을 상담 항목으로 정리
+- Top 3의 rank·title·priority reason·numeric rationale·부족정보·기대 결정·
+  다음 행동을 packet 순서 그대로 설명
 - 핵심 숫자에 `[source: JSON.path]` 표시
 
 ## 금지
@@ -47,17 +50,23 @@ Stage 4 후보로 보충하지 않습니다.
 - 결제·회수 위험을 이유로 환헤지 비율을 직접 변경
 - shortlist 밖 Stage 4 원시 검색 후보를 사용자용 후보로 표시
 - 공식 후보명·기관명·URL 또는 자격을 근거와 다르게 표현
+- 상담 검토 순위를 승인·보험 인수·대출 심사 등급으로 표현
+- `buffer_shortfall`을 지급불능·부도·필요 대출금으로 표현
+- 예정 결제 노출액을 실제 현재 미수·미지급잔액으로 표현
+- Stage 3 계산상 후보를 최적 추천·실행 지시로 표현
+- Markdown 다운로드를 실제 예약·RM 전송·신청·내부심사 완료로 표현
 
 critic은 각 숫자가 같은 줄에 표시된 유효한 JSON path의 실제 값과 연결되는지,
 시나리오 표현, 무근거 확률, 보장 문구, 필수 섹션, Stage 4 상품 근거를 검사합니다.
 패킷이 있으면 거래·결제 위험과 금융 대응의 `consultation.*` 근거, 위험 유형·
-검토 우선도·상담 제목의 구조화 값 일치, shortlist 상품명·기관명·URL 일치,
-위험 책임 경계도 추가 검사합니다.
+상담 Top 3의 rank·제목·숫자·expected decision·next action 일치,
+shortlist 상품명·기관명·URL 일치와 예정노출·버퍼·RM handoff 책임 경계도
+추가 검사합니다.
 결과는 score, numeric consistency, evidence quality, recommendation consistency,
 prohibited claims, missing sections, revision instructions로 구조화됩니다. 수정 지시는
 실제 재작성 prompt에 전달되며 `revision_count`는 최대 1입니다.
 
 fallback은 같은 source bundle을 template에 직접 넣고 Stage 3 후보 세 건과
-ConsultationPacket의 위험·대응·공식 shortlist를 추적하므로 LLM이 계산 결과나
-상품 범위를 바꿀 수 없습니다. 패킷이 없는 legacy 호출은 기존 Stage 4 근거 계약을
-유지합니다.
+ConsultationPacket의 Top 3·숫자·부족정보·기대 결정·다음 행동·공식 shortlist를
+추적하므로 LLM이 순서, 계산 결과나 상품 범위를 바꿀 수 없습니다. 패킷이 없는
+legacy 호출은 기존 Stage 4 근거 계약을 유지합니다.

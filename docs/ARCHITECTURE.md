@@ -16,10 +16,17 @@ flowchart LR
     S[공식/수동/fixture Spot Provider] --> B[Scenario Builder]
     F --> B
     B --> C[Stage 2 Decimal Cash-flow Engine]
+    C --> T[Risk/Trade/Country Topics]
+    T --> Q[Deterministic Consultation Top 3]
+    C --> Q
+    Q --> K[ConsultationPacket JSON]
     C --> O[Stage 3 Constraint Grid Search]
     O --> R[Stage 4 Official Retrieval]
-    R --> P[Stage 5 Report + Critic]
+    R --> K
+    K --> P[Stage 5 Report + Critic]
+    K --> M[Streamlit + Markdown Handoff]
     P --> V[Human Review]
+    M --> V
 ```
 
 ## 실제 모듈
@@ -33,7 +40,9 @@ flowchart LR
 | 모델·고정 스트레스 시나리오 | `src/stage1/scenario_builder.py` |
 | Stage 1+Spot 통합 서비스 | `src/application/market_integration_service.py` |
 | 결정론적 환노출·현금 ledger | `src/stage2/` |
-| 위험 코드·상담 범주·패킷 | `src/consultation/` |
+| 위험 코드·상담 범주 | `src/consultation/risk_classifier.py`, `response_mapping.py` |
+| 결정론 상담 Top 3·숫자 근거 | `src/consultation/prioritization.py` |
+| canonical JSON·Markdown handoff | `src/consultation/packet.py` |
 | 제약 기반 hedge 후보 | `src/stage3/` |
 | 공식자료 후보 | `src/stage4/` |
 | 최소화 JSON 보고서·critic | `src/stage5/` |
@@ -64,6 +73,18 @@ Stage 1 JSON은 방향 점수와 21거래일 최대 상승·하락폭 분위수�
 | Stage 3 제약 해 없음 | `NO_FEASIBLE_CANDIDATE`, 상담 필요 |
 | 상품 공식 근거 없음 | 빈 후보 유지 |
 | LLM/critic 실패 | 결정론 템플릿 보고서 |
+
+## 상담 priority와 handoff
+
+상담 topic은 기존 risk finding과 trade/country review need에서만 생성됩니다.
+`CATEGORY_PRIORITY_RULES`의 명시적 사전식 rule이 위험 family를 정렬하고 상위
+세 개를 `ConsultationPriorityView`로 만듭니다. LLM, 새로운 가중합 위험점수와
+공식 후보 score는 rank를 바꾸지 않습니다.
+
+`ConsultationPacket` JSON은 회사 역할·회차·보호수단, Top 3의 numeric rationale와
+source path, 부족정보, expected decision, next action, 공식 후보, trace를
+보존합니다. Streamlit 카드, Markdown 다운로드와 Stage 5 보고서는 이 JSON에서
+파생됩니다. 다운로드는 실제 상담 예약·RM 전송·신청을 수행하지 않습니다.
 
 ## 저장과 API
 

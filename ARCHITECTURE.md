@@ -22,6 +22,9 @@ flowchart LR
     spot["Spot rate provider"]
     scenario["Model path + fixed stress builder"]
     cashflow["Stage 2 confirmed binding + Decimal cashflow"]
+    consultation["Risk/Trade/Country topics + deterministic Top 3"]
+    packet["Canonical ConsultationPacket JSON"]
+    handoff([Streamlit + Markdown handoff])
     hedge["Stage 3 Hedge candidates"]
     product["Stage 4 Official retrieval"]
     offline["Offline official KB"]
@@ -40,9 +43,13 @@ flowchart LR
     market --> scenario
     market -.->|"Disclosed fallback"| scenario
     scenario --> cashflow
+    cashflow --> consultation
     cashflow --> hedge
     hedge --> product
-    product --> draft
+    product --> packet
+    consultation --> packet
+    packet --> draft
+    packet --> handoff
     product -.->|"Web failure"| offline
     offline --> draft
     product -.->|"No official candidates"| fallback
@@ -70,6 +77,7 @@ case ID, 상태, 시간, provider, retry, fallback, 근거 참조 경로, 경고
 | 2 Cashflow | `WorkflowOrchestrator.run_cashflow` → `src/stage2/binding.py` → `src/stage2/engine.py::run_stage2` | 확인 거래 fingerprint, Stage 1 시나리오, 기업 현금흐름 | fingerprint를 포함한 `Stage2Result` |
 | 3 Hedge | `WorkflowOrchestrator.run_hedge` → `src/stage3/optimizer.py::generate_strategy_candidates` | Stage 2 결과와 명시적 비용·제약 가정 | 안정성·균형·비용 후보 또는 `NO_FEASIBLE_CANDIDATE` |
 | 4 Product | `WorkflowOrchestrator.run_product_search` → `search_offline_kb` 또는 `search_official_web` | 거래 방향, 전략 상품 유형 | 공식 출처가 있는 `Stage4Result` |
+| Consultation auxiliary | `build_decision_support` → `build_consultation_priorities` → `build_consultation_packet` | Stage 2 finding, 거래·국가 review, 기존 shortlist | Top 3, 기타 확인사항, JSON/Markdown handoff |
 | 5 Report | `WorkflowOrchestrator.run_report` → `generate_report` → `critique_report` | Stage 0~4 구조화 결과 | `ReportResult`, `ReportCritique` |
 
 `src/application/demo_service.py::run_offline_demo`와 `app.py`는 모두 위
@@ -124,10 +132,13 @@ case ID, 상태, 시간, provider, retry, fallback, 근거 참조 경로, 경고
 | 손실, 잔고, buffer·credit 부족액 | 계산 결과의 자연어 보고서 초안·재작성 |
 | 자연상계·기존 헤지·분할 배분 |  |
 | 헤지 grid 점수·비율·제약 판정 |  |
+| 상담 topic mapping·Top 3 lexicographic rule·packet fingerprint |  |
 | 공식 URL allowlist와 critic |  |
 
 LLM 출력은 사용자 확인과 결정론 검증 전 금융 계산 입력으로 전달되지 않는다. 보고서
 생성기는 Stage 0~4 JSON의 값을 인용하며 금액을 다시 계산하지 않는다.
+상담 rank·numeric rationale·expected decision·next action도
+`ConsultationPacket`이 결정하며 LLM은 이를 재정렬하거나 변경하지 않는다.
 
 ## Human-in-the-loop gate
 

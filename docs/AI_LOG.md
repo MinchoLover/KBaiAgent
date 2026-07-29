@@ -1,5 +1,38 @@
 # AI Use Log
 
+## 2026-07-29 Deterministic consultation Top 3 and handoff
+
+Codex가 기존 Stage 1~5 계산, extraction prompt/schema, evidence validator,
+trade/country threshold와 공식 후보 ranking을 변경하지 않고 상담 표시·handoff
+계층을 완성했습니다. 수출 `LIQUIDITY_BUFFER_RISK`를
+`EXPORT_LIQUIDITY_REVIEW`로 연결하고, 이 risk code만으로 지급불능·필요 대출금·
+적격성·승인을 판단하지 않도록 문구와 테스트를 고정했습니다.
+
+`ConsultationPriorityView`는 기존 risk finding과 trade/country review topic을
+명시적 category table로 사전식 정렬합니다. LLM과 새로운 가중합 점수는 사용하지
+않으며 collection, FX, liquidity 같은 동일 family topic을 묶어 최대 세 개의
+검토 순서를 만듭니다. 숫자 근거는 Stage 0/2와 consultation assessment의 source
+path를 가진 structured snapshot으로 보존하고, insertion order가 달라도 같은
+rank와 fingerprint가 나오도록 검증했습니다.
+
+Golden 결과는 수출대금 회수 보호 → 환율 관리 → 운영자금 버퍼·회수시점 순서입니다.
+USD 100,000 예정 수취, USD 80,000 잔금, USD 20,000 실제 입금 `UNKNOWN`,
+7,000,000원 수취 감소, 2,000,000원 buffer shortfall, cash/payment deficit
+0원을 같은 packet에 결속했습니다. 사용자가 선지급 입금 여부와 날짜를 확인하면
+그 missing item만 제거되고 Stage 2 숫자는 재계산하지 않습니다.
+
+`ConsultationPacket` JSON을 authoritative source로 유지하고 Streamlit Top 3 카드,
+한 페이지 Markdown, Stage 5 report/fallback을 모두 여기서 파생했습니다. Stage 5
+LLM은 rank와 structured fields를 바꿀 수 없는 선택적 renderer이며, critic은
+상담 순위의 승인등급화, buffer 부족의 지급불능·대출 필요화, 예정 노출의 실제
+미수잔액화, Stage 3 최적추천, 공식후보 가입·승인 단정, Markdown의 RM 전송 완료
+표현을 거부합니다.
+
+전체 API-free unittest 456개, `scripts/verify.py`, compile과 임시 Git archive에서
+실행한 regression이 통과했습니다. 원본 regression report·Golden·Baseline·보호
+파일은 수정하지 않았습니다. OpenAI Live, 외부 API, 실제 고객문서, 외부 네트워크,
+Git push는 사용하지 않았습니다.
+
 ## 2026-07-29 Golden source-grounded evidence recovery
 
 Codex가 승인된 Golden 1건 Live 결과의 값 성공·evidence 실패를 재현 가능한

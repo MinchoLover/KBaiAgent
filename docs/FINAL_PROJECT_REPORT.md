@@ -22,29 +22,24 @@ KBaiAgent는 비정형 무역문서를 구조화한 뒤, 독립 evidence 검증�
 국가환경을 상담자료로 묶는 Streamlit 기반 MVP다. AI는 문서 구조화와 선택적 설명에
 사용되고, 금융 숫자·위험 규칙·후보 제한·critic은 결정론 코드가 통제한다.
 
-현재 강점은 계산 전 확인 gate, text-PDF의 source-grounded evidence, 스캔형 문서
+현재 강점은 계산 전 확인 gate, text-PDF source-grounded evidence, 스캔형 문서
 fail-closed, Stage 1 horizon 구분, Stage 2의 버퍼·현금적자·신용 후 부족 분리,
-국가 원자료 비합산, 공식 후보 최대 3개, API-free 436개 회귀 테스트다. 반면 제출 전
-그대로 두기 어려운 `BLOCKER`가 두 건 있다.
+국가 원자료 비합산, 공식 후보 최대 3개, API-free 456개 회귀 테스트다.
+`amount_due`는 승인된 제품 계약상 Stage 2 분석 대상 예정 결제 노출액이고 실제
+현재 미수·미지급잔액은 입금·지급 이력 없이는 `UNKNOWN`으로 분리한다.
 
-1. `amount_due`가 schema와 extraction prompt에서는 “실제 미지급·미수 금액”으로
-   정의되지만 README·Decision Log·UI에서는 “계약상 예정 결제 노출액”으로 정의된다
-   (`schemas.py:118`, `prompts/extraction_rules.md:14`,
-   `README.md:58`, `docs/DECISIONS.md:453`). 같은 필드가 다른 금융 의미를 가지므로
-   Stage 2 입력 의미가 문서 유형에 따라 흔들릴 수 있다.
-2. 수출 거래에서 `LIQUIDITY_BUFFER_RISK`가 계산되더라도 상담 주제로 매핑되지 않는다
-   (`src/consultation/risk_classifier.py:156`,
-   `src/consultation/response_mapping.py:518`). Golden의 -5% 버퍼 부족
-   2,000,000원도 현행 상담 목록에는 유동성 상담으로 나타나지 않는다.
+과거 감사에서 발견한 수출 유동성 상담 누락과 우선순위 handoff gap도 해결됐다.
+기존 `LIQUIDITY_BUFFER_RISK`가 수출 운영자금 버퍼 상담을 만들고, 기존 risk
+finding과 명시적 category tie-break가 회수 보호 → 환율 → 유동성 Top 3를
+결정한다. 각 카드에는 source path가 있는 숫자, 부족정보, 기대 결정, 다음 행동과
+공식 후보가 있으며 UI·Markdown·Stage 5는 동일 `ConsultationPacket` JSON에서
+파생된다 (`src/consultation/prioritization.py:31-137`, `:761-935`,
+`src/consultation/packet.py:819-997`).
 
-상담 기능은 단순 상품 목록보다 훨씬 많은 준비서류·질문·공식 출처·fingerprint를
-제공한다. 그러나 1·2·3순위 모델이 없고, 주제별 숫자 근거와 기대 결정이 약하며,
-실제 KB 예약·RM handoff가 없다. 따라서 “상담 준비 패킷”은 구현됐지만 “사용자가
-한 화면에서 첫 행동을 결정하는 우선순위 상담 경험”은 부분 구현이다.
-
-현재 코드 기준 종합 평가는 **74/100, 통과 가능 수준**이다. 의미 충돌과 상담 P0/P1을
-해결하면 86/100 수준을 기대할 수 있으나, 실제 고객문서 성능·은행 내부 연동·상품
-적격성은 여전히 주장할 수 없다. 세부 판정은
+상담 순위는 LLM·종합 위험점수·product score가 아니라 검토 순서다. 실제 KB 예약,
+RM 전송, 고객 식별, 적격성·승인 판단은 여전히 구현하지 않았다. 현재 코드 기준
+종합 평가는 **84/100, 본상 경쟁력 있음**이다. 실제 고객문서 성능·은행 내부
+연동·상품 적격성 없이 “대상 경쟁력 있음”을 확정해서는 안 된다. 세부 판정은
 [`FINAL_TECHNICAL_AUDIT.md`](FINAL_TECHNICAL_AUDIT.md), 상담 평가는
 [`CONSULTATION_STRENGTHENING_REPORT.md`](CONSULTATION_STRENGTHENING_REPORT.md),
 실행 순서는 [`FINAL_ACTION_PLAN.md`](FINAL_ACTION_PLAN.md)에 있다.
@@ -242,12 +237,18 @@ flowchart TD
     RM1[Stage2 Risk Mapping]
     RM2[Trade Risk Mapping]
     RM3[Country Mapping]
-    MERGE[category 기준 dedupe·생성순서 유지]
+    MERGE[category 기준 dedupe]
     TOPICS[Consultation Topics]
+    RULE[명시적 lexicographic rule<br/>family + tie-break]
+    TOP3[상담 Top 3<br/>숫자·부족정보·목표·행동]
+    OTHER[기타 확인사항]
     SEARCH[Official Retrieval]
     MATCH[category allow-map]
     MAX3[Official Shortlist ≤ 3]
-    PACKET[Docs·Questions·Missing Info·Fingerprint]
+    PACKET[Canonical ConsultationPacket JSON]
+    UI[Streamlit cards]
+    MD[One-page Markdown]
+    R5[Stage 5 + critic/fallback]
 
     S2 --> RC --> RM1
     TR --> RM2
@@ -255,14 +256,19 @@ flowchart TD
     RM1 --> MERGE
     RM2 --> MERGE
     RM3 --> MERGE --> TOPICS
-    TOPICS --> SEARCH --> MATCH --> MAX3 --> PACKET
-    TOPICS --> PACKET
+    TOPICS --> RULE --> TOP3 --> PACKET
+    RULE --> OTHER --> PACKET
+    TOPICS --> SEARCH --> MATCH --> MAX3 --> TOP3
+    PACKET --> UI
+    PACKET --> MD
+    PACKET --> R5
 ```
 
-중요한 현재 한계는 `MERGE`가 위험 우선순위 정렬이 아니라 최초 생성 순서를
-보존한다는 점이다 (`src/application/consultation_service.py:29-78`). 최대 3개 제한은
-상담 주제가 아니라 공식 후보에만 적용된다
-(`src/application/official_candidate_service.py:13`, `:167-177`).
+기존 topic merge는 생성과 dedupe만 담당한다. 별도 priority view가 명시적
+`CATEGORY_PRIORITY_RULES`로 family를 정렬해 Top 3를 만들므로 collection insertion
+order와 LLM 문장에 의존하지 않는다 (`src/consultation/prioritization.py:31-137`,
+`:761-935`). 공식 shortlist 최대 3 정책은 유지하며 product score가 상담 rank를
+바꾸지 않는다.
 
 ### 7.5 오류·fallback·fail-closed 흐름
 
@@ -317,7 +323,7 @@ flowchart TD
 | streamlit-pdf | 1.0.8 | `st.pdf` 문서 미리보기 | PDF 표시 | 앱 안에서 원문 대조 | 브라우저 렌더링 보안 sandbox 아님 | `requirements.txt:2`, `app.py:2138` |
 | pandas | 2.3.3 | `app.py` | 표·현금흐름 입력/표시 | Streamlit 표 연동 | 금융 core에는 필요하지 않음 | `requirements.txt:3` |
 | OpenAI Python SDK | 2.47.0 | Stage 0, 선택적 Stage 4/5 | structured extraction, web search, 설명 | Pydantic parse·Responses API | 실제 성능은 제한 합성평가뿐, 이번 감사 미호출 | `requirements.txt:4`, `src/document_intake/openai_adapter.py:149` |
-| Pydantic | 2.13.4 | `schemas.py`, `src/domain/` | strict 입력·출력 계약 | extra field 거부·검증 일원화 | schema의 `amount_due` 의미가 문서와 충돌 | `requirements.txt:5`, `schemas.py:118` |
+| Pydantic | 2.13.4 | `schemas.py`, `src/domain/` | strict 입력·출력 계약 | extra field 거부·검증 일원화 | 하위 호환 필드명이 업무 표시명보다 추상적 | `requirements.txt:5`, `schemas.py:118` |
 | python-dotenv | 1.2.1 | 설정 로드 | 로컬 `.env` | 데모 설정 단순화 | 운영 secret manager 아님 | `requirements.txt:6`, `src/config.py` |
 | Pillow | 11.3.0 | upload guard, 합성 데이터 | 이미지 검증 | 형식·픽셀 제한 | 악성파일 AV·격리 없음 | `requirements.txt:7`, `src/security/upload_guard.py:83` |
 | pypdf | 5.9.0 | upload guard, text evidence | PDF strict parse·text layer | 원문 quote 독립 대조 | OCR·malware sandbox 아님 | `requirements.txt:8`, `src/security/upload_guard.py:59` |
@@ -331,11 +337,13 @@ flowchart TD
 | Stage 2 ledger | `stage2-decimal-1.1` | `src/stage2/` | 노출·현금흐름·유동성 | 결정론·traceable 계산 | 입금이력·계좌 연동 없음 | `src/domain/stage2_models.py`, 실행 결과 |
 | Stage 3 grid optimizer | schema 1.0 | `src/stage3/optimizer.py` | 안정성·균형·비용 비교안 | 투명한 5/10% grid | 실제 quote·세무·회계 미반영 | `src/domain/stage3_models.py` |
 | 거래·결제 위험 규칙 | `trade-settlement-risk-1.0` | `src/consultation/trade_settlement_risk.py` | 수입 선지급·수출 회수 검토 | 환율 위험과 분리 | 90일은 MVP 기준, 공식 등급 아님 | `src/consultation/trade_settlement_risk.py:15-25` |
+| 상담 priority rule | code rule table | `src/consultation/prioritization.py` | 기존 finding을 Top 3 검토 순서로 변환 | LLM·가중합 없이 결정론·감사 가능 | KB 공식 routing policy는 아님 | `src/consultation/prioritization.py:31-137` |
+| ConsultationPacket | schema 1.0 | `src/domain/consultation_models.py`, `src/consultation/packet.py` | UI·Markdown·Stage 5 handoff source of truth | rank·숫자·trace 일관성 | 실제 RM 전송·예약 없음 | `src/domain/consultation_models.py:216-280` |
 | 국가환경 snapshot | `2026.07.29-v1` | `src/country_environment/`, snapshot | OECD·WB·WTO 별도 문맥 | 원자료 provenance·offline 재현 | BR/US만 지원, IMF 미사용 | `src/country_environment/snapshot.py:13`, snapshot JSON |
 | 공식상품 KB | schema 1.0 | `knowledge_base/official_products.json` | 검증 공식 후보 | offline 데모 안정성 | 수동 갱신, 적격성 판단 없음 | `src/stage4/local_kb.py` |
 | Official Web Search | SDK/model UNKNOWN at runtime | `src/stage4/official_search.py` | 선택적 공식 도메인 검색 | 최신 공식 페이지 탐색 | 카테고리 통합 결함으로 shortlist 0 가능 | `src/stage4/official_search.py:292-323` |
 | Report critic | code version UNKNOWN | `src/stage5/critic.py` | 숫자·source·정책·상품 검수 | LLM 설명 통제 | 자연어 패턴 기반이라 완전 증명 아님 | `tests/test_stage5_decision_report.py` |
-| `unittest` | Python 3.9.6 stdlib | `tests/` | API-free 회귀 | 추가 runner 불필요 | coverage 계측·CI 파일 없음 | 436개 실제 실행 |
+| `unittest` | Python 3.9.6 stdlib | `tests/` | API-free 회귀 | 추가 runner 불필요 | coverage 계측·CI 파일 없음 | 456개 실제 실행 |
 | Git | 2.47.0 | 전체 | 이력·지문 | 제출 재현 | `.git/index 2`, `index 3` 같은 로컬 메타 백업은 worktree 밖 | `git --version`, `git status`, `git log` |
 
 설치 환경에는 direct 9개를 포함해 `pip freeze` 기준 53개 패키지가 있었고
@@ -500,12 +508,23 @@ category 기준으로 합친다. topic에는 설명, 추가 정보, 준비서류
 필수 상태가 있다 (`src/domain/consultation_models.py:55-95`). 공식 후보는 topic
 category와 product category의 allow-map을 통과해야 하며 최대 3개다.
 
-다만 topic 모델에는 `priority`, `rank`, `expected_decision`, `next_action` 필드가
-없다. 생성 순서가 화면 순서가 되며 사용자에게 “1순위”라고 설명할 근거가 없다.
-offline 후보 연결은 작동하지만, web search 후보는 category가 모두
-`OFFICIAL_WEB_RESULT`라 allow-map에 걸리지 않아 shortlist 0건이 될 수 있다
+기존 topic을 훼손하지 않고 `ConsultationPriorityView`를 표시·handoff 계층으로
+추가했다. 이 view는 rank, priority reason, source path가 있는 numeric rationale,
+missing information, 준비자료, 질문, expected decision, next action, 공식 후보와
+rule code를 가진다 (`src/domain/consultation_models.py:121-158`).
+
+순서는 `CATEGORY_PRIORITY_RULES`의 `(tier, tie-break, category)`로 결정하며 LLM,
+새 가중합 점수와 product score를 사용하지 않는다. 같은 family topic을 묶어
+상위 세 개만 Top 3로 만들고 나머지는 `other_consultation_topics`에 보존한다.
+Golden은 회수 보호 → 환율 → 유동성 순서다
+(`src/consultation/prioritization.py:31-137`, `:761-935`).
+
+offline 후보 연결은 작동하지만, web search 후보는 category가
+`OFFICIAL_WEB_RESULT`라 allow-map에 걸리지 않아 shortlist 0건이 될 수 있다는
+과거 감사 finding은 남아 있다
 (`src/stage4/official_search.py:292-323`,
-`src/application/official_candidate_service.py:154-164`).
+`src/application/official_candidate_service.py:154-164`). 이 경우 상품을 만들지
+않고 빈 후보와 사람 상담 경로를 표시한다.
 
 ## 17. Evidence와 사용자 확인
 
@@ -520,9 +539,12 @@ offline 후보 연결은 작동하지만, web search 후보는 category가 모�
 - 명시적 field override는 AI evidence로 위장하지 않고 확인기록에 남긴다.
 - 최종 회차 금액·날짜와 문서 SHA를 fingerprint로 Stage 2 입력에 결속한다.
 
-Golden Live v1은 값이 맞았지만 amount/date quote가 틀려 차단됐다. 복구 코드는
-API-free로 검증됐지만 수정 후 Live end-to-end는 실행하지 않았으므로 성공을
-주장하지 않는다 (`docs/SUBMISSION_READINESS.md:85-91`).
+최초 Golden Live v1은 값이 맞았지만 amount/date quote가 틀려 차단됐다. 이후
+source-grounded recovery가 적용된 승인된 Golden Live 1건에서
+`validation_pass=true`, 사용자 확인 후 `stage2_allowed=true`를 확인했다.
+이번 상담 구현·감사에서는 Live API를 다시 호출하지 않았고 단일 합성문서 성공을
+전체 문서 정확도로 일반화하지 않는다
+(`docs/SUBMISSION_READINESS.md`).
 
 ## 18. Fallback과 fail-closed
 
@@ -563,14 +585,15 @@ trace는 provider·시간·fallback·source reference만 담는다
 | 검증 | 실제 명령 | 결과 |
 |---|---|---|
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | 독립 2회 + verify 내 3회 이상 PASS |
-| 전체 suite | `.venv/bin/python -m unittest discover -s tests -v` | 독립 2회 + verify 내 3회 이상, 436/436 PASS |
-| release gate | `.venv/bin/python scripts/verify.py` | 3회 이상 PASS; 매회 내부 436/436 |
-| regression | 임시 HEAD 사본에서 `.venv/bin/python scripts/run_regression.py` | 2회 PASS |
+| 전체 suite | `python -m unittest discover -s tests -v` | 상담 변경 후 456/456 PASS |
+| release gate | `python scripts/verify.py` | PASS; 내부 456/456 |
+| regression | 임시 Git archive에서 `python scripts/run_regression.py` | PASS |
 | dependency | `.venv/bin/python -m pip check` | PASS |
 | Golden | `python -m unittest -q tests.test_golden_trade_demo` | 14/14 PASS |
 | evidence+country alias | 두 모듈 집중 실행 | 26/26 PASS |
 | Stage 2·3·4·5 묶음 | `tests.test_stage2 tests.test_stage3_4_5` | 59/59 PASS |
-| 상담·거래위험·shortlist | 관련 3개 모듈 | 51/51 PASS |
+| 상담 priority·handoff | `tests.test_consultation tests.test_consultation_priority` | PASS |
+| 상담·거래위험·shortlist | 관련 모듈 집중 실행 | PASS |
 | T4 | country unit+integration | 27/27 PASS |
 | report/critic·UI | 관련 3개 모듈 | 38/38 PASS |
 | Streamlit runtime | API key를 비우고 port 8766, `/_stcore/health` | `ok` |
@@ -594,7 +617,7 @@ shortlist는 각각 테스트되지만 web-result → shortlist 통합 계약은
 Golden 자료 자체는 합성·비법적 2페이지 text PDF이며 반복생성 byte, exact quote,
 KR/BR canonicalization, 20/80 합계, Stage 2 계산을 API-free로 검증한다.
 
-과거 승인된 Live v1 한 건은 OpenAI API 응답 자체는 성공했으나 다음 evidence 오류로
+최초 승인된 Live v1 한 건은 OpenAI API 응답 자체는 성공했으나 다음 evidence 오류로
 `validation_pass=false`, `stage2_allowed=false`였다.
 
 ```text
@@ -602,10 +625,15 @@ EVIDENCE_VALUE_MISMATCH: amount_due
 EVIDENCE_NOT_IN_SOURCE: explicit_due_date
 ```
 
-현재 `demo_inputs.json`도 `live_extraction_executed=false`다. 따라서 제출 표현은
-“한 건의 Golden Live API 응답에서 핵심값은 맞았지만 evidence gate가 차단했고,
-복구 경로는 API-free 검증 완료”가 정확하다. “Golden Live end-to-end 성공”은
-금지한다.
+이 기록은 실패를 지우지 않는 historical baseline이다. 이후 source-grounded
+recovery가 적용된 승인된 Golden Live 1건에서 `validation_pass=true`, 사용자
+확인 후 `stage2_allowed=true`를 확인했다. `demo_inputs.json`의
+`live_extraction_executed=false`는 API-free demo input의 provenance이며 이 완료
+기록과 다른 목적의 필드다.
+
+제출 표현은 “제한된 합성문서 Golden Live 1건에서 evidence 검증과 사용자 확인 후
+Stage 2 허용을 확인”까지다. 전체 문서 정확도, OCR 정확도 100%, 실제 고객환경
+검증 완료로 확대하지 않는다. 이번 작업에서는 Live API를 호출하지 않았다.
 
 ## 22. 스캔형 Baseline 결과
 
@@ -621,18 +649,16 @@ evidence가 없음”을 뜻한다. Baseline 실제 비용은 cached input token
 
 ## 23. 알려진 한계
 
-- `amount_due` 금융 의미가 schema/prompt와 제품 문서에서 충돌한다.
 - 분할일정에서 Stage 1 target이 첫 회차로 고정되고 Golden test는 잔금일 단일노출을
   사용한다.
-- 수출 유동성 위험 상담 mapping이 없다.
-- 상담 topic은 1·2·3순위가 아니고 개수 상한도 없다.
-- Golden의 실제 입금이력 UNKNOWN이 `missing_information`에는 들어가지 않는다.
 - 공식 web search 결과 category가 shortlist allow-map과 호환되지 않는다.
-- 실제 슬라이드/PPTX/Keynote 산출물이 없고 Markdown 대본·Q&A만 있다.
+- 실제 슬라이드/PPTX/Keynote와 최종 녹화본은 저장소 검증 대상이 아니다.
 - root/docs architecture, 과거 audit/repositioning 문서가 서로 다른 시점의 사실을
-  담으며 canonical 최종 문서 링크가 기존 README에 없었다.
+  담으므로 README의 최종 보고서 묶음을 canonical 기준으로 사용해야 한다.
 - `src/demo 2.py`, `src/stage5/critic 2.py`, `src/stage5/report_agent 2.py`,
   `docs/PROJECT_BRIEF 2.md`가 canonical 파일과 다른 폐기 후보로 남아 있다.
+- 상담 priority는 KB가 승인한 공식 routing policy가 아니라 공개된 MVP rule이다.
+- 입금상태 확인은 로컬 session이며 실제 계좌·수납 시스템과 연결되지 않는다.
 - 인증·DB·tenant·RM·예약·심사·주문·malware scan·production observability가 없다.
 - 실고객 benchmark, 실제 고객환경 검증, 실제 승인/보험인수 예측은 없다.
 
@@ -643,39 +669,36 @@ evidence가 없음”을 뜻한다. Baseline 실제 비용은 cached input token
 - 위험 code → 상담 category
 - 거래·결제 위험과 국가환경의 별도 topic
 - topic별 설명·추가정보·서류·질문
+- 기존 finding 기반 결정론 Top 3와 공개 tie-break
+- topic별 숫자·source path·부족정보·기대 결정·다음 행동
+- Golden의 USD 20,000 실제 입금 여부 `UNKNOWN`과 사용자 확인 경로
 - 공식 출처 후보 최대 3개와 선택 이유
 - `eligibility=unknown`, 승인·가격·한도 미확정
-- 거래·노출·위험·문서 SHA·확인 필드·input hash를 묶은 Markdown/JSON packet
-- 최종 Stage 5 보고서에 consultation bundle 유지
+- 역할·회차·보호수단·Top 3·문서 SHA·fingerprint를 묶은 one-page Markdown/JSON
+- Streamlit·Markdown·Stage 5가 동일 `ConsultationPacket` JSON 사용
+- critic이 순위·버퍼·예정노출·최적추천·RM 전송 과장 차단
 
-하지만 우선순위, topic별 거래 숫자, 기대 결정, 실제 KB 연결이 부족하다. 엄격한
-상담 평가는 **61/100**이다. 상세 점수와 Golden 1·2·3순위 권장 UX는 상담 강화
+엄격한 상담 평가는 **86/100**이다. 실제 KB 예약·RM 전송·고객 매칭·상담 결과
+회수는 없으므로 handoff는 다운로드까지다. 상세 점수와 Golden packet은 상담 강화
 보고서에 있다.
 
 ## 25. 향후 개선
 
-제출 전 최소 범위는 새 상품이나 계산식을 늘리는 것이 아니다.
+제출 전에는 새 상품이나 계산식을 늘리지 않는다.
 
-1. `amount_due`의 문서유형별 의미와 실제 outstanding 관계를 schema·prompt·validator·
-   UI·문서에서 하나의 승인된 계약으로 맞춘다.
-2. 수출 `LIQUIDITY_BUFFER_RISK`를 일반 유동성/운전자금 상담 category로 연결하되
-   승인·적격성 계산을 추가하지 않는다.
-3. 기존 topic에 계산된 risk finding을 붙여 1·2·3순위, 숫자 이유, 부족정보,
-   기대 결정, 다음 행동을 렌더링한다.
-4. 실제 결제이력 UNKNOWN을 packet gap에 명시한다.
-5. official web result가 분류를 보존하도록 adapter 계약을 고치고 end-to-end
-   integration test를 추가한다.
-6. 실제 슬라이드와 녹화 fallback을 만들고 Golden의 두 review priority를 정확히
-   구분한다.
+1. Golden Top 3와 handoff를 중심으로 실제 슬라이드·offline 영상을 완성한다.
+2. 공식 web result category 계약은 기능 동결 후 별도 integration patch로 다룬다.
+3. 기업 담당자·RM usability test로 카드 길이·질문·서류의 이해도를 확인한다.
+4. 운영 전 인증·tenant·동의·보존·삭제·malware scan을 설계한다.
+5. 실제 예약·RM adapter와 적격성 엔진은 KB 승인 계약 후 별도 범위로 개발한다.
 
 ## 26. 결론
 
-KBaiAgent는 “LLM이 금융 결정을 대신한다”는 프로젝트보다 “AI가 문서 입력을 돕고,
-결정론 엔진과 evidence gate가 기업·은행 상담을 준비한다”는 프로젝트로 설명할 때
-가장 정확하다. 코드의 안전 경계와 회귀성은 공모전 MVP 기준으로 강하지만, 상담의
-첫 행동과 금융 필드 의미가 정리되지 않으면 심사위원에게 “잘 만든 위험 분석기와
-상품 링크 모음”으로 보일 수 있다.
+KBaiAgent는 “LLM이 금융 결정을 대신한다”가 아니라 “AI가 문서 입력과 설명을 돕고,
+결정론 엔진·evidence gate·상담 priority가 기업과 KB의 다음 대화를 준비한다”로
+설명할 때 정확하다. 사용자는 이제 상품 링크 목록이 아니라 회수 보호·환율·
+유동성의 검토 순서, 숫자 이유, 부족정보와 다음 행동을 같은 화면에서 확인한다.
 
-제출 가능 여부의 조건은 두 P0를 숨기지 않고 해결하는 것이다. 해결 전에는
-**통과 가능 수준**, 해결 후에는 **본상 경쟁력**을 논의할 수 있으나, 실제 고객
-검증·KB 내부 연동 없이 “대상 경쟁력 있음”을 확정해서는 안 된다.
+현재 판정은 **84/100, 본상 경쟁력 있음**이다. 대상 가능성은 데모 전달력과
+상담 handoff의 실무가치를 얼마나 설득하는지에 달렸지만, 실제 고객 검증·KB 내부
+연동 없이 “대상 경쟁력 있음”을 확정해서는 안 된다.

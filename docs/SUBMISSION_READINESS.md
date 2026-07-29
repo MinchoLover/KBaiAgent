@@ -1,6 +1,6 @@
 # Submission Readiness
 
-상태: `GOLDEN_LIVE_V1_EVIDENCE_BLOCKED_AWAITING_REVALIDATION`
+상태: `READY_API_FREE_WITH_GROUNDED_CONSULTATION_HANDOFF`
 
 ## 기준 상태
 
@@ -10,8 +10,10 @@
 - Golden text-layer 자료: `73e457f`, `e466912`
 - Python: 3.9 호환
 - 실제 고객문서 사용: 없음
-- 승인된 Golden Live v1: API 성공 1건, evidence 검증 차단
-- 이번 evidence 복구 작업의 OpenAI Live 호출: 없음
+- 역사적 Golden Live v1: API 성공 1건, evidence 검증 차단
+- source-grounded recovery 이후 승인된 Golden Live 1건:
+  `validation_pass=true`, 사용자 확인 후 `stage2_allowed=true`
+- 이번 상담 Top 3·handoff 작업의 OpenAI Live 호출: 없음
 - Git push: 최종 사용자 지시 전 수행하지 않음
 
 기존 T1~T7, T4, Stage 1 JSON/REST adapter, Stage 2 현금흐름, Stage 3 환헤지,
@@ -85,18 +87,30 @@ Golden의 API-free 확인 결과:
 - Golden 전용 API-free tests: 14/14 PASS
 - Text-PDF amount/date recovery tests: 18/18 PASS
 
-Golden Live v1은 핵심값과 installment 합계가 expected와 일치했지만
+역사적 Golden Live v1은 핵심값과 installment 합계가 expected와 일치했지만
 `EVIDENCE_VALUE_MISMATCH:amount_due`,
 `EVIDENCE_NOT_IN_SOURCE:explicit_due_date`로 `validation_pass=false`,
-`stage2_allowed=false`였습니다. 복구 수정은 API-free로만 검증했으므로 수정 후
-Live end-to-end 성공을 아직 주장하지 않습니다.
+`stage2_allowed=false`였습니다. 이후 source-grounded recovery가 적용된 상태의
+승인된 Golden Live 1건에서 `validation_pass=true`와 사용자 확인 후
+`stage2_allowed=true`를 확인했습니다. 이번 작업은 이 기록을 문서화했을 뿐
+Live API를 다시 호출하지 않았습니다. 단일 합성문서 결과를 전체 문서 또는 실제
+고객환경 성능으로 일반화하지 않습니다.
+
+Golden 상담 결과는 같은 `ConsultationPacket` JSON에서 다음 순서로 생성됩니다.
+
+1. 수출대금 회수 보호 상담
+2. 환율 관리 상담
+3. 운영자금 버퍼·수출대금 회수시점 상담
+
+이는 승인·인수·대출 등급이 아니라 기존 위험 finding과 명시적 category tie-break를
+사용한 검토 순서입니다. Top 3 밖 topic은 `기타 확인사항`에 유지됩니다.
 
 ## 검증 상태
 
 | 항목 | 상태 | 근거 |
 | --- | --- | --- |
 | compile | PASS | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q app.py src scripts tests` |
-| 전체 API-free suite | 436/436 PASS | `python -m unittest discover -s tests -v` |
+| 전체 API-free suite | 456/456 PASS | `python -m unittest discover -s tests -v` |
 | Golden 전용 | 14/14 PASS | `python -m unittest tests.test_golden_trade_demo -v` |
 | country canonicalization | 8/8 PASS | `python -m unittest tests.test_country_canonicalization -v` |
 | Stage 1~5 통합 회귀 | PASS | 전체 suite와 `python scripts/run_regression.py` |
@@ -104,8 +118,9 @@ Live end-to-end 성공을 아직 주장하지 않습니다.
 | country fixture | 8건 evaluator pipeline 검증 | `reports/country_validation/eval_summary.json` |
 | fixture 모델 정확도 주장 | 금지 | `evaluation_mode=FIXTURE` |
 | V1/V2 합성 Live | 각 8건 완료 | `docs/LIVE_BENCHMARK_RESULTS.md` |
-| Golden Live v1 | API 1건 성공, evidence 차단 | `docs/VALIDATION_REPORT.md` |
-| 수정 후 Golden Live 재검증 | 미실행 | 별도 승인 필요 |
+| 역사적 Golden Live v1 | API 1건 성공, evidence 차단 | historical baseline |
+| recovery 이후 Golden Live | 1건 validation PASS, 확인 후 Stage 2 허용 | 승인된 완료 기록; 이번 작업 재호출 없음 |
+| Golden 상담 Top 3 | 회수 보호 → 환율 → 유동성 | `tests.test_consultation_priority` |
 | 실제 고객문서 benchmark | 미실행·범위 밖 | 운영 개인정보 통제 필요 |
 
 ## 심사위원에게 말할 수 있는 주장
@@ -117,7 +132,11 @@ Live end-to-end 성공을 아직 주장하지 않습니다.
 - 독립 검증할 수 없는 스캔형 문서는 사용자 확인 전 금융 계산으로 보내지 않습니다.
 - 텍스트 레이어 Golden 계약서의 expected evidence와 기존 도메인 입력·계산을
   API-free로 검증했습니다.
-- Golden Live v1은 값이 맞아도 근거가 틀리면 Stage 2를 차단했습니다.
+- 역사적 Golden Live v1은 값이 맞아도 근거가 틀리면 Stage 2를 차단했습니다.
+- source-grounded recovery 이후 제한된 Golden Live 1건에서
+  `validation_pass=true`, 확인 후 `stage2_allowed=true`를 확인했습니다.
+- 상담 Top 3는 LLM이 생성·재정렬하지 않으며, UI·Markdown·Stage 5가 같은
+  `ConsultationPacket` JSON의 rank와 숫자를 사용합니다.
 - OECD·World Bank·WTO는 자체 국가 신용점수로 합치지 않습니다.
 - 같은 확인 입력과 규칙의 금융 계산은 `Decimal` 기반으로 결정론적입니다.
 
@@ -137,8 +156,10 @@ Live end-to-end 성공을 아직 주장하지 않습니다.
 - 스캔형 평가문서에는 독립 OCR verifier가 없습니다.
 - 한 사례에 contract date 하루 차이 오류가 남았습니다.
 - Cached input token 미수집으로 Baseline 실제 API 비용은 `UNKNOWN`입니다.
-- Golden Live v1은 단일 합성문서이며 evidence 차단 상태였습니다.
-- 수정된 recovery의 Live end-to-end 결과는 아직 미검증입니다.
+- 역사적 Golden Live v1의 evidence 차단은 삭제하지 않고 과거 baseline으로
+  보존합니다.
+- recovery 이후 Golden Live 성공도 단일 합성문서 1건에 한정됩니다.
+- 실제 KB 상담 예약·RM 전송·상품 자격·승인 연동은 구현하지 않았습니다.
 - 실제 배포에는 인증·tenant 분리, malware scan, sandbox rendering, 동의·보존·
   삭제, secret manager, rate limit, 중앙 감사와 은행 내부 계약이 필요합니다.
 
@@ -156,9 +177,9 @@ python -m streamlit run app.py
 `5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`입니다.
 제출 preflight에서는 generator로 Golden을 덮어쓰지 않습니다.
 
-수정된 Golden Live를 사용하려면 별도 승인 후 현재 commit과 새 실행 식별값을
-기록해 재검증하고, 실패하면 `docs/DEMO_SCRIPT_KO.md`의 API-free fallback을
-사용합니다.
+Live 재실행은 이번 제출 점검에 필요하지 않습니다. 추가로 실행하려면 별도 승인,
+고유 실행 식별값, 합성문서 제한을 지키고 결과가 불안정하면
+`docs/DEMO_SCRIPT_KO.md`의 API-free fallback을 사용합니다.
 
 ## API 없는 fallback
 

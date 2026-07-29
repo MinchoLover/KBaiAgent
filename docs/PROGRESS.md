@@ -39,13 +39,19 @@
 - [x] Stage 2 결과 기반 구조화 위험 코드와 근거값
 - [x] 위험·거래 방향 기반 일반 금융상담 범주 매핑
 - [x] 계산 버전·입력 hash가 있는 JSON·Markdown KB 상담 패킷
+- [x] 수출 `LIQUIDITY_BUFFER_RISK`의 운영자금 버퍼 상담 연결
+- [x] 기존 risk finding 기반 결정론 상담 Top 3와 공개 tie-break
+- [x] topic별 숫자·source path·부족정보·기대 결정·다음 행동
+- [x] 회사 역할·회차·보호수단·Top 3·trace를 담은 one-page handoff
+- [x] 동일 `ConsultationPacket` JSON 기반 Streamlit·Markdown·Stage 5 출력
+- [x] 상담 순위·버퍼·예정노출·공식후보·RM 전송 과장 방지 critic
 - [x] 수입·수출 대표 오프라인 CLI와 Streamlit 원클릭 데모
 - [x] 리스크 진단 직후 상담 패킷까지 완료되는 최소 수직 슬라이스
-- [x] 394 API-free tests (Live gate 신규 11건, country validation·T4 회귀 포함)
+- [x] 456 API-free tests (상담 priority·handoff·Stage 5·UI 회귀 포함)
 - [x] offline evaluation and regression baseline
 - [x] 합성 이미지형 PDF 1건 live OpenAI smoke test
 - [x] 미국·브라질 합성 세트 guarded Live 2건 baseline smoke와 제출 증거 패키지
 - [x] Fixture/Live metadata·경로 분리, immutable run ID, 실패·timeout 격리
-- [ ] 미국·브라질 합성 세트 전체 8건 Live baseline — 두 번째 사용자 승인 필요
+- [x] 미국·브라질 합성 세트 전체 8건 Live baseline v1/v2 제출 증거
 - [ ] 허가된 실제 문서군 live 품질 benchmark
 - [ ] production auth/malware scanning/CI — follow-up scope

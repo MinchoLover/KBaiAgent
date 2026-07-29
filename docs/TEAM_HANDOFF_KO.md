@@ -21,7 +21,8 @@
 
 - 담당: `src/stage2/`~`src/stage5/`, `src/consultation/`,
   `src/workflow/`, 통합 테스트
-- 완료조건: Decimal ledger, 위험 코드, 제약 후보, 공식근거, verified report
+- 완료조건: Decimal ledger, 위험 코드, 결정론 상담 Top 3, canonical handoff,
+  제약 후보, 공식근거, verified report
 - 변경 금지: `ConfirmedTrade`, scenario quote convention
 - 테스트: `python scripts/verify.py`
 - 연결: 팀원 A의 confirmed fingerprint, 팀원 B의 scenario set을 결합
@@ -37,5 +38,6 @@
 “Stage 1 팀원은 앞으로 한 달의 환율 경로가 어느 정도 흔들릴 수 있는지 계산하고,
 메인 앱은 그 결과를 우리 회사 계약금액과 현금 일정에 대입합니다. AI가 돈을
 계산하는 게 아니라 문서를 읽고 시장 문맥을 설명하며, 실제 금액은 Decimal 코드가
-계산합니다. 마지막에는 상품을 확정 추천하지 않고 KB 상담에 필요한 질문과 서류를
-정리합니다.”
+계산합니다. 마지막에는 기존 위험 finding이 회수 보호·환율·유동성의 검토 순서를
+결정하고, 같은 JSON에서 숫자·부족정보·질문·서류가 있는 KB 상담 handoff를
+만듭니다. 상품·승인·실제 RM 전송은 확정하지 않습니다.”

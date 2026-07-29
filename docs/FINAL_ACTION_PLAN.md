@@ -1,433 +1,333 @@
 # KBaiAgent 제출 직전 최종 실행 계획
 
-## 1. 실행 원칙
+기준일: 2026-07-29 KST
 
-제출 전 목표는 기능 수를 늘리는 것이 아니라 이미 계산된 결과를 금융적으로
-일관되고 상담 가능한 형태로 만드는 것이다.
+코드 상태: 상담 Top 3·handoff 구현 완료, API-free 456 tests PASS
 
-1. P0는 숨기거나 문구로 덮지 않고 코드 계약과 테스트를 함께 고친다.
-2. P1은 기존 risk finding·packet·official shortlist를 재사용한다.
-3. 새로운 금융 계산, 임계값, 상품, eligibility rule은 추가하지 않는다.
-4. Golden·Baseline은 immutable fixture로 취급한다.
-5. 모든 코드 변경은 논리 단위 commit과 전체 API-free gate를 가진다.
-6. Live API는 별도 승인·고유 run ID·합성문서·비용 상한이 있을 때만 실행한다.
-7. 실제 고객문서는 사용하지 않는다.
+기능 동결 원칙: 새 금융 계산·상품·eligibility·Live 호출 금지
+
+## 1. 종합 판단
+
+현재 로컬 공모전 MVP의 제출 blocker였던 수출 유동성 상담 누락과 위험 기반
+상담 Top 3 부재는 해결됐다. `amount_due`는 승인된 제품 계약상 Stage 2 분석 대상
+예정 결제 노출액으로 유지하고, 실제 현재 미수·미지급잔액은 입금·지급 이력 없이는
+`UNKNOWN`으로 구분한다.
+
+이제 제출 전 우선순위는 기능 추가가 아니라 다음 세 가지다.
+
+1. Golden Top 3를 한 화면에서 안정적으로 시연
+2. “검토 순서/예정 노출/버퍼 부족”의 안전 경계를 발표자가 정확히 말함
+3. 영상·슬라이드·Git·불변 지문을 한 번에 재현
 
 ## 2. 지금 즉시 할 일
 
-### 2.1 P0-1 금융 입력 계약 확정
-
-결정해야 할 질문은 하나다.
-
-> `amount_due`가 문서가 말하는 실제 Balance Due인가, 아직 이행 여부를 확인하지
-> 못한 예정 회차의 분석 노출인가?
-
-현재 schema/prompt와 Decision 29가 서로 다른 답을 낸다. 먼저 제품·금융 owner가
-다음 문서유형별 표를 승인해야 한다.
-
-| 문서 유형 | 우선 source | 이미 지급/수취 표시 | 이행정보 없음 | 실제 outstanding |
-|---|---|---|---|---|
-| Invoice | 명시 Balance/Amount Due | paid를 반영한 balance | 명시 due 우선 | 문서 명시 범위 |
-| Sales Contract | 명시된 예정 회차 | 완료 회차만 근거 있을 때 제외 | 예정 회차 합계 또는 별도 필드 결정 필요 | 별도 UNKNOWN 가능 |
-| Purchase Order | 명시 결제/총액 조건 | 이행정보가 있으면 별도 검토 | 주문 총액 사용 조건 승인 필요 | 보통 UNKNOWN |
-
-승인 뒤 하나의 commit에서 schema, extraction rule, validator, evidence recovery,
-fixture, UI copy, README, Decision Log를 맞춘다. 일부 계층만 바꾸면 안 된다.
-
-권장 commit:
-
-```text
-fix: align scheduled exposure amount contract
-```
-
-필수 gate:
-
-```bash
-python -m unittest tests.test_schemas_validators -v
-python -m unittest tests.test_source_evidence_recovery -v
-python -m unittest tests.test_golden_trade_demo -v
-python scripts/run_regression.py
-python scripts/verify.py
-```
-
-### 2.2 P0-2 수출 유동성 상담 연결
-
-기존 `LIQUIDITY_BUFFER_RISK`를 수출에서도 상담 행동으로 연결한다. 새 대출 rule이나
-승인 판단은 만들지 않는다.
-
-최소 acceptance criteria:
-
-- Golden -5% 2,000,000원 buffer shortfall가 “운영자금 버퍼 확인” topic의 숫자
-  이유에 나타난다.
-- `cash_deficit=0`, `post_credit_deficit=0`을 “지급불능”으로 표현하지 않는다.
-- 실제 가용한도·대출 승인·필요 조달액은 UNKNOWN/은행 확인이다.
-- 수입 `IMPORT_SETTLEMENT_FINANCE` 결과는 변하지 않는다.
-
-권장 commit:
-
-```text
-fix: map export liquidity risk to consultation action
-```
-
-필수 gate:
-
-```bash
-python -m unittest tests.test_consultation -v
-python -m unittest tests.test_stage5_decision_report -v
-python -m unittest tests.test_ui_evidence_state -v
-python scripts/verify.py
-```
-
-### 2.3 Golden split end-to-end test
-
-Golden의 USD 20,000/80,000 회차를 그대로 사용해 Stage 1 target policy와 Stage 2
-substitution warning을 검증한다. 현행 test처럼 USD 100,000 단일 잔금 노출로
-축약하지 않는다.
-
-먼저 정책을 결정한다.
-
-- 첫 회차 target 하나를 모든 회차에 대체 적용하고 경고를 유지할지
-- 마지막 회차를 대표 target으로 택할지
-- 회차별 scenario set을 별도로 만들지
-
-제출 직전에는 계산식을 넓히기보다 현행 “첫 회차 + 대체 적용 경고”를 정확히
-테스트·설명하는 선택이 회귀 위험이 가장 낮다.
-
-권장 commit:
-
-```text
-test: cover golden split schedule end to end
-```
+| 순서 | 작업 | 완료 기준 | 예상 |
+|---:|---|---|---:|
+| 1 | 전체 품질 gate 최종 실행 | compile, 456 unittest, verify, pip check, 격리 regression PASS | 30분 |
+| 2 | Golden 불변성 확인 | PDF SHA, Baseline 지문, 보호 파일 SHA 시작값 일치 | 10분 |
+| 3 | 상담 화면 캡처 | Top 3·USD 20,000 UNKNOWN·2m/0/0·CTA 한 화면 | 30분 |
+| 4 | 3분 발표 리허설 | 숫자·용어 오류 0, 3분 10초 이내 | 1시간 |
+| 5 | offline 영상 녹화 | 네트워크·Live 없이 완주, 음성·글자 판독 가능 | 1시간 |
 
 ## 3. 제출 전 해야 할 일
 
-### P1 우선순위
+### 3.1 제출 패키지 사실 확인
 
-| 순서 | 작업 | 완료 조건 | 예상 |
-|---:|---|---|---|
-| 1 | 상담 1·2·3 view-model | 동일 입력 동일 순서, 이유 공개 | 1~2일 |
-| 2 | topic별 숫자 결속 | USD/KRW, loss, threshold, buffer가 원 source path와 일치 | 1일 |
-| 3 | 실제 입금이력 UNKNOWN | Golden 부족정보 첫 항목 | 0.5일 |
-| 4 | expected decision·next action | 승인 아닌 상담 목표 문구 | 1일 |
-| 5 | one-page handoff | 역할·회차·top3·서류·질문·fingerprint | 1~2일 |
-| 6 | web search category 통합 | mocked web result → grounded shortlist | 1~2일 |
-| 7 | 공식 source/KB CTA | 최신 출처와 사람 상담 경로 명시 | 0.5일 |
-| 8 | 실제 slide deck | 3분 흐름·숫자·한계·backup | 1일 |
+- branch와 제출 commit SHA 기록
+- Golden SHA-256
+  `5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`
+- `python scripts/verify.py` 결과 저장
+- 전체 테스트 수 456 확인
+- regression은 원본 report를 덮어쓰지 않도록 임시 `git archive`에서 실행
+- 보호 untracked 3개가 commit에 없는지 확인
+- `.env`, 실제 업로드, API key, raw response가 staged되지 않았는지 확인
+- 실제 push는 사용자가 별도 지시하기 전 금지
 
-권장 논리 commit:
+### 3.2 Golden 상담 숫자 암기
 
-```text
-feat: prioritize grounded consultation actions
-feat: add consultation handoff summary
-fix: preserve official categories in web shortlist
-test: bind golden consultation evidence end to end
-docs: add submission deck and rehearsal package
-```
+| 항목 | 정확한 값 |
+|---|---|
+| 분석 대상 예정 수취액 | USD 100,000 |
+| 실제 현재 미수잔액 | UNKNOWN |
+| 선지급 예정 | USD 20,000, 실제 입금 여부 UNKNOWN |
+| 잔금 예정 | USD 80,000, 2026-08-20 |
+| 결제조건 | Open Account / T/T |
+| trade review | ELEVATED_REVIEW |
+| 기준 원화 수취 | 140,000,000원 |
+| -5% 원화 수취 | 133,000,000원 |
+| 기준 대비 감소 | 7,000,000원 |
+| 허용손실 | 5,000,000원 |
+| -5% ending cash | 8,000,000원 |
+| 목표 buffer | 10,000,000원 |
+| buffer shortfall | 2,000,000원 |
+| cash deficit | 0원 |
+| payment/post-credit deficit | 0원 |
 
-한 commit에 금융 계약, UI, web search, 발표자료를 섞지 않는다.
+### 3.3 Golden 상담 Top 3
+
+1. 수출대금 회수 보호 상담
+2. 환율 관리 상담
+3. 운영자금 버퍼·수출대금 회수시점 상담
+
+발표자는 반드시 다음 문장을 포함한다.
+
+> 상담 순위는 현재 거래에서 먼저 확인할 검토 순서이며, 상품 승인·보험 인수·
+> 대출 심사 결과가 아닙니다.
 
 ## 4. 기능 동결 후 할 일
 
-기능 동결 시점부터는 다음만 허용한다.
+- README와 최종 네 보고서의 commit SHA·test count만 최종 갱신
+- 화면 캡처 파일명과 슬라이드 번호 고정
+- 영상 재생 환경·폰트·해상도 확인
+- `docs/DEMO_SCRIPT_KO.md`와 실제 클릭 순서 대조
+- `docs/JUDGE_QA_KO.md`를 팀원 모두 1회 소리 내어 답변
+- 제출 zip을 별도 임시 위치에 풀어 README 명령과 링크 확인
 
-- 문구 오탈자·링크 수정
-- deterministic artifact SHA 확인
-- API-free test·demo 반복
-- screenshot·영상·발표자료 업데이트
-- BLOCKER가 아닌 새 아이디어는 backlog 이동
-
-동결 checklist:
-
-```text
-[ ] branch/HEAD 기록
-[ ] git status에 의도한 파일만 존재
-[ ] Golden SHA 일치
-[ ] Baseline directory fingerprint 일치
-[ ] protected untracked 3개 SHA 일치
-[ ] compile PASS
-[ ] 436+ unittest PASS
-[ ] regression PASS
-[ ] verify PASS
-[ ] pip check PASS
-[ ] git diff --check PASS
-[ ] secret scan PASS
-[ ] local link scan PASS
-[ ] import/export demo PASS
-[ ] Streamlit health ok
-[ ] Golden packet top3와 숫자 대본 일치
-```
+기능 동결 뒤 app 구조, 금융 rule, prompt/schema, official candidate data를
+수정하지 않는다.
 
 ## 5. 발표자료 작업
 
-현재 저장소에는 `.pptx`, `.ppt`, `.key`가 없다. Markdown demo script와 judge Q&A만
-있으므로 실제 발표산출물은 미완성이다.
+권장 7장 구성:
 
-### 권장 7장 구성
+1. **문제** — 환율 전망보다 특정 계약의 현금·회수·상담 행동이 단절됨
+2. **사용자 흐름** — 문서 → evidence → 확인 → stress → cash → 상담
+3. **AI 경계** — 구조화·설명은 AI, 숫자·priority·critic은 결정론
+4. **Golden 숫자** — USD 100k, KRW 7m, buffer 2m, deficits 0
+5. **상담 Top 3** — 회수 보호 → 환율 → 유동성, 각 이유·서류·질문
+6. **안전·검증** — fail-closed, UNKNOWN, 456 tests, one Golden Live 범위
+7. **KB handoff와 한계** — JSON/Markdown, 공식 후보, 실제 예약·RM 연동 없음
 
-1. **문제**: 환율이 아니라 거래별 현금·상담 결정의 문제.
-2. **한 장 흐름**: 문서 → evidence/확인 → stress → cash → 상담 packet.
-3. **안전 경계**: AI 추출과 deterministic 계산 분리, scan fail-closed.
-4. **Golden 숫자**: USD 100k, -5% 7m 감소, buffer 2m 부족.
-5. **상담 top3**: 회수보호 → 환율관리 → 운영자금, 각각 서류·질문.
-6. **공식 후보와 한계**: 최대 3, 출처, eligibility UNKNOWN.
-7. **검증·요청**: 436 tests, Live 범위, KB handoff 확장.
+슬라이드별 금지 표현:
 
-### 각 장의 금지 표현
+- “AI가 최적 상품을 추천합니다”
+- “USD 100,000 미수금”
+- “2,000,000원 대출이 필요합니다”
+- “BR 국가신용등급 4”
+- “상담이 RM에게 전송됐습니다”
+- “모든 문서 정확도 100%”
 
-- “모든 문서를 정확히 읽습니다”
-- “OCR 정확도 100%”
-- “AI가 최적 상품/헤지를 추천합니다”
-- “대출·보험 승인을 예측합니다”
-- “BR 국가 신용등급 4”
-- “USD 100,000 실제 미수 확정”
-- “Golden Live end-to-end 성공”
+## 6. 3분 데모 리허설
 
-## 6. 데모 리허설
+| 시간 | 화면 | 말할 내용 |
+|---|---|---|
+| 0:00~0:20 | 문제 | “환율 숫자를 특정 계약의 현금과 상담 행동으로 바꿉니다.” |
+| 0:20~0:45 | Golden 문서/evidence | 합성문서, source-grounded quote, 사용자 확인 gate |
+| 0:45~1:15 | Stage 2 | 140m → 133m, 감소 7m, ending cash 8m |
+| 1:15~1:35 | 안전 구분 | buffer 2m vs cash/payment deficit 0 |
+| 1:35~2:20 | Top 3 | 회수 보호, 환율, 유동성의 숫자·부족정보·목표 |
+| 2:20~2:40 | handoff | 같은 JSON의 Markdown, 공식 후보와 질문 |
+| 2:40~3:00 | 검증·한계 | 456 tests, 제한된 Golden Live 1건, RM 연동 없음 |
 
-### 6.1 3분 기본 경로
+실패 주입 리허설:
 
-| 시간 | 행동 | 한 문장 |
-|---:|---|---|
-| 0:00~0:20 | 문제·사용자 | “계약 금액을 기업 현금과 은행 질문으로 바꿉니다.” |
-| 0:20~0:45 | Golden 문서·evidence | “AI 값도 원문과 사람 확인 전 계산하지 않습니다.” |
-| 0:45~1:15 | -5% 현금 영향 | “7백만원 수취 감소와 2백만원 buffer 부족을 분리합니다.” |
-| 1:15~1:40 | 회수 위험·국가환경 | “Open Account 보호 검토와 국가 원자료를 섞지 않습니다.” |
-| 1:40~2:20 | 상담 top3·공식 후보 | “상품 승인이 아니라 먼저 준비할 서류와 질문입니다.” |
-| 2:20~2:45 | packet 다운로드 | “같은 숫자와 fingerprint를 상담자에게 넘깁니다.” |
-| 2:45~3:00 | 검증·한계 | “436 API-free tests, Live와 실고객 범위는 제한적입니다.” |
-
-### 6.2 리허설에서 반드시 구분할 값
-
-- `amount_due`: 승인된 최종 계약 표현을 사용
-- 실제 USD 20,000 입금 여부: `UNKNOWN`
-- 거래·회수 priority: `ELEVATED_REVIEW`
-- Golden 국가환경 priority: `STANDARD_REVIEW`
-- BR OECD: raw 4, 자체 국가등급 아님
-- -5% buffer shortfall: 2,000,000원
-- cash/payment deficit: 0원
-- Stage 3: 계산상 비교안, 실제 추천 아님
-- shortlist: 상담 후보, 자격·승인 unknown
-
-### 6.3 실패 주입 리허설
-
-1. API key 없음 → deterministic demo/report.
-2. textless scan → evidence 차단 화면.
-3. Stage 1 HTTP 없음 → fixture/manual stress warning.
-4. official candidate 없음 → 빈 상태, 상품 생성 금지.
-5. report AI 실패 → deterministic report.
-
-각 실패를 “장애”가 아니라 “공개된 안전 fallback”으로 설명하되, Live 성공인 것처럼
-포장하지 않는다.
+1. OpenAI key 없음 → fixture extraction/결정론 report
+2. Stage 1 HTTP 실패 → file/mock/manual stress와 경고
+3. evidence 부족 → Stage 2 차단
+4. 공식 후보 0건 → 상품 생성 없이 빈 상태
+5. report AI/critic 실패 → 같은 packet의 deterministic report
 
 ## 7. 영상 백업
 
-제출 전 다음 두 영상을 별도로 만든다.
-
-1. **3분 정규 영상**: Golden API-free path, top3 상담, packet download.
-2. **60초 fail-closed 영상**: scan에서 Stage 2 차단, deterministic fallback.
-
-영상과 함께 보관할 정적 backup:
-
-- Golden PDF 첫·둘째 페이지 screenshot
-- exact evidence 4개 screenshot
-- -5% Stage 2 결과 screenshot
-- 상담 top3 한 화면
-- 공식 후보와 disclaimer
-- packet Markdown 첫 페이지
-- 436/436, verify, regression terminal 결과
-- branch·commit·Golden SHA 표
-
-영상에 실제 API key, `.env`, 전체 prompt, 로컬 사용자 경로, 고객정보를 노출하지
-않는다.
+- 기본 영상: Golden API-free path, 3분 이내
+- 안전 영상: scan fail-closed, 60초
+- 정적 백업: Top 3 카드, evidence, Stage 2 숫자, handoff Markdown 캡처
+- 터미널 백업: Golden SHA, unittest 456, verify PASS
+- 영상에 API key·환경변수·로컬 사용자 경로·실제 문서가 보이지 않게 확인
 
 ## 8. 최종 Git 정리
 
-각 commit 전:
+커밋 전:
 
 ```bash
 git status --short
 git diff --check
-git diff --stat
-git diff
 git diff --cached --name-only
 git diff --cached
 ```
 
-검사 항목:
+확인 항목:
 
-- 보호 untracked 3개 제외
-- Golden PDF 제외
-- Baseline prediction/report 제외
-- `.env`, key, token 제외
-- 예상하지 않은 code/generated file 제외
-- commit message가 실제 변경 한 가지를 표현
+- 보호 파일 3개 미포함
+- Golden PDF·expected data 미포함
+- Baseline prediction/report 미포함
+- `.env`·secret 미포함
+- 문서 commit에는 code 파일 미포함
+- logical commit 메시지와 실제 diff 일치
+- push하지 않음
 
-마지막 제출 tag/commit을 만든 뒤에는 push 전에 별도 사용자 승인을 받는다. 본 감사
-작업에서는 push하지 않는다.
+## 9. 치명적 문제
 
-## 9. 선택적 작업
+### 제출 로컬 데모
 
-제출에 여유가 있을 때만 한다.
+현재 확인된 미해결 코드 P0는 없다. 다음 두 과거 P0는 해결됐다.
 
-- canonical 문서 index와 오래된 audit의 “historical” banner
-- ` 2` 중복 파일 제거
-- `app.py`의 상담 rendering만 작은 component로 추출
-- CI에서 Python 3.9 compile/unittest/verify
-- coverage report와 critical path branch 기준
-- official source 갱신 runbook의 owner·주기·expiry
-- presentation screenshot 자동화
+- `LIQUIDITY_BUFFER_RISK`의 수출 상담 연결
+- 위험 기반 Top 3·numeric rationale·UNKNOWN·handoff·Stage 5 결속
 
-이 작업들은 P0/P1과 deck보다 먼저 하면 안 된다.
+### 실제 고객 운영
 
-## 10. 하지 말아야 할 작업
-
-- 새 금융상품을 많이 추가
-- 새로운 국가·통화·42/63일 모델 확장
-- 금융 위험 임계값 또는 ranking 변경
-- 자동 eligibility·승인·보험인수 추정
-- 실제 주문·대출신청을 급하게 연결
-- extraction prompt/schema를 한쪽만 임시 수정
-- Golden PDF 재생성으로 문제를 덮기
-- Baseline 덮어쓰기 또는 기대값 완화
-- 대규모 `app.py` 리팩터링
-- 실제 고객문서 Live 테스트
-- 실패한 Golden Live를 성공으로 편집
-- 국가 raw 값으로 자체 점수 만들기
-- API key를 발표 PC·영상·로그에 노출
-- release gate 없이 여러 기능을 한 commit에 묶기
-
-## 11. 치명적 문제
-
-| 문제 | 제출 영향 | 해소 조건 |
+| 문제 | 영향 | 제출 처리 |
 |---|---|---|
-| `amount_due` 의미 충돌 | 금융 입력의 신뢰성 질문에 방어 불가 | 승인된 계약과 전 계층 테스트 일치 |
-| 수출 liquidity 상담 누락 | 핵심 “위험→행동” 약속 단절 | Golden 2m가 상담 action과 packet에 연결 |
+| 인증·tenant·동의·보존/삭제 없음 | 고객문서·packet 접근통제 불가 | 운영 완료 주장 금지 |
+| malware scan·격리 렌더링 없음 | 악성 업로드 대응 불충분 | 합성문서 로컬 데모만 |
+| 실제 예약·RM API 없음 | 업무 closure 수동 | 다운로드 handoff까지만 주장 |
 
-두 문제는 P0다. 현재 감사에서는 이전 범위 제한에 따라 코드 수정 대신 재현·patch
-계획만 기록했다.
+## 10. 보통 문제
 
-## 12. 보통 문제
-
-- official web result가 shortlist와 category match되지 않음
-- Golden split target과 단일노출 테스트 불일치
-- 실제 payment history UNKNOWN이 missing gap에 없음
-- 상담 priority·expected decision·actual KB CTA 없음
-- 다른 내용의 duplicate ` 2` 파일
-- 실제 presentation deck 없음
-- prompt pack의 역사 `.env.example`에 현재 앱이 읽지 않는 키가 남음
-- auth/tenant/AV/retention/central audit 없음
-- CI·coverage·lint gate 없음
-
-## 13. 개선 제안
-
-가장 효과가 큰 순서:
-
-1. 금융 입력 계약 일치
-2. export liquidity mapping
-3. top3 + 숫자 이유 + 부족정보
-4. one-page KB handoff
-5. official web integration test/fix
-6. Golden split end-to-end
-7. 실제 deck·영상·rehearsal
-8. 운영 보안·RM 연동은 제출 후
-
-## 14. 대상 가능성 평가
-
-| 상태 | 점수 | 판정 |
-|---|---:|---|
-| 현재 코드 | 74/100 | 통과 가능 수준 |
-| 상담 P0/P1·deck·검증 후 예상 | 86/100 | 본상 경쟁력 가능 |
-| 대상 가능성 | 확정 불가 | 실고객 검증·KB 업무연동·상담 closure 부족 |
-
-대상을 노릴 수 없다는 뜻이 아니라, 현재 증거로 “대상 경쟁력 있음”을 단정하면
-과장이라는 뜻이다. 심사에서 architecture 안전성보다 사용자 행동 완결성을 더
-강하게 본다면 현행 상담 gap의 감점이 크다.
-
-## 15. 심사위원 관점 약점과 방어 질문
-
-### Q1. 왜 `amount_due` 뜻이 코드와 발표에서 다릅니까?
-
-현재는 실제 blocker다. 제출 전 하나의 계약으로 정렬해야 하며, 해결 전에는 “현재
-미수”라고 말하지 않는다. 계약서 기반 예정 노출과 입금이력 기반 actual outstanding을
-구분하는 것이 patch의 핵심이다.
-
-### Q2. Golden Live가 성공했습니까?
-
-아니다. 한 건의 API 응답에서 핵심값은 맞았지만 amount/date evidence 오류로 Stage 2가
-차단됐다. recovery는 API-free로 검증했으며 수정 후 Live는 미실행이다.
-
-### Q3. 스캔문서 정확도는 얼마입니까?
-
-운영 정확도는 UNKNOWN이다. 합성 scan 8건에서 API 호출은 성공했지만 독립 OCR
-evidence가 없어 Stage 2를 0/8 모두 차단했다. 이것은 OCR 정확도 0%가 아니라 자동
-수용 evidence 0%다.
-
-### Q4. 왜 상담이 다섯 개나 나오고 무엇을 먼저 합니까?
-
-현행 topic은 category 생성 순서이고 priority가 아니다. 제출 전 기존 위험을 top3
-view-model로 정리해야 한다. Golden 권장 순서는 회수보호, 환율관리, 운영자금이다.
-
-### Q5. 2백만원 부족이면 대출이 필요합니까?
-
-시스템은 그렇게 판단하지 않는다. 2백만원은 사용자 입력 목표 buffer 기준 부족이며
-현금 적자와 신용 후 지급 부족은 0원이다. 최신 자금계획과 실제 한도를 상담에서
-확인해야 한다.
-
-### Q6. BR 4는 국가 신용등급입니까?
-
-아니다. OECD 공식 원자료 classification 4이며 지급·이전 보호 검토 신호로만 쓴다.
-World Bank·WTO와 합산하거나 환헤지 비율·승인에 사용하지 않는다.
-
-### Q7. 헤지 100%가 추천입니까?
-
-아니다. 기본 fee 가정과 제약 아래 grid가 만든 `SIMULATED_CANDIDATE`다. 실제
-forward rate, 한도, 담보, 회계·세무는 은행 확인이 필요하다.
-
-### Q8. 공식 후보는 가입 가능한 상품입니까?
-
-아니다. official source와 상담 category가 연결된 최대 3개 후보이며 eligibility는
-`unknown`, approval은 `consultation_required`다.
-
-### Q9. KB와 실제 연결됩니까?
-
-현재는 Markdown/JSON handoff packet 다운로드까지다. 예약·RM·내부심사 API는
-미구현이며 후속 범위다.
-
-### Q10. AI가 꼭 필요한 이유는 무엇입니까?
-
-문서마다 다른 비정형 표현을 strict schema 후보로 바꾸고 계산 결과를 사람이 읽는
-설명으로 만드는 데 사용한다. 금융 계산·위험·우선도·후보 제한은 결정론 코드로
-남겨 AI의 불확실성을 통제한다.
-
-### Q11. 왜 product web search를 기본으로 쓰지 않습니까?
-
-offline verified KB가 재현 가능하고 안전하기 때문이다. 선택적 web 경로는 현재
-category 통합 결함이 있어 fix와 end-to-end test 전 제출 주경로로 쓰면 안 된다.
-
-### Q12. 실제 고객에게 바로 쓸 수 있습니까?
-
-아니다. 공모전 MVP다. 실제 운영에는 고객 동의, auth, tenant, AV, 보존·삭제,
-secret manager, rate limit, 중앙 audit, KB 내부 계약과 실제 문서 benchmark가
-필요하다.
-
-## 16. 경쟁작 대비 부족한 점
-
-| 경쟁 축 | 현재 부족 | 발표/개선 대응 |
+| 문제 | 영향 | 제출 전 대응 |
 |---|---|---|
-| end-to-end 업무완결 | 실제 예약·RM·승인 없음 | packet까지 정확히 주장, roadmap 제시 |
-| 데이터 근거 | 합성 중심 | 범위·fail-closed를 투명하게 제시 |
-| 상담 UX | top3·CTA 없음 | P1 view-model 우선 |
-| 상품 실행성 | 조건·가격·자격 실시간 아님 | official source·unknown 유지 |
-| 운영성 | auth/tenant/observability 없음 | 공모전/운영 경계 명시 |
-| 발표 deliverable | deck·영상 없음 | 7장 deck와 backup 영상 |
-| 모델 차별화 | Stage1 외부 팀 모델 의존 | adapter 계약·금융결정 연결을 차별점으로 설명 |
+| `app.py` 대형 단일 파일 | UI 회귀면 큼 | 리팩터링 금지, AppTest 유지 |
+| `* 2.py` 중복 파일 | canonical 혼동 | 제출 후 정리, 현재 import 경로 확인 |
+| CI·coverage·lint/type gate 없음 | 로컬 검증 의존 | 터미널 증거와 verify 결과 제출 |
+| official web→shortlist category gap | live web 빈 후보 가능 | offline 검증 후보 사용, 과장 금지 |
+| 실제 사용자성 테스트 없음 | 카드 이해도 증거 부족 | 팀 리허설과 화면 캡처, 한계 공개 |
+| 실제 고객문서 benchmark 없음 | 일반화 불가 | 합성 범위만 주장 |
+
+## 11. 개선 제안
+
+### 제출 전
+
+- Top 3 화면 캡처와 3분 offline 영상
+- 발표 슬라이드에서 `scheduled exposure`, `UNKNOWN`, `review order` 고정
+- 팀원별 Q&A 역할과 fallback 클릭 순서 리허설
+
+### 제출 후
+
+- 기업 담당자·RM 각 3~5명 usability test
+- 인증·tenant·동의·보존/삭제·malware scan 설계
+- 승인된 KB 예약/RM adapter 계약
+- 실제 적격성 엔진은 KB 정책·최신성·설명 가능성이 확보된 뒤 별도 개발
+- 실제 고객문서는 허가·비식별·보존정책을 갖춘 독립 benchmark로만 평가
+
+## 12. 공모전 100점 평가
+
+| 평가 영역 | 배점 | 현재 | 근거 |
+|---|---:|---:|---|
+| 문제 정의와 고객가치 | 10 | 9 | 계약→현금→상담 문제 명확 |
+| KB AI Challenge 적합성 | 10 | 9 | 기업금융 상담 handoff, 실제 내부 연동 없음 |
+| 전체 아키텍처 | 10 | 8 | AI/결정론 경계 명확, Streamlit monolith |
+| AI 활용 적절성 | 10 | 8 | 구조화·renderer에 제한, 실제 고객 검증 부족 |
+| 금융 계산·도메인 | 10 | 8 | Decimal·지표 분리, 실제 quote/계좌 없음 |
+| evidence·안전성 | 10 | 9 | source gate·UNKNOWN·critic, scan OCR 미지원 |
+| 테스트·재현성 | 10 | 10 | 456 tests·verify·regression·지문 |
+| 상담·KB 업무 연결 | 15 | 12 | Top 3/handoff 완성, RM/예약 없음 |
+| UI·데모 전달력 | 10 | 7 | 카드 위계, 실사용성·영상 증거 부족 |
+| 제출 완성도 | 5 | 4 | 문서·대본 준비, 최종 영상/실제 deck 확인 필요 |
+| **합계** | **100** | **84** | **본상 경쟁력 있음** |
+
+P0/P1 상담 구현 전 감사 기준은 74/100, 통과 가능 수준이었다. 현재 84/100으로
+상승했지만 실제 고객 검증·은행 내부 closure 없이 “대상 경쟁력 있음”을
+확정해서는 안 된다.
+
+### 대상 가능성 평가
+
+**판정: 본상 경쟁력 있음. 대상 가능성은 있으나 현재 증거로 단정 불가.**
+
+대상을 결정할 변수는 코드 기능 수가 아니다. 심사에서 “기업 담당자가 이 packet으로
+실제 KB 상담을 더 빨리 시작할 수 있는가”를 3분 안에 설득하고, 실제 예약·RM
+연동이 없다는 경계를 정직하게 방어하는지가 중요하다.
+
+## 13. 심사위원 관점 약점
+
+1. 한 건 Golden Live와 합성 8건 외 실제 고객분포 증거가 없다.
+2. 스캔문서는 독립 OCR이 없어 안전하게 차단하지만 자동화 완성도는 낮다.
+3. one-page packet 뒤 실제 KB 예약·RM·심사 workflow가 없다.
+4. 공식 후보는 최신 실시간 자격·가격·한도가 아니라 출처 확인 snapshot이다.
+5. Stage 3은 실제 quote가 없는 계산상 비교안이다.
+6. 로컬 Streamlit MVP라 auth·tenant·운영 보안이 없다.
+7. 긴 `app.py`, CI·coverage 부재가 엔지니어링 성숙도를 낮춘다.
+8. 상담 priority는 공개 rule이지만 KB 공식 routing policy는 아니다.
+
+## 14. 경쟁작 대비 부족한 점
+
+| 경쟁 축 | 부족한 점 | 발표 방어 |
+|---|---|---|
+| end-to-end 금융 업무 | 예약·RM·신청 없음 | 정확히 packet 다운로드까지만 주장 |
+| 데이터/모델 증거 | 실고객 benchmark 없음 | fail-closed와 제한 범위를 강점으로 전환 |
+| 실행 가능 상품 | 실시간 quote·eligibility 없음 | 공식 후보와 승인 판단 분리 |
+| 운영성 | 인증·DB·관측성 없음 | 공모전 로컬 MVP와 운영 roadmap 분리 |
+| 사용자 검증 | usability 연구 없음 | Golden 과업 데모와 후속 검증 계획 |
+| 시각 완성도 | 실제 deck·영상 최종 확인 필요 | 7장/3분 구조와 정적 fallback |
+
+차별점은 다음 네 가지다.
+
+- 미검증 AI 값은 금융 계산으로 보내지 않음
+- buffer shortfall, cash deficit, payment deficit를 혼동하지 않음
+- 국가 원자료를 합산 신용등급으로 만들지 않음
+- 위험 기반 Top 3와 공식 후보 eligibility를 분리함
+
+## 15. 발표에서 방어해야 할 질문
+
+### Q1. 왜 USD 100,000이지 잔금 USD 80,000이 아닌가?
+
+USD 100,000은 계약상 두 예정 회차의 Stage 2 분석 대상 노출이다. 실제 선지급
+입금 여부는 `UNKNOWN`이며 현재 미수잔액이라고 하지 않는다. 실제 입금이 확인되면
+상담 missing item을 갱신하고 운영에서는 이행액을 반영해야 한다.
+
+### Q2. 상담 1순위는 AI 추천인가?
+
+아니다. 기존 finding으로 생성된 topic을 공개된 사전식 rule과 category tie-break로
+정렬한다. LLM과 product score는 rank를 바꾸지 않는다.
+
+### Q3. 2,000,000원은 필요 대출금인가?
+
+아니다. 목표 buffer 부족이며 cash deficit와 payment/post-credit deficit는 모두
+0원이다. 최신 자금계획·회수일·실제 한도 확인이 상담 목표다.
+
+### Q4. 공식 후보는 가입 가능 상품인가?
+
+아니다. 출처와 상담 category가 맞는 최대 3개 후보다. eligibility는 `UNKNOWN`,
+approval은 `CONSULTATION_REQUIRED`다.
+
+### Q5. KB에 실제 연결됐나?
+
+현재는 JSON/Markdown handoff 다운로드와 영업점·기업금융·외환 상담 준비까지다.
+예약·RM 전송·신청·내부심사는 구현하지 않았다.
+
+### Q6. Golden Live는 성공했나?
+
+최초 v1은 값이 맞아도 evidence 오류로 차단됐다. recovery 이후 승인된 제한된
+합성문서 1건은 `validation_pass=true`, 확인 후 `stage2_allowed=true`였다.
+이번 작업에서 Live를 재호출하지 않았고 전체 정확도로 일반화하지 않는다.
+
+### Q7. BR 4는 국가신용등급인가?
+
+아니다. OECD 공식 원자료의 raw classification이고 World Bank·WTO와 합산하지
+않는다. KB 내부 신용등급·부도확률도 아니다.
+
+### Q8. Stage 3 후보는 최적 헤지인가?
+
+아니다. 공개된 비용·위험 가정에서 만든 계산상 비교안이다. 실제 환율·수수료·
+한도·회계·세무와 실행 가능성은 상담에서 확인한다.
+
+### Q9. UI·Markdown·보고서 숫자가 다르면?
+
+모두 같은 `ConsultationPacket` JSON에서 파생한다. LLM draft가 rank·숫자를
+바꾸면 critic이 거부하고 deterministic fallback을 사용한다.
+
+### Q10. 실제 고객에게 바로 배포 가능한가?
+
+아니다. 인증·tenant·동의·보존/삭제·malware scan·운영 모니터링과 KB 내부 계약이
+필요하다. 현재는 합성문서를 사용하는 로컬 공모전 MVP다.
+
+## 16. 하지 말아야 할 작업
+
+- extraction prompt/schema, evidence validator, 국가 canonicalization 변경
+- Stage 1~5 금융 계산·threshold 변경
+- 새로운 상품·eligibility·승인 예측 추가
+- 국가 신호를 헤지·현금·결제 숫자에 합산
+- 제출 직전 `app.py` 대규모 리팩터링
+- Golden·Baseline 재생성 또는 기대값 완화
+- Live API 재실행으로 표본 수를 급히 늘리기
+- 실제 고객문서 사용
+- 미승인 RM/예약 URL 추측
+- Git push
 
 ## 17. 내일 가장 먼저 할 세 가지
 
-1. 금융 owner와 `amount_due` 문서유형별 계약을 30분 안에 확정하고 ADR·테스트 표를
-   만든다.
-2. 수출 liquidity mapping과 Golden split end-to-end 테스트를 별도 commit으로
-   구현·검증한다.
-3. 현행 계산만 사용한 Golden 상담 top3 한 화면과 7장 발표 deck을 만든다.
-
-이 세 가지가 끝나기 전 새 상품·새 국가·예약 연동을 시작하지 않는다.
+1. Golden Top 3 화면과 one-page handoff를 3분 offline 영상으로 녹화한다.
+2. 팀 전체가 Q1~Q10을 실제 숫자로 답하고, “review order/UNKNOWN/no RM
+   integration” 문구를 통일한다.
+3. 제출 직전 Golden·Baseline·보호 파일 지문, 456 tests와 verify를 다시 확인하고
+   제출 commit SHA를 고정한다.

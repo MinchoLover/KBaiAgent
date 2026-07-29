@@ -94,11 +94,13 @@ Baseline을 지우거나 label을 낮추지 않았습니다. 운영 흐름에서
 
 ## 16. Golden 계약서는 Live 정확도 증거인가요?
 
-단일 문서 정확도를 일반화할 수 없습니다. Golden Live v1은 핵심값이 expected와
-일치했지만 amount/due-date evidence 검증에서 차단됐습니다. 이는 값이 맞아도
-근거가 틀리면 금융 계산에 보내지 않는 정책을 보여줍니다. 결정론 recovery 수정은
-API-free 검증만 완료했으며, 수정 후 별도 승인 Live 재실행 전에는 end-to-end
-성공을 주장하지 않습니다.
+단일 문서 정확도를 일반화할 수 없습니다. 최초 Golden Live v1은 핵심값이
+expected와 일치했지만 amount/due-date evidence 검증에서 차단됐습니다. 이후
+source-grounded recovery가 적용된 승인된 Golden Live 1건에서는
+`validation_pass=true`, 사용자 확인 후 `stage2_allowed=true`를 확인했습니다.
+두 결과는 각각 fail-closed와 제한된 성공을 보여주는 사례일 뿐, 전체 문서나 실제
+고객환경의 정확도 증거가 아닙니다. 이번 작업에서는 Live API를 다시 호출하지
+않았습니다.
 
 ## 17. 왜 Golden 계약서와 스캔 평가문서를 분리했나요?
 
@@ -149,3 +151,51 @@ Golden 계약서는 선지급 USD 20,000과 잔금 USD 80,000의 이행 여부�
 실제 입금·지급 이력을 반영한 현재 미수·미지급 잔액은 별도 개념이며 Golden에서는
 `UNKNOWN`입니다. 계약서에 명시된 예정 결제액을 기준으로 분석하며, 실제 입금·지급
 이력이 확인되면 이미 이행된 금액을 제외해야 합니다.
+
+## 24. 상담 1·2·3순위는 AI가 정하나요?
+
+아닙니다. 기존 Stage 2 risk finding, 거래·회수 review need와 명시적 category
+tie-break table을 사전식으로 정렬합니다. 새로운 가중합 점수나 LLM 재정렬은
+사용하지 않습니다. 동일 입력과 상담 topic 집합은 insertion order가 달라도 같은
+순서와 fingerprint를 만듭니다. 이 순위는 현재 거래에서 먼저 확인할 검토 순서이지
+승인·보험 인수·대출 심사 등급이 아닙니다.
+
+## 25. 왜 Golden의 첫 상담이 회수 보호인가요?
+
+USD 80,000 잔금이 Open Account/T/T이고 현재 거래에 적용되는 보험·독립
+지급보증·신용장이 확인되지 않았으며 거래 review가 `ELEVATED_REVIEW`이기
+때문입니다. 또한 USD 20,000 선지급은 계약상 예정되어 있지만 실제 입금 여부와
+입금일이 `UNKNOWN`입니다. 이를 상품 가입 지시나 구매자 부도 판단으로 바꾸지
+않고, 보호구조와 필요서류를 사람 상담에서 먼저 확인하도록 합니다.
+
+## 26. 버퍼가 2,000,000원 부족하면 대출을 받아야 하나요?
+
+그렇게 판단하지 않습니다. Golden의 -5% 조건 ending cash는 8,000,000원,
+목표 buffer는 10,000,000원이라 `buffer_shortfall=2,000,000원`이지만
+`cash_deficit=0원`, `payment/post-credit deficit=0원`입니다. 목표 운영자금
+수준과 실제 지급불능은 다른 지표입니다. 최신 자금계획, 회수시점과 실제 가용한도는
+은행 상담에서 확인할 사항이며 시스템은 필요 대출금이나 승인 가능성을 계산하지
+않습니다.
+
+## 27. UI, 다운로드 문서와 최종 보고서의 상담 순서가 달라질 수 있나요?
+
+세 출력은 모두 같은 `ConsultationPacket` JSON을 authoritative source로
+사용합니다. UI와 Markdown은 JSON에서 결정론적으로 렌더링하고, Stage 5 LLM은
+rank·title·숫자·부족정보·기대 결정·다음 행동을 바꾸지 말라는 계약을 받습니다.
+critic이 변조나 과장 문구를 거부하고, 실패하면 동일 JSON의 결정론 보고서로
+fallback합니다.
+
+## 28. 상담 패킷이 KB RM에게 자동 전송되나요?
+
+아닙니다. 현재는 사람이 읽는 Markdown과 구조화 JSON을 다운로드해 영업점 또는
+기업금융·외환 상담을 준비하는 로컬 MVP입니다. 예약 완료, RM 전송 완료, 신청 완료,
+내부 심사 연결을 구현하거나 주장하지 않습니다. 운영 연동에는 인증, 동의,
+tenant·고객 매칭, 보존·삭제와 KB 내부 API 계약이 먼저 필요합니다.
+
+## 29. 공식 후보와 상담 순위는 같은 순위인가요?
+
+아닙니다. 상담 순위는 기존 위험 finding에서 정한 검토 순서입니다. 공식 후보는
+그 상담 category와 기존 allow-map으로 연결된 최대 3개의 출처 확인 항목이며,
+product score나 eligibility가 상담 rank를 바꾸지 않습니다. 모든 후보의
+eligibility는 `UNKNOWN`, approval은 `CONSULTATION_REQUIRED`이고 후보가 없으면
+새 상품을 만들지 않습니다.

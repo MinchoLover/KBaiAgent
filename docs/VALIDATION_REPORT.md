@@ -9,12 +9,12 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 436/436 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 456/456 PASS |
 | Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
 | Text-PDF amount/date evidence recovery | `python -m unittest tests.test_source_evidence_recovery -v` | 18/18 PASS |
-| T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 60/60 PASS |
-| 거래·결제 위험·상담·공식 후보 연결 P0 | `.venv/bin/python -m unittest tests.test_consultation tests.test_trade_settlement_risk tests.test_official_candidate_service tests.test_ui_evidence_state -v` | 62/62 PASS |
-| T7 통합 보고서·critic | 전체 unittest 내 실행 | 34/34 PASS |
+| T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | PASS |
+| 상담 priority·Stage 5·UI 집중 | `python -m unittest tests.test_consultation tests.test_consultation_priority tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 67/67 PASS |
+| T7 통합 보고서·critic | 전체 unittest와 `tests.test_stage5_decision_report` | PASS |
 | Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
 | dependency | `python -m pip check` | PASS |
 | extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
@@ -220,8 +220,11 @@ page 2: The remaining eighty percent (80%), equal to USD 80,000, shall be paid b
 `tests.test_source_evidence_recovery` 18개가 이 정책과 Golden Live-like 실패
 재현 후 사용자 확인 경로를 API 없이 검증합니다.
 
-이 결과는 코드 수정 후 API-free 검증입니다. 수정된 코드로 Golden Live를 다시
-실행하기 전에는 end-to-end 추출 성공으로 주장하지 않습니다.
+위 기록은 source-grounded recovery 전 실패를 재현한 역사적 baseline입니다.
+이후 recovery가 적용된 승인된 Golden Live 1건에서
+`validation_pass=true`, 사용자 확인 후 `stage2_allowed=true`를 확인했습니다.
+이번 상담 작업에서는 Live API를 다시 호출하지 않았고 단일 합성문서 성공을
+전체 문서 정확도로 일반화하지 않습니다.
 
 ## Stage 0 매매계약 회귀
 
@@ -360,6 +363,45 @@ USD 100,000 수취 거래에서 기준 수취액 140,000,000원, -5% 스트레�
 이 결과는 숫자 신용점수, 부도확률, 공식 심사등급이 아닙니다. 국가위험, 거래처
 재무정보, 신용장 발행은행·확인 여부·서류불일치, 보험 약관·보증 범위는 이번 P0에서
 평가하지 않았습니다.
+
+## 위험 기반 상담 Top 3와 handoff 검증
+
+Golden fixture의 기존 risk finding과 trade review를 입력으로 사용해 다음 순서를
+검증했습니다.
+
+```text
+1. EXPORT_RECEIVABLE_PROTECTION
+2. FX_RISK_MANAGEMENT
+3. EXPORT_LIQUIDITY_REVIEW
+```
+
+자동 테스트 범위:
+
+- 수출 `LIQUIDITY_BUFFER_RISK` → 운영자금 버퍼·회수시점 상담 연결
+- 기존 수입 `IMPORT_SETTLEMENT_FINANCE` mapping 불변
+- 동일 topic의 insertion order가 달라도 같은 rank와 priority fingerprint
+- 국가 `STANDARD_REVIEW` topic이 핵심 결제·환율·유동성 action보다 앞서지 않음
+- Top 3 밖 topic의 `other_consultation_topics` 보존
+- 회수 보호 카드에 USD 100,000 예정 노출, USD 80,000 잔금, Open Account/T/T,
+  보호수단 없음, USD 20,000 실제 입금 `UNKNOWN`, `ELEVATED_REVIEW` 결속
+- 환율 카드에 기준 140,000,000원, -5% 133,000,000원, 감소 7,000,000원,
+  허용손실 5,000,000원, 기존 헤지·보유 USD 0 결속
+- 유동성 카드에 ending cash 8,000,000원, target 10,000,000원,
+  buffer shortfall 2,000,000원, cash/payment deficit 0원 동시 표시
+- 사용자 입금 확인 시 해당 missing item만 제거하고 Stage 2 값은 불변
+- 준비서류·질문 중복 제거, expected decision·next action 존재
+- JSON과 Markdown rank·내용·fingerprint 결속
+- official shortlist 최대 3, eligibility `UNKNOWN`, approval
+  `CONSULTATION_REQUIRED`, 빈 후보에서 상품 생성 금지
+- Streamlit Top 3·부족정보·CTA·disclaimer 렌더링
+- Stage 5에서 같은 순서와 숫자 유지, LLM/critic 실패 시 deterministic fallback
+- 상담 순위의 승인등급화, 2,000,000원 버퍼 부족의 지급불능·대출 필요화,
+  예정 노출의 실제 미수화, Stage 3 최적추천, 후보 가입·승인 단정,
+  Markdown의 RM 전송 완료 표현을 critic이 거부
+
+상담 순위는 LLM 또는 새로운 종합점수로 결정하지 않습니다. `ConsultationPacket`
+JSON이 UI, Markdown과 Stage 5의 authoritative source이며 실제 예약·RM 전송·
+신청·심사 연동은 검증 대상이나 구현 완료로 표시하지 않습니다.
 
 ## 공식 출처 후보 연결 검증
 

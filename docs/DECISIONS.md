@@ -498,5 +498,67 @@ Trade-off: 의미 label이 없는 표, 한 줄에 여러 통화·금액·날짜�
 
 Revisit condition: 별도 OCR 결과를 독립적으로 검증하는 provenance 계약이 생기거나
 다국어 날짜·금액 label 지원 범위를 승인할 때 새 parser와 모호성 회귀 테스트를
-추가합니다. Golden 수정 후 Live 추출은 별도 승인으로 다시 측정하기 전까지
-end-to-end 성공으로 주장하지 않습니다.
+추가합니다. Recovery 이후 승인된 Golden Live 1건의 성공은 제한된 합성문서
+사례로만 기록하고 전체 문서 또는 실제 고객환경의 end-to-end 성능으로 일반화하지
+않습니다.
+
+## 30. Consultation priority is a deterministic review order
+
+Context: 기존 `ConsultationTopic`은 위험별 설명·추가정보·서류·질문을 갖지만
+생성 순서가 insertion order여서 1·2·3순위로 설명할 수 없었습니다. topic을 LLM으로
+재정렬하거나 서로 다른 위험축을 하나의 가중합 점수로 합치면 같은 입력의 재현성과
+금융 의미가 약해집니다.
+
+Alternatives considered: LLM ranking, severity 숫자 가중합, 공식 후보 score 순서,
+기존 topic list 유지. LLM ranking과 가중합은 승인되지 않은 새로운 판단이고,
+product score는 상담 필요성과 다른 축이며, 기존 list는 사용자가 첫 행동을 고르기
+어렵습니다.
+
+Decision: 기존 topic을 변경하지 않고 표시·handoff 전용
+`ConsultationPriorityView`를 둡니다. 기존 risk finding과 review need가 만든
+topic만 후보로 사용하고, 공개된 `(priority tier, category tie-break, category)`
+사전식 규칙으로 정렬합니다. 같은 위험 family는 한 카드로 묶고 상위 세 family만
+Top 3로 표시하며 나머지는 `other_consultation_topics`에 보존합니다. 국가
+`STANDARD_REVIEW` 문맥은 핵심 결제·환율·유동성 행동보다 앞서지 않고 Stage 2/3
+숫자를 변경하지 않습니다.
+
+Rationale: 새 금융 계산이나 상품 추천 없이 현재 결과를 행동 가능한 순서로 만들고,
+동일 입력·다른 collection insertion order에서도 같은 rank와 fingerprint를
+보장합니다. 순위는 승인·보험 인수·대출 등급이 아니라 검토 순서입니다.
+
+Trade-off: rule table이 명시적이어서 새 category를 추가할 때 사람이 우선순위와
+family를 검토해야 합니다. 실제 RM의 고객 사정과 최신 금융기관 정책을 자동으로
+반영하지 않습니다.
+
+Revisit condition: KB가 승인한 상담 routing policy와 버전 관리 계약이 생기면
+rule table을 별도 정책 자산으로 분리하되 LLM 재정렬과 product eligibility
+혼합은 계속 금지합니다.
+
+## 31. ConsultationPacket JSON is the handoff source of truth
+
+Context: Stage 2 숫자, 상담 topic, UI, Markdown과 Stage 5가 서로 다른 표현 계층에서
+조립되면 rank·금액·부족정보가 달라질 수 있습니다. 특히 계약상 USD 20,000
+선지급 예정과 실제 입금 완료 여부를 분리해 전달할 구조가 필요했습니다.
+
+Alternatives considered: UI에서만 Top 3 조립, Markdown 전용 DTO, Stage 5 LLM이
+handoff 재구성. 세 방식 모두 동일 결과 결속과 deterministic fallback을 약화합니다.
+
+Decision: `ConsultationPacket` JSON에 회사 역할·회차, protection summary,
+Top 3, topic별 numeric rationale와 source path, missing information, expected
+decision, next action, 공식 후보, safety boundaries와 trace를 저장합니다.
+Streamlit, Markdown, Stage 5 source bundle과 향후 integration은 이 JSON에서
+파생합니다. 실제 입금상태는 `UNKNOWN` 또는 명시적 `USER_CONFIRMED`로 별도
+보존하며 변경 시 input/priority fingerprint가 바뀝니다. 이 확인은 현행 계약상
+예정 노출과 Stage 2 계산값을 변경하지 않습니다.
+
+Rationale: 화면과 다운로드·보고서가 같은 숫자와 순서를 사용하고, AI가 실패해도
+동일 JSON의 결정론 문구를 제공할 수 있습니다. 공식 후보가 없으면 상품을 만들지
+않고 상담 경로 확인 문구만 표시합니다.
+
+Trade-off: 현재 handoff는 로컬 JSON/Markdown 다운로드이며 실제 예약·RM 전송·
+신청·내부심사를 수행하지 않습니다. 사용자 확인은 로컬 session 상태이고 운영용
+인증·동의·보존정책이 없습니다.
+
+Revisit condition: 인증·tenant·동의와 KB 내부 API 계약이 승인된 후에만 packet
+전송 adapter와 처리상태를 추가합니다. 그 전에는 다운로드를 전송 완료로
+표현하지 않습니다.

@@ -17,7 +17,8 @@
    입력해 결제·회수 검토 우선도와 추가 부담·지급 부족을 각각 계산한다.
 3. `대응안 비교`에서 안정성·균형·비용 관점의 계산상 후보와 선택적 공식 정보를
    비교한다.
-4. `상담자료`에서 은행에 확인할 질문과 준비서류가 포함된 Markdown 보고서를 받는다.
+4. `상담자료`에서 위험 기반 상담 Top 3와 숫자 근거·부족정보·기대 결정·다음
+   행동을 확인하고 같은 JSON에서 생성된 Markdown handoff를 받는다.
 
 ## Definition of done
 
@@ -36,6 +37,10 @@ A user can:
   없으면 상품을 임의 생성하지 않은 빈 상태를 확인한다.
 - 확장 보고서에서도 같은 거래·결제 위험, 금융 대응과 공식 후보만 보며 원시 검색
   후보가 다시 섞이지 않는다.
+- 상담 Top 3가 기존 risk finding과 명시적 tie-break로만 결정되고, UI·JSON·
+  Markdown·Stage 5에서 같은 순서와 숫자를 유지한다.
+- 계약서만으로 선지급 이행 여부를 알 수 없으면 `UNKNOWN`을 표시하고 사용자
+  확인 시 해당 부족정보와 packet fingerprint만 갱신한다.
 - 내부 오류 code, JSON, provider와 workflow trace는 접힌 개발·감사용 영역에서만
   확인한다.
 - 대응 후보가 금융 추천이 아니라 가정 기반 비교안임을 이해할 수 있다.
@@ -58,6 +63,8 @@ The team can verify:
    결정론적으로 표시하되 숫자 신용점수나 자동 승인 판단은 만들지 않는다.
 6. 확인된 상담 범주를 공식 source record와 결정론적으로 연결하고 사용자에게는
    직접 맞는 후보만 최대 3개 표시한다.
+7. 상담 packet을 authoritative JSON으로 두고 한 페이지 사람이 읽는 handoff와
+   Stage 5 보고서를 동일 source에서 파생한다.
 
 ## Non-goals
 
@@ -92,6 +99,10 @@ The team can verify:
 | Official candidate shortlist | 보호기능 상담 범주와 공식 Stage 4 검색 결과 | 공식 정보 연결 | 공식 출처·거래방향·범주가 모두 맞는 후보만 최대 3개 표시하고 자격·승인을 확정하지 않는다 |
 | No grounded official candidate | 상담 범주와 직접 맞는 공식 record 없음 | 공식 정보 연결 | 빈 후보와 미매칭 사유를 표시하고 상품을 생성하지 않는다 |
 | Integrated final report | 거래·결제 위험과 공식 shortlist가 포함된 상담 패킷 | 확장 보고서를 생성 | 위험·대응·공식 후보가 `consultation.*` 근거로 표시되고 원시 Stage 4 후보는 사용자 보고서에서 제외된다 |
+| Deterministic consultation priority | 같은 risk topic을 다른 insertion order로 제공 | 상담 packet을 생성 | 회수 보호·환율·유동성의 순서와 fingerprint가 동일하다 |
+| Golden handoff | Golden 확인 입력과 입금이력 미확인 | 상담자료를 연다 | USD 100,000/80,000, 7,000,000원, 2,000,000원과 deficit 0원이 Top 3에 결속되고 USD 20,000 입금상태가 `UNKNOWN`이다 |
+| Payment-status confirmation | Golden 선지급 실제 입금일을 사용자가 확인 | 상담 packet을 다시 생성 | 해당 missing item만 제거되고 Stage 2 숫자는 바뀌지 않으며 packet fingerprint는 변경된다 |
+| Consultation policy violation | 순위를 승인등급, buffer 부족을 지급불능, 다운로드를 RM 전송 완료로 쓴 초안 | critic 실행 | 초안을 거부하고 결정론 fallback을 유지한다 |
 | Final report policy violation | 공식 후보명·URL·자격 또는 위험 책임 경계를 변조한 초안 | critic 실행 | 초안을 거부하고 최대 1회 수정 후 결정론 fallback한다 |
 | Packet binding | 거래·보호조건 confirmation이 변경됨 | 상담자료를 다시 생성 | trade-risk fingerprint가 packet hash에 반영되고 이전 자료와 구분된다 |
 | Plain-language validation | 원문 근거 불일치 | 문서 검토 화면을 본다 | 내부 code 대신 필드명과 확인 행동이 표시된다 |

@@ -68,6 +68,17 @@
 - API가 없거나 Stage 4 공식 후보가 비었거나 critic이 재실패하면 안전한 template
   보고서로 fallback합니다.
 
+## 상담과 handoff
+
+- 상담 Top 3는 기존 risk finding과 명시적 MVP category rule의 검토 순서이며
+  KB 공식 routing policy, 승인등급·보험 인수등급·대출 심사등급이 아닙니다.
+- Golden의 선지급 실제 입금 상태는 사용자가 별도로 확인하지 않으면 `UNKNOWN`입니다.
+  로컬 확인은 은행 계좌·수납내역 조회를 대신하지 않습니다.
+- 공식 후보는 최대 3개의 출처 확인 항목이고 eligibility·가격·한도·승인은
+  확정하지 않습니다. 후보가 없으면 상품을 생성하지 않습니다.
+- Streamlit과 Markdown은 상담 준비 handoff입니다. 실제 상담 예약, RM 전송,
+  고객 매칭, 신청, 내부심사와 상담 결과 회수는 구현하지 않았습니다.
+
 ## 운영
 
 - 단일 로컬 Streamlit 앱이며 사용자 인증, 권한 분리, 중앙 DB, malware scan,
@@ -78,9 +89,10 @@
   길이가 큽니다. view 함수 분리는 후속 UI 리팩터링 범위입니다.
 - macOS Python 3.9.6에서 검증했습니다. Windows launcher는 제공했지만 이 환경에서
   직접 실행 검증하지 못했습니다.
-- 미국·브라질 합성문서 2건의 OpenAI Live smoke는 실행했지만 실제 고객문서와
-  전체 8건 baseline은 실행하지 않았습니다. 공식 web search와 공식 환율 API는
-  이번 검증에서 실행하지 않았습니다.
+- 미국·브라질 합성문서 전체 8건의 V1/V2 Live baseline과 recovery 이후 Golden
+  합성문서 1건을 기록했지만 실제 고객문서 성능으로 일반화할 수 없습니다. 이번
+  상담 검증에서는 OpenAI Live, 공식 web search와 공식 환율 API를 실행하지
+  않았습니다.
 - Stage 1 REST endpoint는 HTTPS/public IP, redirect 금지, 선택적 exact host
   allowlist를 적용합니다. DNS 검증과 실제 연결 사이 rebinding 위험을 더 줄이려면
   production egress proxy 또는 방화벽 allowlist가 추가로 필요합니다.

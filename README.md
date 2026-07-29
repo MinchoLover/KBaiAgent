@@ -47,7 +47,9 @@
 3. `위험 진단`에서 확인된 기준환율과 회사 현금·최소운영자금·신용한도를 입력합니다.
 4. 불리한 환율에서의 추가 부담, 최저 현금잔고와 신용한도 사용 후 부족을 확인합니다.
 5. `대응안 비교`에서 안정성·균형·비용 관점의 계산상 후보와 선택적 공식자료를 봅니다.
-6. `상담자료`에서 은행에 확인할 질문과 준비서류가 포함된 Markdown을 내려받습니다.
+6. `상담자료`에서 결정론적으로 정렬된 위험 기반 상담 Top 3, 숫자 근거,
+   부족정보, 기대 결정과 다음 행동을 확인하고 같은 JSON에서 만든 Markdown
+   handoff를 내려받습니다.
 
 내부 Stage 1 provider, 21거래일 모델 결과, 전체 계산표, JSON과 실행 trace는 삭제하지
 않고 각 화면의 접힌 상세 영역에서 확인할 수 있습니다.
@@ -113,6 +115,10 @@ Stage 1 v25 방향 점수는 시장 문맥 전용이며
 - 상품 가입·대출 승인·보험 인수·헤지 주문·적격성을 확정하지 않음
 - 출처·기준일 없는 상품을 최종 후보에서 제외
 - 보고서 숫자와 JSON path 불일치, 확률/q90/horizon/news 오용 시 critic 차단
+- 상담 순위는 LLM이나 종합점수가 아니라 기존 risk finding과 명시적 category
+  tie-break로 결정하며 승인·보험 인수·대출 심사 등급으로 사용하지 않음
+- `buffer_shortfall`과 `cash_deficit`·`post_credit_deficit`을 함께 표시하고,
+  후자의 두 값이 0이면 지급불능이나 대출 필요성으로 표현하지 않음
 - API key가 없거나 critic이 실패하면 결정론 보고서
 
 ## 8. 대표 수입·수출 데모
@@ -150,10 +156,13 @@ USD 100,000, 20/80 분할결제와 2026-08-20 잔금일을 가진 합성 계약�
 기대 SHA-256은
 `5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`이며,
 일상 preflight에서는 generator로 덮어쓰지 않습니다.
-Expected evidence와 사용자 입력은 같은 디렉터리의 JSON에 있으며 Golden Live
-v1은 핵심값 일치 후 amount/due-date evidence 검증에서 차단됐습니다. 결정론
-복구 수정은 API-free 검증만 완료했으며 별도 승인 재실행 전까지 end-to-end
-성공으로 주장하지 않습니다. 발표 순서는
+Expected evidence와 사용자 입력은 같은 디렉터리의 JSON에 있습니다. 최초 Golden
+Live v1은 핵심값 일치 후 amount/due-date evidence 검증에서 차단됐지만, 이후
+source-grounded recovery 적용 상태의 승인된 Golden Live 1건에서
+`validation_pass=true`, 사용자 확인 후 `stage2_allowed=true`를 확인했습니다.
+이번 정리 작업에서는 Live API를 다시 호출하지 않았고 raw response를 저장하지
+않았습니다. 한 건의 합성문서 성공을 전체 문서 정확도로 일반화하지 않습니다.
+발표 순서는
 [docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md)를 따릅니다.
 
 ## 9. 실행 방법
@@ -202,7 +211,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-29 기준 436개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-29 현재 456개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
@@ -224,12 +233,13 @@ Baseline v1/v2 합성 8건씩의 결과는
 | Spot 공식/수동/fixture | 완료 | `spot_rate.py`; live 공식 호출은 자격증명 필요 |
 | 모델/고정 scenario·horizon | 완료 | `scenario_builder.py` |
 | Decimal Stage 2 ledger | 완료 | `src/stage2/` |
-| 위험 코드·상담 패킷 | 완료 | `src/consultation/` |
+| 위험 코드·상담 Top 3 | 완료 | 기존 finding + 명시적 lexicographic rule, LLM 미사용 |
+| JSON/Markdown 상담 handoff | 완료 | 같은 `ConsultationPacket`에서 UI·Markdown·Stage 5 파생 |
 | Stage 3 제약 후보 | 프로토타입 | 실제 은행 가격 없이 명시적 가정 |
 | 공식자료 검색 | 부분 구현 | 검증된 local snapshot, 선택적 web |
 | 설명 보고서·critic | 완료 | API 없는 template fallback 포함 |
 | 수입·수출 fixture E2E | 완료 | `run_integrated_decision_demo`, tests |
-| Golden text-layer 발표자료 | 완료 | 결정론 PDF·expected evidence·14개 API-free tests |
+| Golden text-layer 발표자료 | 완료 | 불변 PDF·expected evidence·Golden 상담 통합 tests |
 | 인증·DB·독립 API·은행 내부연동 | 미구현 | 운영 확장 범위 |
 
 구조는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 기존 canonical 설명은
@@ -257,4 +267,5 @@ Baseline v1/v2 합성 8건씩의 결과는
 
 현재 한계는 [docs/LIMITATIONS.md](docs/LIMITATIONS.md), 팀 인계는
 [docs/TEAM_HANDOFF_KO.md](docs/TEAM_HANDOFF_KO.md), 데모 대본은
-[docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md)를 확인하세요.
+[docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md), 7장 발표 원고는
+[docs/PITCH_3MIN_KO.md](docs/PITCH_3MIN_KO.md)를 확인하세요.
