@@ -8,6 +8,11 @@ from src.application.consultation_service import build_decision_support
 from src.application.country_environment_service import (
     build_country_environment_input,
 )
+from src.application.stage2_input_service import (
+    Stage2FormInput,
+    build_stage2_input_from_form,
+    validate_stage2_as_of_date,
+)
 from src.consultation.trade_settlement_risk import (
     assess_trade_settlement_risk,
     create_trade_risk_confirmation,
@@ -15,17 +20,17 @@ from src.consultation.trade_settlement_risk import (
 from src.country_environment.assessment import (
     assess_country_trade_environment,
 )
-from src.document_intake.confirmation import create_confirmation_record
+from src.document_intake.confirmation import (
+    create_confirmation_record,
+    validate_confirmation,
+)
+from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.domain.consultation_models import InstallmentPaymentStatus
 from src.domain.stage1_models import ScenarioPoint, Stage1ScenarioSet
-from src.domain.stage2_models import (
-    ExposureInput,
-    KrwCashflowEvent,
-    Stage2Input,
-)
 from src.domain.trade_risk_models import TradeSettlementRiskInput
 from src.stage1.normalizer import normalize_stage1_scenarios
 from src.stage2.engine import run_stage2
+from validators import build_stage2_input
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +66,22 @@ def build_golden_consultation_fixture(
         confirmed_by="golden-consultation-fixture",
         confirmed_at="2026-07-29T09:00:00+09:00",
     )
+    validation = validate_confirmation(
+        extraction=extraction,
+        record=confirmation,
+        company_country="KR",
+        source_page_texts=extract_pdf_page_texts(pdf_path.read_bytes()),
+    )
+    if not validation.stage2_allowed:
+        raise ValueError("Golden 확정 거래가 Stage 2 gate를 통과하지 못했습니다.")
+    document_input = build_stage2_input(
+        extraction=extraction,
+        validation=validation,
+        confirmations=confirmation.checks,
+        source_filename=pdf_path.name,
+        source_sha256=source_sha256,
+        confirmed_at=confirmation.confirmed_at,
+    )
     stage1 = normalize_stage1_scenarios(
         Stage1ScenarioSet(
             currency="USD",
@@ -85,31 +106,27 @@ def build_golden_consultation_fixture(
         expected_target_date="2026-08-20",
     )
     finance = demo_inputs["company_finance_manual_inputs"]
-    stage2_input = Stage2Input(
-        confirmed_trade_sha256=source_sha256,
-        as_of_date=finance["as_of_date"],
-        exposures=[
-            ExposureInput(
-                sequence=1,
-                trade_type="EXPORT",
-                currency="USD",
-                foreign_amount=extraction.amount_due,
-                settlement_date=extraction.explicit_due_date,
-                usable_fx_balance=finance["usable_fx_balance"],
-                same_currency_flows=[],
-            )
-        ],
-        current_krw_cash=finance["current_krw_cash"],
-        minimum_cash_buffer=finance["minimum_cash_buffer"],
-        credit_limit=finance["credit_limit"],
-        acceptable_fx_loss=finance["acceptable_fx_loss"],
-        krw_cashflows=[
-            KrwCashflowEvent.model_validate(item)
-            for item in finance["confirmed_krw_cashflows"]
-        ],
-        bank_spread_bps=finance["bank_spread_bps"],
-        bank_fee=finance["bank_fee"],
+    stage2_input = build_stage2_input_from_form(
+        document_input=document_input,
+        form=Stage2FormInput(
+            as_of_date=finance["as_of_date"],
+            current_krw_cash=finance["current_krw_cash"],
+            minimum_cash_buffer=finance["minimum_cash_buffer"],
+            credit_limit=finance["credit_limit"],
+            usable_fx_balance=finance["usable_fx_balance"],
+            acceptable_fx_loss=finance["acceptable_fx_loss"],
+            same_currency_flow_amount="0",
+            same_currency_flow_date=finance["as_of_date"],
+            same_currency_flow_direction="OUTFLOW",
+            existing_hedge_amount="0",
+            existing_hedge_rate="1400",
+            existing_hedge_fee="0",
+            bank_spread_bps=finance["bank_spread_bps"],
+            bank_fee=finance["bank_fee"],
+            krw_cashflow_rows=finance["confirmed_krw_cashflows"],
+        ),
     )
+    validate_stage2_as_of_date(stage2_input)
     stage2 = run_stage2(stage2_input, stage1)
     trade_input = TradeSettlementRiskInput(
         confirmed_trade_sha256=source_sha256,
@@ -146,6 +163,8 @@ def build_golden_consultation_fixture(
         "extraction": extraction,
         "demo_inputs": demo_inputs,
         "confirmation": confirmation,
+        "validation": validation,
+        "document_input": document_input,
         "stage1": stage1,
         "stage2_input": stage2_input,
         "stage2": stage2,

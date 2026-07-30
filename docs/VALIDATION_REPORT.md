@@ -1,6 +1,6 @@
 # Validation Report
 
-검증일: 2026-07-29 KST
+검증일: 2026-07-31 KST
 환경: macOS, Python 3.9.6, Streamlit 1.50.0, Pydantic 2.13.4
 
 ## 최종 결과
@@ -8,8 +8,10 @@
 | 검증 | 명령 | 결과 |
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
-| compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache .venv/bin/python -m compileall -q app.py src scripts tests` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 456/456 PASS |
+| compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q .` | PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 506/506 PASS |
+| Golden 확정거래 사용자 흐름 | `python scripts/verify_golden_user_flow.py` | API-free Stage 0~5 PASS/FALLBACK, 모든 downstream due date `2026-08-20` |
+| Golden 날짜·상태·음성·AppTest | `python -m unittest tests.test_golden_transaction_e2e -v` | 17/17 PASS |
 | Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
 | Text-PDF amount/date evidence recovery | `python -m unittest tests.test_source_evidence_recovery -v` | 18/18 PASS |
 | T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | PASS |
@@ -24,10 +26,76 @@
 | Stage 0 live 합성 PDF | `scripts/live_smoke_test.py samples/demo_net90_contract.pdf --company-role SELLER` | PASS, `SALES_CONTRACT`, 10.14초 |
 | regression | `python scripts/run_regression.py` | PASS |
 | Streamlit amount_due 방향별 라벨·경고 | `python -m unittest tests.test_ui_evidence_state -v` | 11/11 PASS |
-| Streamlit 실제 health | `curl ...:8502/_stcore/health` | HTTP 200, `ok` |
+| Streamlit 현재 headless health | `ENABLE_LIVE_DOCUMENT_EXTRACTION=false ENABLE_LLM_REPORT=false python -m streamlit run app.py --server.headless true --server.port 8517 ...` | 미완료: sandbox port bind `PermissionError`, 권한 상승 요청도 실행 환경에서 거부됨. 대신 같은 코드의 AppTest 17/17 PASS |
 | Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
 | Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
 | sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
+
+## Golden 확정 거래 사용자 흐름 회귀
+
+### 수정 전 재현
+
+Golden 확인 화면의 값은 맞았지만 `build_stage2_input`이 분할회차를 금융 event로
+직접 만들고 Stage 1 UI가 첫 event를 fallback으로 선택했습니다.
+
+```text
+confirmed_due_date=2026-08-20
+contract_date=2026-07-29
+document_trade_settlement_date=None
+document_cashflow_events=[
+  (20000.00, 2026-07-29),
+  (80000.00, 2026-08-20)
+]
+stage1_target_date=2026-07-29
+stage2_as_of_date=2026-07-30
+
+Traceback:
+  src/stage2/engine.py, run_stage2
+  src/stage2/engine.py, _validate_stage2_contract
+ValueError: settlement_date는 as_of_date보다 빠를 수 없습니다.
+```
+
+### 수정 후 canonical source path
+
+| 소비 단계 | 값 | source path |
+| --- | --- | --- |
+| 사용자 확인 | `2026-08-20` | `stage0.confirmation.checks.confirmed_due_date` |
+| 확정 거래 JSON | `2026-08-20` | `trade.settlement_date` |
+| Stage 1 | `2026-08-20` | `stage1.scenario_set.target_date` |
+| Stage 2 | `2026-08-20` | `stage0.confirmation.confirmed_values.settlement_date` |
+| 상담 패킷 | `2026-08-20` | `consultation.company_summary.settlement_date` |
+| Stage 5 | `2026-08-20` | `stage0.confirmation.confirmed_values.settlement_date` |
+
+`trade.installment_schedule`에는 USD 20,000 / 2026-07-29와
+USD 80,000 / 2026-08-20을 보존하지만, 금융 cashflow event는 확인된 예정 노출
+USD 100,000 / 2026-08-20 한 건입니다. 선지급 실제 입금 여부는 `UNKNOWN`입니다.
+
+`scripts/verify_golden_user_flow.py`의 API-free 결과:
+
+```text
+Stage 0 text/evidence + confirmation: SUCCEEDED
+Stage 1: SUCCEEDED
+Stage 2: SUCCEEDED
+Stage 3 orchestration: SUCCEEDED (NO_FEASIBLE_CANDIDATE 공개)
+Stage 4: SUCCEEDED
+ConsultationPacket: SUCCEEDED
+Stage 5: DETERMINISTIC_FALLBACK
+
+-5% 원화 수취 감소: 7,000,000원
+스트레스 후 예상 현금: 8,000,000원
+목표 버퍼: 10,000,000원
+버퍼 부족: 2,000,000원
+현금 적자: 0원
+신용한도 반영 후 부족: 0원
+공식 후보 고유 개수: 3
+```
+
+음성 테스트는 cashflow 기준일보다 due date가 이른 입력을
+`INVALID_DATE_ORDER`로 차단하고, `contract_date != due_date`인 경우에도 모든
+금융 단계가 due date만 쓰는지 검증합니다. AppTest는 새 분석, 수입→수출 전환,
+안전한 구조화 오류, Golden UI/Stage 날짜와 모바일 CSS를 검증했습니다. 이 환경에는
+Playwright/Selenium/Chromium이 없어 1440px·390px 실제 브라우저 육안 검수는
+실행하지 않았으며, 이를 AppTest/DOM·CSS PASS와 혼동하지 않습니다.
 
 ## T4 국가·무역환경 검증
 

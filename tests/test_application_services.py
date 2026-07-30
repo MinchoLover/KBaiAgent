@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from src.application.stage2_input_service import (
+    CashflowValidationError,
     Stage2FormInput,
     build_stage2_input_from_form,
     recommended_stage2_as_of_date,
@@ -153,11 +154,20 @@ class Stage2InputServiceTests(unittest.TestCase):
             form=self._form(as_of_date="2026-10-19"),
         )
 
-        with self.assertRaisesRegex(
-            ValueError,
-            r"2026-10-19.*2026-10-18",
-        ):
+        with self.assertRaises(CashflowValidationError) as raised:
             validate_stage2_as_of_date(stage2_input)
+        self.assertEqual(
+            raised.exception.detail.code,
+            "INVALID_DATE_ORDER",
+        )
+        self.assertEqual(
+            raised.exception.detail.due_date,
+            "2026-10-18",
+        )
+        self.assertEqual(
+            raised.exception.detail.cashflow_base_date,
+            "2026-10-19",
+        )
 
     def test_accepts_as_of_on_earliest_installment(self):
         stage2_input = build_stage2_input_from_form(

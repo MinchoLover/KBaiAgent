@@ -258,6 +258,7 @@ class ValidationTests(unittest.TestCase):
             currency_confirmed=True,
             amount_due_confirmed=True,
             due_date_confirmed=True,
+            confirmed_due_date=extraction.installments[-1].due_date,
         )
         extraction, validation = apply_deterministic_review_state(
             extraction,
@@ -272,7 +273,12 @@ class ValidationTests(unittest.TestCase):
             confirmations=checks,
             source_filename="installments.pdf",
         )
-        self.assertEqual(len(payload["trade"]["cashflow_events"]), 2)
+        self.assertEqual(len(payload["trade"]["cashflow_events"]), 1)
+        self.assertEqual(
+            payload["trade"]["cashflow_events"][0]["foreign_amount"],
+            extraction.amount_due,
+        )
+        self.assertEqual(len(payload["trade"]["installment_schedule"]), 2)
 
     def test_confirmation_record_rejects_blank_single_due_date(self):
         with self.assertRaises(ValueError):
