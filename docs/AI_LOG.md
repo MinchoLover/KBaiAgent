@@ -339,3 +339,23 @@ API-free 전체 383개 테스트와 8건 country validation fixture 평가를 �
 경계가 드러나 affirmative 오표현을 별도로 거부하도록 수정한 뒤 재검증했습니다.
 OpenAI API, 외부 LLM, runtime 공식자료 API, live 문서 평가, 배포와 Git push는
 실행하지 않았습니다.
+
+## 2026-07-31 Golden import hedge adapter E2E
+
+Codex가 기존 수출 Golden과 금융 계산을 변경하지 않고 단일 USD 수입 지급용
+2페이지 텍스트 레이어 합성계약, expected extraction, 계약 밖 사용자 입력과
+API-free 검증기를 추가했습니다. 문서 bytes는 upload guard와 page text
+extractor를 통과하고 원문 evidence, 국가 정규화, 사용자 확인, Stage 2와 기존
+Stage 3을 동일한 production 서비스로 실행합니다.
+
+Expected extraction은 모델 출력의 test double로 명시해 Live 추출 정확도와
+분리했습니다. 별도 AppTest는 확정된 `BUYER / KR / IMPORT / USD 100,000 /
+2026-08-27` 상태에서 외부 fixture를 current trade와 대조하고
+`REFERENCE_ONLY / MOCK` 후보 3개를 격리된 UI에 표시하는지 확인했습니다.
+
+고정 producer commit과 네 입력 SHA를 확인한 뒤 실제 `kb_macro_ai` local CLI도
+같은 confirmed trade로 API-free 실행했습니다. 순노출 USD 90,000 echo,
+strict validation, 후보 rank `1,2,3`과 임시 raw 삭제를 확인했습니다. 기존
+Stage 3 후보와 외부 후보를 재계산·통합 순위화하지 않았고 외부 결과는 Stage 4,
+ConsultationPacket과 Stage 5에 게시하지 않았습니다. OpenAI, 환율 API, 외부
+네트워크, 실제 고객문서, Git push는 사용하지 않았습니다.

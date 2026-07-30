@@ -165,6 +165,25 @@ source-grounded recovery 적용 상태의 승인된 Golden Live 1건에서
 발표 순서는
 [docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md)를 따릅니다.
 
+외부 헤지 결속용 Golden 수입계약은 기존 수출 Golden과 별도입니다.
+
+```bash
+shasum -a 256 \
+  dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf
+python scripts/verify_golden_import_hedge_flow.py
+python -m unittest tests.test_golden_import_hedge_demo -v
+```
+
+이 문서는 `BUYER / KR`, 단일 `IMPORT / USD 100,000 / 2026-08-27` 거래입니다.
+사용자 입력 보유 USD 10,000을 반영하면 Stage 2와 외부 request의 순노출은
+USD 90,000입니다. 기존 Stage 3의 세 계산상 비교안과 `kb_macro_ai`의
+`REFERENCE_ONLY / MOCK` 세 참고안은 별도 결과이며 통합 순위나 Stage 4·상담
+리포트 연결을 만들지 않습니다. API-free 검증은 expected extraction을 test
+double로 사용하므로 Live 추출 정확도 주장이 아닙니다. 직접 첨부·입력·클릭
+순서는
+[docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md](docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md)를
+따릅니다.
+
 ## 9. 실행 방법
 
 Python 3.9, Streamlit 단일 앱입니다. DB와 Docker는 필요하지 않습니다.
@@ -228,7 +247,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-31 현재 515개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-31 현재 529개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.

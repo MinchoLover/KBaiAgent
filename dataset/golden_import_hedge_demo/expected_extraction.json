@@ -1,0 +1,124 @@
+{
+  "document_type": "SALES_CONTRACT",
+  "document_number": "GOLDEN-IMPORT-US-2026-001",
+  "seller_name": "Northstar Industrial Components LLC",
+  "seller_country": "US",
+  "buyer_name": "Mirae Industrial Solutions Co., Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": "USD",
+  "grand_total": "100000.00",
+  "amount_due": "100000.00",
+  "issue_date": null,
+  "contract_date": "2026-07-29",
+  "shipment_date": "2026-08-12",
+  "explicit_due_date": "2026-08-27",
+  "derived_due_date": null,
+  "payment_terms": "Payment Terms: 100% by T/T on or before 27 August 2026; one payment only.",
+  "incoterm": "CIF Busan, Incoterms 2020",
+  "installments": [],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "SYNTHETIC SAMPLE - NOT LEGALLY BINDING",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The synthetic notice is explicit."
+    },
+    {
+      "field": "document_notice",
+      "page": 2,
+      "source_text": "SYNTHETIC SAMPLE - NOT LEGALLY BINDING",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The notice is repeated on every page."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Northstar Industrial Components LLC | Country: United States (US)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Seller label identifies the party."
+    },
+    {
+      "field": "seller_country",
+      "page": 1,
+      "source_text": "Seller: Northstar Industrial Components LLC | Country: United States (US)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Seller country name and ISO code agree."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Mirae Industrial Solutions Co., Ltd. | Country: Republic of Korea (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Buyer label identifies the party."
+    },
+    {
+      "field": "buyer_country",
+      "page": 1,
+      "source_text": "Buyer: Mirae Industrial Solutions Co., Ltd. | Country: Republic of Korea (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Buyer country name and ISO code agree."
+    },
+    {
+      "field": "contract_date",
+      "page": 1,
+      "source_text": "Contract Date: 29 July 2026",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Contract Date label is explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "The total Contract Price is one hundred thousand United States dollars (USD 100,000).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The total price states the USD code."
+    },
+    {
+      "field": "grand_total",
+      "page": 1,
+      "source_text": "The total Contract Price is one hundred thousand United States dollars (USD 100,000).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The total Contract Price is explicit."
+    },
+    {
+      "field": "amount_due",
+      "page": 2,
+      "source_text": "The Buyer shall pay one hundred percent (100%), equal to USD 100,000, by T/T remittance on or before 27 August 2026 (Payment Due Date).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The single contractual payable is explicit."
+    },
+    {
+      "field": "explicit_due_date",
+      "page": 2,
+      "source_text": "The Buyer shall pay one hundred percent (100%), equal to USD 100,000, by T/T remittance on or before 27 August 2026 (Payment Due Date).",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Payment Due Date is explicit."
+    },
+    {
+      "field": "payment_terms",
+      "page": 2,
+      "source_text": "Payment Terms: 100% by T/T on or before 27 August 2026; one payment only.",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The single T/T payment term is explicit."
+    },
+    {
+      "field": "shipment_date",
+      "page": 2,
+      "source_text": "Shipment Date: 12 August 2026",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Shipment Date label is explicit."
+    },
+    {
+      "field": "incoterm",
+      "page": 2,
+      "source_text": "Delivery Term: CIF Busan, Incoterms 2020",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The delivery term is explicit."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}

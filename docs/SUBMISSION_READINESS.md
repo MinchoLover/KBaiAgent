@@ -110,8 +110,10 @@ Golden 상담 결과는 같은 `ConsultationPacket` JSON에서 다음 순서로 
 | 항목 | 상태 | 근거 |
 | --- | --- | --- |
 | compile | PASS | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q app.py src scripts tests` |
-| 전체 API-free suite | 456/456 PASS | `python -m unittest discover -s tests -v` |
+| 전체 API-free suite | 529/529 PASS | `python -m unittest discover -s tests -v` |
 | Golden 전용 | 14/14 PASS | `python -m unittest tests.test_golden_trade_demo -v` |
+| Golden 단일 수입 지급·외부 헤지 | 14/14 PASS | `python -m unittest tests.test_golden_import_hedge_demo -v` |
+| Golden 수입 pinned local CLI | `REFERENCE_ONLY / MOCK`, validation PASS, 후보 3개 | `python scripts/verify_golden_import_hedge_flow.py --run-local-cli` |
 | country canonicalization | 8/8 PASS | `python -m unittest tests.test_country_canonicalization -v` |
 | Stage 1~5 통합 회귀 | PASS | 전체 suite와 `python scripts/run_regression.py` |
 | release gate | PASS | `python scripts/verify.py` |

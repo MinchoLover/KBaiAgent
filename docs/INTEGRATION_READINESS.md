@@ -83,6 +83,18 @@ E2E fixture는 다음 값으로 고정된다.
 | 기존 선물환 | `0` |
 | 순노출 | `90000` |
 
+같은 거래조건을 가진 실제 텍스트 레이어 합성계약과 직접 첨부 순서는
+[Golden 단일 USD 수입 지급 헤지 데모](../dataset/golden_import_hedge_demo/README.md)와
+[외부 헤지 실행 안내](KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md)에 있다. 다음 명령은
+실제 PDF bytes부터 API-free로 같은 결속을 검증한다.
+
+```bash
+python scripts/verify_golden_import_hedge_flow.py
+```
+
+이 명령은 expected extraction fixture를 명시적으로 사용하므로 Live 모델 정확도
+주장에는 사용할 수 없다.
+
 실행은 기존 `run_kb_macro_hedge_for_confirmed_trade`를 그대로 호출한다. 따라서
 feature flag, `local_cli` mode, exact producer commit, clean tracked worktree,
 허용 경로, 네 입력 SHA, CLI timeout/출력 크기, 사용자 제약, 응답 수학과

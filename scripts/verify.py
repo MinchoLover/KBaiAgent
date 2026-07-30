@@ -40,6 +40,8 @@ REQUIRED_FILES = (
     "scripts/export_finetuning_dataset.py",
     "scripts/run_decision_demo.py",
     "scripts/check_integration_readiness.py",
+    "scripts/generate_golden_import_hedge_demo.py",
+    "scripts/verify_golden_import_hedge_flow.py",
     "docs/ARCHITECTURE.md",
     "docs/REPOSITORY_AUDIT.md",
     "docs/STAGE0_DOCUMENT_INTAKE.md",
@@ -66,6 +68,10 @@ REQUIRED_FILES = (
     "docs/TEAM_HANDOFF.md",
     "docs/TEAM_HANDOFF_KO.md",
     "docs/VALIDATION_REPORT.md",
+    "dataset/golden_import_hedge_demo/README.md",
+    "dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf",
+    "dataset/golden_import_hedge_demo/expected_extraction.json",
+    "dataset/golden_import_hedge_demo/demo_inputs.json",
     "docs/repositioning/CURRENT_STATE.md",
     "docs/repositioning/IMPLEMENTATION_PLAN.md",
     "docs/repositioning/TEAM_POSITIONING.md",
@@ -475,6 +481,40 @@ def _check_output_schemas(errors: List[str]) -> None:
             )
 
 
+def _check_golden_import_hedge(errors: List[str]) -> None:
+    from scripts.verify_golden_import_hedge_flow import (
+        golden_import_hedge_summary,
+    )
+
+    try:
+        summary = golden_import_hedge_summary()
+    except Exception as exc:
+        errors.append(
+            "Golden import hedge flow failed: {}".format(
+                type(exc).__name__
+            )
+        )
+        return
+    if summary["document"]["sha256"] != (
+        "fbd4c4dbdf0f92d459e19acf2af4a1e2ee3cd0916f43576290d54b040662550b"
+    ):
+        errors.append("Golden import PDF fingerprint changed")
+    if not all(
+        value == "SUCCEEDED"
+        for value in summary["steps"].values()
+    ):
+        errors.append("Golden import hedge flow has an incomplete step")
+    external = summary["kb_macro_ai_reference"]
+    if (
+        external["status"] != "REFERENCE_ONLY"
+        or external["pricing_status"] != "MOCK"
+        or not external["validation_pass"]
+        or external["candidate_count"] != 3
+        or external["published_to_stage4"]
+    ):
+        errors.append("Golden import external hedge boundary is invalid")
+
+
 def _check_imports(errors: List[str]) -> None:
     modules = (
         "schemas",
@@ -540,6 +580,7 @@ def main() -> int:
     _check_imports(errors)
     _check_output_schemas(errors)
     _check_demo(errors)
+    _check_golden_import_hedge(errors)
 
     compile_ok = _run(
         [

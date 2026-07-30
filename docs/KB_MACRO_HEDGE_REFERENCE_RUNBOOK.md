@@ -69,20 +69,61 @@ validator를 그대로 통과하며 성공 시 `REFERENCE_ONLY / MOCK`, validati
 결과 필드와 상태 해석은
 [INTEGRATION_READINESS.md](INTEGRATION_READINESS.md)를 본다.
 
+### 고정 Golden 수입계약을 직접 첨부하는 경우
+
+업로드 문서는 다음 합성 텍스트 PDF 한 건이다.
+
+```text
+dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf
+SHA-256:
+fbd4c4dbdf0f92d459e19acf2af4a1e2ee3cd0916f43576290d54b040662550b
+```
+
+API-free 사전점검:
+
+```bash
+shasum -a 256 \
+  dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf
+python scripts/verify_golden_import_hedge_flow.py
+python -m unittest tests.test_golden_import_hedge_demo -v
+```
+
+두 번째 명령은 실제 PDF bytes의 upload guard, 2페이지 텍스트 레이어와 정확한
+evidence를 확인한 뒤 expected extraction test double로 confirmation, Stage 2,
+기존 Stage 3와 외부 fixture validator를 실행한다. OpenAI, 환율 API,
+`kb_macro_ai` CLI와 외부 네트워크는 호출하지 않는다. 따라서 이 PASS는
+직접 업로드 이후의 데이터 흐름과 어댑터 검증이지 Live 추출 정확도가 아니다.
+
 브라우저에서는 다음 순서로 진행한다.
 
-1. 실제 또는 합성 문서에서 `IMPORT`, `USD`, 단일 지급일을 확인한다.
-2. Stage 2에서 보유 USD와 기존 선물환을 입력하고 현금영향 계산을 완료한다.
-3. `3 · 상담 준비` 탭 아래 `외부 환헤지 조합 참고 결과`로 이동한다.
-4. 지급 확정도, 최대 원화 지급액, 최대 예산초과확률, 위험성향, 최대 헤지비율,
-   옵션 예산과 허용 상품을 확인한다.
-5. 목업 견적 사용 확인을 체크한다.
-6. `현재 수입 거래로 kb_macro_ai 계산하기`를 누른다.
-7. `REFERENCE_ONLY`, `MOCK`, 현재 거래 결속, 후보 3개와 provenance를 확인한다.
+1. `거래문서 등록하기`를 누른다.
+2. `실제 문서 분석`, `구매자 · BUYER`, 회사 국가 `KR`을 선택한다.
+3. 위 Golden 수입 PDF를 첨부하고 `문서 분석하고 거래정보 채우기`를 누른다.
+4. `SALES_CONTRACT / IMPORT / USD / 100000.00 / 2026-08-27`과
+   단일 지급을 원문 evidence와 대조한다.
+5. 역할·방향·통화·분석 대상 예정 지급액·지급일 확인을 체크하고 거래를
+   확정한다.
+6. 금융 리스크 분석에서 계산 기준일 `2026-07-29`, 현재 원화 현금
+   `140000000`, 최소 운영자금 `10000000`, 신용한도 `0`, 보유 USD
+   `10000`, 허용 환손실 `5000000`, 기존 선물환 `0`을 입력한다.
+7. 현금영향 계산 후 기존 Stage 3의 계산상 비교안 3개를 확인한다.
+8. `3 · 상담 준비` 탭 아래 `외부 환헤지 조합 참고 결과`로 이동한다.
+9. 지급 확정도 `1.0`, 최대 원화 지급액 `135000000`,
+   최대 예산초과확률 `0.15`, 위험성향 `medium`, 최대 헤지비율 `1.0`,
+   옵션 예산 `1500000`, 허용 상품 `forward`와 `vanilla_usd_call`을
+   확인한다.
+10. 목업 견적 사용 확인을 체크한다.
+11. `현재 수입 거래로 kb_macro_ai 계산하기`를 누른다.
+12. `REFERENCE_ONLY`, `MOCK`, 예정 지급액 USD 100,000, 보유 USD 10,000,
+    순노출 USD 90,000, 지급일 2026-08-27, 후보 3개와 provenance를 확인한다.
 
 수출, 비USD, 분할 지급, 복수 노출, 자연상계 흐름은 CLI 실행 전에
 `UNSUPPORTED_EXPOSURE`로 차단된다. 외부 실행이 실패해도 기존 Stage 3 결과는
 유지된다.
+
+위 3단계 실제 문서 분석에는 기존 OpenAI 추출 설정이 필요하다. key 값은 UI,
+명령 출력이나 저장 파일에 넣지 않는다. API 없이 재현할 때는 expected JSON을
+Streamlit production 경로에 주입하지 말고 위 검증 스크립트를 사용한다.
 
 ## 3. 사전 생성 파일 Streamlit 검증
 

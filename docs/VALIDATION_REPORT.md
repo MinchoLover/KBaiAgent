@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q .` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 515/515 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 529/529 PASS |
 | Golden 확정거래 사용자 흐름 | `python scripts/verify_golden_user_flow.py` | API-free Stage 0~5 PASS/FALLBACK, 모든 downstream due date `2026-08-20` |
 | Golden 날짜·상태·음성·AppTest | `python -m unittest tests.test_golden_transaction_e2e -v` | 17/17 PASS |
 | Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
@@ -32,6 +32,9 @@
 | sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
 | Integration Readiness 집중 회귀 | `python -m unittest tests.test_integration_readiness tests.test_kb_macro_hedge_reference tests.test_stage1_web_integration -v` | 54/54 PASS |
 | 실제 pinned `local_cli` 합성 수입 E2E | `python scripts/check_integration_readiness.py --run-local-cli-e2e` + runbook 고정 환경 | PASS, `REFERENCE_ONLY / MOCK`, validation PASS, 후보 3개 |
+| Golden 수입 지급·헤지 집중 회귀 | `python -m unittest tests.test_golden_import_hedge_demo -v` | 14/14 PASS |
+| Golden 수입 지급 API-free E2E | `python scripts/verify_golden_import_hedge_flow.py` | PDF upload/text/evidence → confirmation → Stage 2/3 → 외부 fixture PASS |
+| Golden 수입 지급 실제 pinned local CLI | `python scripts/verify_golden_import_hedge_flow.py --run-local-cli` + 고정 환경 | PASS, current trade `REFERENCE_ONLY / MOCK`, validation PASS, 후보 3개 |
 
 ## Integration Readiness 실제 점검
 
@@ -82,6 +85,71 @@ overall readiness: DEGRADED
 credential은 설정 여부만 확인했고 값은 출력·상태 JSON에 포함하지 않았습니다.
 외부 헤지 결과는 기존 Stage 3, Stage 4, ConsultationPacket과 Stage 5에 전달되지
 않았습니다.
+
+## Golden 단일 USD 수입 지급 외부 헤지 E2E
+
+기존 수출 Golden을 변경하지 않고 별도 텍스트 레이어 합성계약을 추가했습니다.
+
+```text
+document:
+  dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf
+SHA-256:
+  fbd4c4dbdf0f92d459e19acf2af4a1e2ee3cd0916f43576290d54b040662550b
+pages/text layer: 2/2
+company: BUYER / KR
+seller/buyer country: US / KR
+trade: IMPORT / USD / single payable
+amount/payment date: 100000.00 / 2026-08-27
+```
+
+실제 PDF bytes는 upload guard와 page text extractor를 통과했고 expected evidence
+14개가 모두 지정 페이지 원문에 존재했습니다. Raw 국가 표현
+`United States (US)`와 `Republic of Korea (KR)`은 각각 `US`, `KR`로
+정규화되고 `IMPORT`가 결정론적으로 판정됐습니다. 사용자 핵심값 확인 뒤
+`validation_pass=true`, `stage2_allowed=true`입니다.
+
+API-free Stage 2/3:
+
+```text
+계약상 예정 지급액: USD 100,000.00
+결제용 보유 USD: USD 10,000.00
+기존 선물환: USD 0
+열린 노출: USD 90,000.00
+BASE 1,400원 지급액: 126,000,000원
++5% 손실/기말현금/buffer 부족: 6,300,000 / 7,700,000 / 2,300,000원
++10% 손실: 12,600,000원
+기존 Stage 3: CANDIDATES_NOT_ADVICE / 후보 rank 1,2,3
+```
+
+같은 confirmed transaction으로 fixture validator와 실제 pinned local CLI를 각각
+실행했습니다. 실제 local CLI preflight에서 producer
+`7d3efa41cdc8bbb8da61b6b0c6108bdf55713e3e`, clean tracked worktree와 다음
+입력 SHA를 재확인했습니다.
+
+```text
+forecast:
+  b565cfa283ba93541541bce0ef88e8f9e4e5bb2b5557fefdc8429638c678318c
+model config:
+  56904f5fe31312bca5cdf4f8910870c7d02b93faf3c60eade6731d224126e1a3
+market history:
+  78feb433e43f51ba556b39f737db2616cbe3c3bd34d6cd02b68372e473b51c39
+quote template:
+  c537c65b1d33398bd5de7007c56c8189833c04ebfaf46ab04a0b8e1e3213168f
+```
+
+Local CLI는 예정 지급액/지급일/보유 USD/기존 선물환/순노출을 각각
+`100000.00 / 2026-08-27 / 10000.00 / 0 / 90000.00`으로 echo했고,
+strict validation PASS, `REFERENCE_ONLY / MOCK`, 후보 3개와 rank `1,2,3`을
+반환했습니다. 임시 company request와 raw 결과는 기존 서비스 경계 안에서
+삭제됐고 외부 네트워크, OpenAI와 환율 API는 호출하지 않았습니다.
+
+Streamlit AppTest는 실제 확정 수입 거래 상태에서 `현재 확정 거래와 금액·지급일
+대조`를 선택해 같은 별도 참고 영역이 렌더링되는지 검증했습니다. AppTest가
+file uploader를 조작하지 못하므로 실제 PDF bytes upload/text 검증과
+post-extraction UI 검증은 분리했습니다. Expected extraction은 명시적인 test
+double이므로 이 결과를 Live 추출 정확도나 실제 은행 가격·상품 추천으로
+표현하지 않습니다. 외부 후보는 기존 Stage 3와 통합 순위를 만들지 않고
+`published_to_stage4=false`를 유지합니다.
 
 ## Golden 확정 거래 사용자 흐름 회귀
 

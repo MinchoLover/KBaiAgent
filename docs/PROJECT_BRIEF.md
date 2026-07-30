@@ -154,3 +154,32 @@ Definition of done:
 
 Non-goals: 추출 prompt 튜닝, model 교체, OCR 엔진 도입, T1~T7/T4 재구현,
 실제 고객문서 평가, regression baseline 갱신, 전체 8건의 무승인 호출.
+
+## Golden 단일 USD 수입 지급 외부 헤지 slice
+
+Problem: 기존 Golden은 수출·분할결제 성공 흐름이고 `kb_macro_ai`는 단일 USD
+수입 지급만 지원하므로, 같은 문서로 직접 업로드부터 외부 헤지까지 증명할 수
+없었습니다.
+
+Primary journey:
+
+1. 텍스트 레이어 합성 수입계약을 업로드하고 `BUYER / KR`로 확인합니다.
+2. `IMPORT / USD 100,000 / 2026-08-27 / 단일 지급`을 원문과 대조합니다.
+3. 결제용 보유 USD 10,000을 반영해 Stage 2 순노출 USD 90,000을 계산합니다.
+4. 기존 Stage 3의 세 계산상 비교안을 유지합니다.
+5. 같은 확정 거래를 고정 fixture 또는 pinned `local_cli` 외부 어댑터에 결속해
+   별도 `REFERENCE_ONLY / MOCK` 후보 세 개를 검증합니다.
+
+Definition of done:
+
+- PDF와 expected JSON 생성이 결정론적이고 모든 evidence가 지정 페이지에
+  실제 존재합니다.
+- 확인된 지급일 `2026-08-27`이 Stage 1, Stage 2와 외부 request에서 같습니다.
+- 기존 Stage 3와 외부 후보는 서로 다른 Domain/UI이며 통합 순위를 만들지 않습니다.
+- 외부 후보는 Stage 4, ConsultationPacket과 Stage 5에 전달되지 않습니다.
+- API-free 검증은 실제 PDF bytes를 검사하되 expected extraction을 모델 정확도로
+  주장하지 않습니다.
+- feature flag 기본 off, mock 가격은 최대 `REFERENCE_ONLY`를 유지합니다.
+
+Non-goals: extraction prompt/schema 변경, Live OpenAI 호출, 기존 금융 공식 변경,
+Golden 수출 fixture 변경, 실제 은행 가격·추천·주문, 외부 후보의 상담 리포트 연결.

@@ -638,3 +638,37 @@ Revisit condition: 인증된 운영 control plane과 secret manager, Stage 1/hed
 서비스 SLA 계약이 생기면 중앙 health endpoint로 옮길 수 있습니다. 그때도
 readiness가 금융 계산 결과를 변경하거나 외부 참고 결과를 Stage 3~5에 자동
 게시하지 않는 경계는 유지합니다.
+
+## 34. Import Golden proves adapter binding without replacing extraction
+
+Context: 기존 Golden 계약서는 한국 판매자의 브라질 수출·20/80 분할결제라서
+단일 USD 수입 지급만 허용하는 `kb_macro_ai` 적용성 gate를 의도적으로 통과하지
+않습니다. 일반 앱에 파일명·SHA 기반 추출 우회나 수입 특례를 추가하면 실제
+업로드 안전 경계와 모델 성능 주장이 왜곡됩니다.
+
+Decision: 별도 합성 텍스트 레이어 계약
+`dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf`를 둡니다.
+회사는 `BUYER / KR`, 거래는 `IMPORT / USD 100,000 / 2026-08-27 / 단일 지급`이고,
+사용자 입력 보유 USD 10,000과 기존 선물환 0을 반영한 외부 순노출은
+USD 90,000입니다. 문서는 실제 upload guard와 text extractor를 통과합니다.
+API-free 검증에서는 checked-in expected extraction을 명시적 test double로
+사용한 뒤 기존 confirmation, Stage 2, Stage 3와 외부 strict validator를 그대로
+실행합니다.
+
+기존 Stage 3 결과는 `Stage3Result`의 계산상 비교안 세 개로 유지하고 외부 결과는
+`KbMacroHedgeReferenceResult`의 `REFERENCE_ONLY / MOCK` 후보 세 개로 별도
+표시합니다. 외부 후보는 Stage 4, ConsultationPacket과 Stage 5로 게시하지
+않습니다. 실제 Streamlit 직접 업로드의 AI 추출은 기존 Live 경로만 사용하며
+Golden 파일명, hash 또는 expected JSON을 production fallback으로 읽지 않습니다.
+
+Rationale: 수입 적용성, current-trade echo, 날짜·금액·보유외화·순노출 결속과
+UI 격리를 실제 문서 bytes부터 재현하면서 extraction prompt/schema, 금융 공식과
+안전 gate를 바꾸지 않습니다.
+
+Trade-off: API-free 성공은 추출 모델 정확도를 증명하지 않습니다. AppTest는
+file uploader를 조작하지 못하므로 실제 bytes의 upload/text 검증과 post-extraction
+Streamlit state 검증을 분리합니다. 실제 추출은 별도 승인된 Live 검증 대상입니다.
+
+Revisit condition: 인증된 upstream REST 계약과 실제 가격 provenance가 생겨도
+외부 결과를 기존 Stage 3나 공식상품 순위에 합치려면 별도 금융·준법 결정을
+받아야 합니다.
