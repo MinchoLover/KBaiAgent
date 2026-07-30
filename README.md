@@ -196,6 +196,13 @@ MANUAL_USDKRW_RATE=1400
 팀 모델 연결은
 [docs/STAGE1_INTEGRATION.md](docs/STAGE1_INTEGRATION.md), 환율 출처 설정은
 [docs/SPOT_PROVIDER_SETUP.md](docs/SPOT_PROVIDER_SETUP.md)를 봅니다.
+단일 USD 수입 지급용 `kb_macro_ai` 헤지는 feature flag 기본 off인 별도 참고
+영역에서 사용합니다. 고정 파일 검증뿐 아니라 pinned producer commit의 공식
+로컬 CLI를 현재 확정 수입 거래로 실행할 수 있으며, 생성된 결과도 KBaiAgent가
+다시 검증합니다. 목업 가격의 외부 후보는 `REFERENCE_ONLY`이고 기존 Stage 3,
+Stage 4와 상담 리포트를 대체하지 않습니다. Streamlit 설정과 클릭 순서는
+[docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md](docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md)를
+봅니다.
 현재 순수 Streamlit 구조라 독립 REST endpoint 대신 typed 서비스 계층을
 구현했습니다. API 분리는 인증·tenant 설계와 함께 후속 범위입니다.
 
@@ -211,7 +218,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-29 현재 456개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-31 현재 489개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.

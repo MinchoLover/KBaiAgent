@@ -551,6 +551,72 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         ):
             self.assertNotIn(prohibited, visible_text)
 
+    def test_report_button_stays_visible_with_actionable_prerequisites(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        sample = next(
+            button
+            for button in app.button
+            if button.key == "service_sample_export"
+        )
+        sample.click().run()
+        for key in (
+            "stage3_result",
+            "stage4_result",
+            "official_candidate_shortlist",
+            "report_result",
+        ):
+            if key in app.session_state:
+                del app.session_state[key]
+        app.run()
+
+        self.assertEqual(len(app.exception), 0)
+        report_button = next(
+            button
+            for button in app.button
+            if button.key == "generate_report"
+        )
+        self.assertTrue(report_button.disabled)
+        visible_text = " ".join(
+            [item.value for item in app.markdown]
+            + [item.value for item in app.info]
+        )
+        self.assertIn(
+            "통합 상담 리포트 생성 전 남은 단계",
+            visible_text,
+        )
+        self.assertIn(
+            "3단계 ‘상담 준비’에서 ‘대응안 비교하기’를 누르세요.",
+            visible_text,
+        )
+
+    def test_existing_report_remains_visible_if_shortlist_copy_is_missing(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        sample = next(
+            button
+            for button in app.button
+            if button.key == "service_sample_export"
+        )
+        sample.click().run()
+        del app.session_state["official_candidate_shortlist"]
+        app.run()
+
+        self.assertEqual(len(app.exception), 0)
+        self.assertIn(
+            "통합 상담 리포트 다운로드",
+            [
+                item.label
+                for item in app.get("download_button")
+            ],
+        )
+        self.assertIn(
+            "통합 상담 리포트 미리보기",
+            [item.label for item in app.expander],
+        )
+
     def test_service_ctas_keep_explicit_narrow_screen_layout(self):
         from streamlit.testing.v1 import AppTest
 

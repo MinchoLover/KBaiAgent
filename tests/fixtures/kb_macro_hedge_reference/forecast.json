@@ -1,0 +1,11 @@
+{
+  "schema_version": "krw_forecast_web_v1",
+  "prediction_date": "2026-07-29",
+  "horizon": {
+    "trading_days": 21
+  },
+  "market_snapshot": {
+    "currency_pair": "USD/KRW",
+    "usdkrw_spot": 1450.0
+  }
+}

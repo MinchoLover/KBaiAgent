@@ -25,6 +25,7 @@ PIPELINE_KEYS = (
     "installment_payment_statuses",
     "consultation_packet",
     "stage3_result",
+    "kb_macro_hedge_reference",
     "stage4_result",
     "official_candidate_shortlist",
     "report_result",
@@ -120,6 +121,19 @@ STAGE3_WIDGET_KEYS = (
     "stage3_forward_rate_widget",
 )
 
+KB_MACRO_HEDGE_WIDGET_KEYS = (
+    "kb_macro_hedge_binding_widget",
+    "kb_macro_hedge_constraints_confirmed_widget",
+    "kb_macro_payment_certainty_widget",
+    "kb_macro_maximum_cost_widget",
+    "kb_macro_maximum_probability_widget",
+    "kb_macro_risk_tolerance_widget",
+    "kb_macro_maximum_ratio_widget",
+    "kb_macro_option_budget_widget",
+    "kb_macro_allowed_instruments_widget",
+    "kb_macro_cli_constraints_confirmed_widget",
+)
+
 STAGE4_WIDGET_KEYS = (
     "stage4_query_widget",
     "stage4_search_mode_widget",
@@ -135,6 +149,7 @@ DOWNSTREAM_WIDGET_KEYS = (
     + STAGE1_WIDGET_KEYS
     + STAGE2_WIDGET_KEYS
     + STAGE3_WIDGET_KEYS
+    + KB_MACRO_HEDGE_WIDGET_KEYS
     + STAGE4_WIDGET_KEYS
     + CONSULTATION_WIDGET_KEYS
 )
@@ -192,6 +207,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "installment_payment_statuses",
             "consultation_packet",
             "stage3_result",
+            "kb_macro_hedge_reference",
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",
@@ -203,6 +219,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "consultation_topics",
             "consultation_packet",
             "stage3_result",
+            "kb_macro_hedge_reference",
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",
@@ -212,6 +229,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "consultation_topics",
             "consultation_packet",
             "stage3_result",
+            "kb_macro_hedge_reference",
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",
@@ -229,11 +247,21 @@ def clear_downstream(state: object, from_stage: int) -> None:
             STAGE1_WIDGET_KEYS
             + STAGE2_WIDGET_KEYS
             + STAGE3_WIDGET_KEYS
+            + KB_MACRO_HEDGE_WIDGET_KEYS
             + STAGE4_WIDGET_KEYS
             + CONSULTATION_WIDGET_KEYS
         ),
-        2: STAGE2_WIDGET_KEYS + STAGE3_WIDGET_KEYS + STAGE4_WIDGET_KEYS,
-        3: STAGE3_WIDGET_KEYS + STAGE4_WIDGET_KEYS,
+        2: (
+            STAGE2_WIDGET_KEYS
+            + STAGE3_WIDGET_KEYS
+            + KB_MACRO_HEDGE_WIDGET_KEYS
+            + STAGE4_WIDGET_KEYS
+        ),
+        3: (
+            STAGE3_WIDGET_KEYS
+            + KB_MACRO_HEDGE_WIDGET_KEYS
+            + STAGE4_WIDGET_KEYS
+        ),
         4: STAGE4_WIDGET_KEYS,
         5: (),
     }
@@ -266,6 +294,7 @@ def clear_confirmation_and_later(state: object) -> None:
             "installment_payment_statuses",
             "consultation_packet",
             "stage3_result",
+            "kb_macro_hedge_reference",
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",

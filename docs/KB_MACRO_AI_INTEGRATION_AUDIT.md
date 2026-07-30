@@ -33,6 +33,12 @@ HTTP/file/mock provider로 소비할 수 있다**. 반면 이번에 추가된 �
 
 따라서 전체 통합 판정은 **PARTIALLY_READY**다. 더 좁게 보면 다음과 같다.
 
+> 2026-07-31 후속 구현: 위 감사에서 권장한 request-file/pinned CLI adapter가
+> 추가됐다. 현재는 확정된 단일 USD 수입 지급 거래와 사용자가 확인한 제약조건을
+> 임시 파일로 전달해 `kb_macro_ai@7d3efa4`의 공식 CLI를 실행하고, raw 결과를
+> 삭제하기 전에 KBaiAgent가 다시 검증한다. 이는 POST API나 수출 지원이 생겼다는
+> 뜻이 아니며 결과는 목업 가격 기반 `REFERENCE_ONLY`다.
+
 | 대상 | 판정 | 이유 |
 |---|---|---|
 | KBaiAgent의 기존 Stage 1 forecast 연결 | READY | `krw_forecast_web_v1`과 GET `/api/forecast`를 이미 검증·정규화 |
@@ -801,6 +807,37 @@ forecast의 기존 canonical 계약은 다음 문서가 유지한다.
 이 문서는 위 forecast 계약을 대체하지 않는다. `kb_macro_ai@7d3efa4`에 새로 확인된
 hedge 조합의 지원 범위와 향후 통합 경계를 고정한다.
 
+## 22.1 후속 구현 상태 (2026-07-31)
+
+감사 후 KBaiAgent에 payable-only read-only adapter가 추가되었다.
+
+- `src/domain/kb_macro_hedge_models.py`: 기존 `Stage3Result`와 분리된 엄격 DTO
+- `src/application/kb_macro_hedge_service.py`: 허용 디렉터리 file/fixture와
+  pinned `local_cli` provider, SHA pin, Decimal 재검증, 입력 echo·순위·비율·
+  notional·certificate 검증
+- `app.py`: 3단계 하단의 `외부 환헤지 조합 참고 결과`
+- `tests/test_kb_macro_hedge_reference.py`: API-free 정상·실패·지원범위·UI 회귀
+- `docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md`: Streamlit 실행과 클릭 순서
+
+feature flag 기본값은 off다. 외부 결과는 기존 Stage 3, Stage 4,
+ConsultationPacket, Stage 5에 전달되지 않는다. upstream의 공식 hedge JSON
+Schema·manifest와 response 내장 producer/request/forecast hash는 여전히 없으므로,
+검증을 통과해도 현재 상태는 최대 `REFERENCE_ONLY`다.
+
+`local_cli`는 다음을 모두 확인한 뒤에만 실행한다.
+
+- producer checkout exact commit과 tracked worktree clean
+- forecast, model config, market history, mock quote template SHA-256
+- upstream Python 3.11 CLI 모듈과 실행환경
+- 단일 `IMPORT`/`USD`/단일 지급일/양수 금액과 보유 USD·기존 선물환 범위
+- Stage 2 open exposure와 외부 response echo
+- 사용자가 직접 확인한 위험·예산·허용상품 제약
+
+실행 프로세스에는 API key를 전달하지 않으며 요청과 raw output은 권한 제한 임시
+디렉터리에서 삭제한다. 실제 로컬 producer smoke에서 `USD 100,000`, 보유 USD
+`10,000`, 순노출 `90,000`이 `REFERENCE_ONLY`, validation pass, 후보 rank
+`1/2/3`으로 반환됨을 확인했다.
+
 ## 23. 이번 감사 검증 결과
 
 ### 23.1 KBaiAgent
@@ -808,7 +845,7 @@ hedge 조합의 지원 범위와 향후 통합 경계를 고정한다.
 | 검사 | 실제 결과 |
 |---|---|
 | 관련 집중 테스트 | 105개 PASS |
-| `python scripts/verify.py` | compileall 및 전체 462개 테스트 PASS, `VERIFY PASSED` |
+| `python scripts/verify.py` | compileall 및 전체 489개 테스트 PASS, `VERIFY PASSED` |
 | `python -m pip check` | `No broken requirements found` |
 | Markdown 내부 링크·기록 경로 | 존재 여부 검사 PASS |
 | `git diff --check` | PASS |

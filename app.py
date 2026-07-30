@@ -19,8 +19,14 @@ from schemas import (
 from src.application.stage2_input_service import (
     Stage2FormInput,
     build_stage2_input_from_form,
+    recommended_stage2_as_of_date,
+    validate_stage2_as_of_date,
 )
 from src.application.consultation_service import build_decision_support
+from src.application.kb_macro_hedge_service import (
+    evaluate_kb_macro_hedge_reference,
+    run_kb_macro_hedge_for_confirmed_trade,
+)
 from src.application.country_environment_service import (
     build_country_environment_input,
 )
@@ -65,6 +71,10 @@ from src.domain.consultation_models import (
 )
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
+)
+from src.domain.kb_macro_hedge_models import (
+    KbMacroHedgeExecutionConstraints,
+    KbMacroHedgeReferenceResult,
 )
 from src.domain.product_models import (
     OfficialCandidateShortlist,
@@ -144,6 +154,233 @@ def _model_from_state(key: str, model_class: Any) -> Optional[Any]:
 
 def _save_model(key: str, value: Any) -> None:
     st.session_state[key] = value.model_dump()
+
+
+def _render_kb_macro_hedge_reference(
+    result: KbMacroHedgeReferenceResult,
+) -> None:
+    status_copy = {
+        "READY": "검증 완료",
+        "REFERENCE_ONLY": "참고 전용",
+        "VALIDATION_FAILED": "검증 실패",
+        "UNSUPPORTED_EXPOSURE": "지원 범위 밖",
+        "UPSTREAM_UNAVAILABLE": "외부 파일 사용 불가",
+    }
+    status = status_copy.get(result.status, result.status)
+    if result.status in {"READY", "REFERENCE_ONLY"}:
+        st.success(
+            "{} · 기존 Stage 3와 분리된 외부 참고 결과입니다.".format(
+                status
+            )
+        )
+    else:
+        st.warning(
+            "{} · 외부 후보는 표시하지 않으며 기존 Stage 3 결과는 "
+            "그대로 유지합니다.".format(status)
+        )
+    info_cols = st.columns(3)
+    info_cols[0].metric("검증 상태", status)
+    info_cols[1].metric(
+        "가격 상태",
+        (
+            "목업 가격"
+            if result.pricing_status == "MOCK"
+            else (
+                "목업 아님 · 출처 확인 필요"
+                if result.pricing_status == "ACTUAL"
+                else "확인 불가"
+            )
+        ),
+    )
+    info_cols[2].metric(
+        "현재 거래 결속",
+        (
+            "확인"
+            if (
+                result.request is not None
+                and result.request.binding_mode
+                == "CURRENT_CONFIRMED_TRADE"
+            )
+            else "외부 fixture 자체 검증"
+        ),
+    )
+    st.caption(
+        "단일 USD 수입 지급 전용 · 실제 상품 추천, 가입 승인 또는 "
+        "실행 지시가 아닙니다. 외부 후보는 Stage 4와 상담 리포트에 "
+        "자동 전달되지 않습니다."
+    )
+    if result.request is not None:
+        st.caption(
+            "현재 외부 모델 입력 · 예정 지급액 {} · 보유 USD {} · "
+            "기존 선물환 {} · 순노출 {} · 지급일 {}".format(
+                format_foreign(result.request.amount_usd, "USD"),
+                format_foreign(
+                    result.request.existing_usd_cash,
+                    "USD",
+                ),
+                format_foreign(
+                    result.request.existing_forward_usd,
+                    "USD",
+                ),
+                format_foreign(
+                    result.request.net_exposure_usd,
+                    "USD",
+                ),
+                result.request.payment_date,
+            )
+        )
+    if result.provenance is not None:
+        provenance = result.provenance
+        st.caption(
+            "실행 {} · producer commit {} · schema {} / {} · "
+            "forecast SHA {} · hedge SHA {}".format(
+                (
+                    "고정 로컬 CLI"
+                    if provenance.execution_method
+                    == "PINNED_LOCAL_CLI"
+                    else "사전 생성 파일"
+                ),
+                provenance.producer_commit_sha,
+                provenance.forecast_schema_version,
+                provenance.hedge_schema_version,
+                provenance.forecast_sha256,
+                provenance.hedge_sha256,
+            )
+        )
+    if result.candidates:
+        cards = st.columns(3)
+        strategy_copy = {
+            "forward_only": "선물환만",
+            "forward_and_call_option": "선물환 + 달러 콜옵션",
+            "call_option_only": "달러 콜옵션만",
+            "unhedged": "무헤지",
+        }
+        for card, candidate in zip(cards, result.candidates):
+            with card:
+                st.markdown(
+                    "#### 외부 참고안 {}".format(candidate.rank)
+                )
+                st.write(
+                    strategy_copy.get(
+                        candidate.strategy_type,
+                        candidate.strategy_type,
+                    )
+                )
+                st.write(
+                    "선물환 {} · 콜옵션 {} · 무헤지 {}".format(
+                        format_ratio(candidate.forward_ratio),
+                        format_ratio(candidate.call_option_ratio),
+                        format_ratio(candidate.unhedged_ratio),
+                    )
+                )
+                st.write(
+                    "선물환 {} · 콜옵션 {} · 미고정 {}".format(
+                        format_foreign(
+                            candidate.forward_notional_usd,
+                            "USD",
+                        ),
+                        format_foreign(
+                            candidate.call_option_notional_usd,
+                            "USD",
+                        ),
+                        format_foreign(
+                            candidate.unhedged_notional_usd,
+                            "USD",
+                        ),
+                    )
+                )
+                st.write(
+                    "옵션 quote {} · 프리미엄 {}".format(
+                        candidate.option_id or "미사용",
+                        format_krw(candidate.option_premium_krw),
+                    )
+                )
+                st.caption(
+                    "목적함수 {} · CVaR95 {}".format(
+                        format_krw(candidate.objective_score_krw),
+                        format_krw(candidate.cvar_95_cost_krw),
+                    )
+                )
+    failed = [
+        item for item in result.validation.checks if not item.passed
+    ]
+    if failed:
+        with st.expander("외부 결과 검증 실패 항목", expanded=True):
+            for item in failed:
+                st.write(
+                    "· {}{}: {}".format(
+                        item.check,
+                        (
+                            " ({})".format(item.field)
+                            if item.field
+                            else ""
+                        ),
+                        item.detail,
+                    )
+                )
+    if result.warnings:
+        warning_copy = {
+            "UPSTREAM_JSON_SCHEMAS_NOT_PROVIDED": (
+                "upstream이 공식 request/response JSON Schema를 "
+                "제공하지 않아 내부 필수계약으로 재검증했습니다."
+            ),
+            "UPSTREAM_CONTRACT_MANIFEST_NOT_PROVIDED": (
+                "upstream manifest가 없어 파일 SHA를 실행 설정에서 "
+                "고정했습니다."
+            ),
+            "PRODUCER_COMMIT_NOT_EMBEDDED_IN_RESPONSE": (
+                "producer commit은 response 내장값이 아니라 실행 설정의 "
+                "고정값입니다."
+            ),
+            "REQUEST_AND_FORECAST_HASHES_NOT_EMBEDDED_IN_RESPONSE": (
+                "request/forecast SHA가 response에 내장되지 않아 "
+                "KBaiAgent가 직접 계산했습니다."
+            ),
+            "UPSTREAM_RAW_NUMBERS_ORIGINATED_AS_FLOAT": (
+                "upstream 숫자는 float 기반이며 KBaiAgent에서 "
+                "Decimal(str(value))로 재검증했습니다."
+            ),
+            "CURRENT_TRADE_BINDING_NOT_CHECKED": (
+                "현재 앱 거래와 대조하지 않은 외부 fixture 자체 "
+                "검증입니다."
+            ),
+            "MOCK_QUOTES": "선물환·옵션 가격은 목업입니다.",
+            "ACTUAL_QUOTE_PROVENANCE_NOT_VERIFIED": (
+                "upstream이 목업 아님으로 표시했지만 은행 실제 견적 "
+                "provenance는 별도 확인이 필요합니다."
+            ),
+            "PROTOTYPE_ONLY": "연구·대회용 prototype 결과입니다.",
+            "PAYMENT_DATE_OUTSIDE_THREE_TRADING_DAYS": (
+                "지급일이 forecast 기간과 3거래일 넘게 차이 납니다."
+            ),
+            "NOT_CONNECTED_TO_STAGE4_OR_STAGE5": (
+                "공식 상품 후보와 최종 상담 리포트에는 연결하지 않습니다."
+            ),
+            "PINNED_LOCAL_CLI_EXECUTION": (
+                "고정된 kb_macro_ai commit과 입력 SHA를 확인한 뒤 "
+                "공식 로컬 CLI로 현재 거래를 계산했습니다."
+            ),
+            "TEMPORARY_RAW_OUTPUT_DELETED": (
+                "임시 요청과 raw 결과는 검증 후 삭제하고 정규화된 "
+                "참고 결과만 세션에 보관합니다."
+            ),
+            "INTERNAL_STAGE3_FALLBACK_REMAINS_ACTIVE": (
+                "외부 실행 실패와 관계없이 기존 Stage 3 계산은 유지됩니다."
+            ),
+        }
+        with st.expander("검증 경고와 적용 한계", expanded=False):
+            for warning in result.warnings:
+                st.write(
+                    "· {}".format(warning_copy.get(warning, warning))
+                )
+    with st.expander("고급 · 정규화된 외부 참고 데이터", expanded=False):
+        _advanced_downloads_title()
+        json_download(
+            label="외부 헤지 참고 검증 JSON",
+            value=result,
+            filename="kb_macro_hedge_reference.json",
+            key="download_kb_macro_hedge_reference",
+        )
 
 
 def _live_source_page_texts(
@@ -702,6 +939,7 @@ def _decimal_total(values: List[str]) -> str:
 
 def _stage2_form_defaults(
     value: Optional[Stage2Input],
+    document_input: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     defaults: Dict[str, Any] = {
         "current_cash": "200000000",
@@ -732,6 +970,12 @@ def _stage2_form_defaults(
         "cost_increase": "0",
     }
     if value is None:
+        if document_input is not None:
+            recommended_as_of = recommended_stage2_as_of_date(
+                document_input
+            )
+            defaults["as_of"] = recommended_as_of
+            defaults["same_flow_date"] = recommended_as_of
         return defaults
 
     flows = [
@@ -3878,7 +4122,10 @@ with stage2_tab:
             "stage2_input",
             Stage2Input,
         )
-        form_defaults = _stage2_form_defaults(stored_stage2_input)
+        form_defaults = _stage2_form_defaults(
+            stored_stage2_input,
+            document_input=document_input,
+        )
         st.caption(
             "확정 거래 · {} · {} · 결제일 {}".format(
                 format_foreign(
@@ -3927,6 +4174,9 @@ with stage2_tab:
                 "현금 계산 기준일",
                 value=form_defaults["as_of"],
                 key="stage2_as_of_widget",
+            )
+            timing_cols[0].caption(
+                "가장 이른 예정 결제일보다 늦을 수 없습니다."
             )
             usable_fx = timing_cols[1].text_input(
                 "결제에 사용할 수 있는 보유외화 · {}".format(
@@ -4090,6 +4340,7 @@ with stage2_tab:
                     document_input=document_input,
                     form=form_input,
                 )
+                validate_stage2_as_of_date(stage2_input)
                 workflow = _workflow_from_state()
                 if workflow is None:
                     raise ValueError(
@@ -4816,6 +5067,180 @@ with stage3_tab:
                     filename="stage3_candidates.json",
                     key="download_stage3",
                 )
+    if getattr(settings, "enable_kb_macro_hedge_reference", False):
+        st.divider()
+        _section_intro(
+            "외부 환헤지 조합 참고 결과",
+            "kb_macro_ai 결과를 현재 거래와 분리 검증합니다",
+            "local_cli 모드에서는 확정된 단일 USD 수입 지급 거래를 "
+            "고정된 kb_macro_ai 모델에 전달합니다. 기존 Stage 3를 "
+            "대체하거나 공식 상품·상담 리포트 순위에 합치지 않습니다.",
+        )
+        kb_macro_mode = getattr(settings, "kb_macro_hedge_mode", "off")
+        current_stage2_input = _model_from_state(
+            "stage2_input",
+            Stage2Input,
+        )
+        if kb_macro_mode == "local_cli":
+            st.info(
+                "현재 확정 거래를 kb_macro_ai 모델로 새로 계산합니다. "
+                "IMPORT · USD · 단일 지급 한 건만 지원하며, 가격은 "
+                "상류 저장소의 목업 견적입니다."
+            )
+            with st.expander(
+                "외부 모델 제약조건 입력",
+                expanded=True,
+            ):
+                st.caption(
+                    "다음 값은 기존 Stage 3에서 변환하지 않습니다. "
+                    "kb_macro_ai 시연값을 시작점으로 표시하므로 테스트 "
+                    "조건에 맞게 직접 확인·수정하세요."
+                )
+                cli_cols_1 = st.columns(3)
+                cli_payment_certainty = cli_cols_1[0].text_input(
+                    "지급 확정도 · 0~1",
+                    value="1.0",
+                    key="kb_macro_payment_certainty_widget",
+                )
+                cli_maximum_cost = cli_cols_1[1].text_input(
+                    "허용 가능한 최대 원화 지급액",
+                    value="135000000",
+                    key="kb_macro_maximum_cost_widget",
+                )
+                cli_maximum_probability = cli_cols_1[2].text_input(
+                    "최대 예산초과확률 · 0~1",
+                    value="0.15",
+                    key="kb_macro_maximum_probability_widget",
+                )
+                cli_cols_2 = st.columns(3)
+                cli_risk_tolerance = cli_cols_2[0].selectbox(
+                    "위험성향",
+                    ["low", "medium", "high"],
+                    index=1,
+                    key="kb_macro_risk_tolerance_widget",
+                )
+                cli_maximum_ratio = cli_cols_2[1].text_input(
+                    "최대 총 헤지비율 · 0~1",
+                    value="1.0",
+                    key="kb_macro_maximum_ratio_widget",
+                )
+                cli_option_budget = cli_cols_2[2].text_input(
+                    "옵션 프리미엄 예산 · KRW",
+                    value="1500000",
+                    key="kb_macro_option_budget_widget",
+                )
+                cli_allowed_instruments = st.multiselect(
+                    "허용 상품",
+                    ["forward", "vanilla_usd_call"],
+                    default=["forward", "vanilla_usd_call"],
+                    key="kb_macro_allowed_instruments_widget",
+                )
+                cli_constraints_confirmed = st.checkbox(
+                    "위 제약조건과 목업 선물환·옵션 견적을 참고 계산에 사용합니다",
+                    value=False,
+                    key="kb_macro_cli_constraints_confirmed_widget",
+                )
+            if st.button(
+                "현재 수입 거래로 kb_macro_ai 계산하기",
+                key="run_kb_macro_hedge_model",
+                disabled=(
+                    not cli_constraints_confirmed
+                    or current_stage2_input is None
+                    or stage2_result is None
+                ),
+            ):
+                try:
+                    cli_constraints = (
+                        KbMacroHedgeExecutionConstraints(
+                            payment_certainty=cli_payment_certainty,
+                            maximum_acceptable_cost_krw=(
+                                cli_maximum_cost
+                            ),
+                            maximum_budget_exceedance_probability=(
+                                cli_maximum_probability
+                            ),
+                            risk_tolerance=cli_risk_tolerance,
+                            maximum_total_hedge_ratio=(
+                                cli_maximum_ratio
+                            ),
+                            option_premium_budget_krw=(
+                                cli_option_budget
+                            ),
+                            allowed_instruments=(
+                                cli_allowed_instruments
+                            ),
+                        )
+                    )
+                    reference = run_kb_macro_hedge_for_confirmed_trade(
+                        settings=settings,
+                        stage2_input=current_stage2_input,
+                        stage2_result=stage2_result,
+                        constraints=cli_constraints,
+                        constraints_confirmed=(
+                            cli_constraints_confirmed
+                        ),
+                    )
+                    if reference is not None:
+                        _save_model(
+                            "kb_macro_hedge_reference",
+                            reference,
+                        )
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(
+                        "외부 모델 입력을 확인하세요: {}".format(exc)
+                    )
+        else:
+            binding_label = st.radio(
+                "검증 범위",
+                [
+                    "외부 fixture 파일 자체 검증",
+                    "현재 확정 거래와 금액·지급일 대조",
+                ],
+                key="kb_macro_hedge_binding_widget",
+                help=(
+                    "파일 자체 검증은 생성된 결과의 수학·계약만 검사합니다. "
+                    "현재 거래 대조는 amount/date/cash/forward까지 "
+                    "일치해야 합니다."
+                ),
+            )
+            fixture_constraints_confirmed = st.checkbox(
+                "외부 파일의 목업 제약조건을 참고 검증에 사용합니다",
+                value=False,
+                key="kb_macro_hedge_constraints_confirmed_widget",
+            )
+            if st.button(
+                "외부 헤지 파일 검증하기",
+                key="validate_kb_macro_hedge_reference",
+                disabled=not fixture_constraints_confirmed,
+            ):
+                binding_mode = (
+                    "CURRENT_CONFIRMED_TRADE"
+                    if binding_label
+                    == "현재 확정 거래와 금액·지급일 대조"
+                    else "UPSTREAM_FIXTURE_SELF_TEST"
+                )
+                reference = evaluate_kb_macro_hedge_reference(
+                    settings=settings,
+                    stage2_input=current_stage2_input,
+                    stage2_result=stage2_result,
+                    binding_mode=binding_mode,
+                    fixture_constraints_confirmed=(
+                        fixture_constraints_confirmed
+                    ),
+                )
+                if reference is not None:
+                    _save_model(
+                        "kb_macro_hedge_reference",
+                        reference,
+                    )
+                st.rerun()
+        kb_macro_reference = _model_from_state(
+            "kb_macro_hedge_reference",
+            KbMacroHedgeReferenceResult,
+        )
+        if kb_macro_reference is not None:
+            _render_kb_macro_hedge_reference(kb_macro_reference)
 
 with stage4_tab:
     stage2_result = _model_from_state("stage2_result", Stage2Result)
@@ -5255,17 +5680,65 @@ with stage5_tab:
             official_candidate_shortlist,
         )
     )
+    report_result = _model_from_state(
+        "report_result",
+        ReportResult,
+    )
+    missing_report_steps: List[str] = []
+    if any(
+        item is None
+        for item in (
+            consultation_packet,
+            extraction,
+            confirmation,
+            stage1_load,
+            stage2_result,
+        )
+    ):
+        missing_report_steps.append(
+            "1~2단계에서 거래 확인과 금융 리스크 분석을 완료하세요."
+        )
+    if stage3_result is None:
+        missing_report_steps.append(
+            "3단계 ‘상담 준비’에서 ‘대응안 비교하기’를 누르세요."
+        )
+    if (
+        stage3_result is not None
+        and (
+            stage4_result is None
+            or official_candidate_shortlist is None
+        )
+    ):
+        missing_report_steps.append(
+            "3단계 하단에서 ‘우리 거래에 맞는 공식 상담 후보 찾기’를 "
+            "누르세요."
+        )
     st.divider()
     st.markdown("### 선택 · 대응안과 공식자료까지 포함하기")
-    if not all_ready:
+    if not all_ready and report_result is None:
         st.info(
             "기본 상담 준비서는 위에서 이미 완성됩니다. 대응 시뮬레이션과 "
             "공식 후보 연결을 실행하면 거래·결제 위험까지 포함한 통합 "
             "리포트도 만들 수 있습니다."
         )
-    else:
-        if st.button(
+        if missing_report_steps:
+            st.markdown("**통합 상담 리포트 생성 전 남은 단계**")
+            for index, step in enumerate(missing_report_steps, start=1):
+                st.write("{}. {}".format(index, step))
+        st.button(
             "통합 상담 리포트 만들기",
+            type="primary",
+            key="generate_report",
+            disabled=True,
+            help="위에 표시된 남은 단계를 먼저 완료하세요.",
+        )
+    elif all_ready:
+        if st.button(
+            (
+                "통합 상담 리포트 다시 만들기"
+                if report_result is not None
+                else "통합 상담 리포트 만들기"
+            ),
             type="primary",
             key="generate_report",
         ):
@@ -5292,57 +5765,54 @@ with stage5_tab:
             _save_model("report_result", report)
             _save_workflow(workflow)
             st.rerun()
-        report_result = _model_from_state(
-            "report_result",
-            ReportResult,
+
+    if report_result is not None:
+        st.markdown(
+            "<div class='state-banner'><span class='state-icon'>✓</span>"
+            "<div><strong>통합 상담 리포트가 완성되었습니다</strong>"
+            "<p>수치와 출처를 다시 확인한 뒤 거래은행 또는 보험기관과 "
+            "공유하세요.</p></div></div>",
+            unsafe_allow_html=True,
         )
-        if report_result is not None:
-            st.markdown(
-                "<div class='state-banner'><span class='state-icon'>✓</span>"
-                "<div><strong>통합 상담 리포트가 완성되었습니다</strong>"
-                "<p>수치와 출처를 다시 확인한 뒤 거래은행 또는 보험기관과 "
-                "공유하세요.</p></div></div>",
-                unsafe_allow_html=True,
+        st.download_button(
+            "통합 상담 리포트 다운로드",
+            data=report_result.markdown,
+            file_name="trade_finance_decision_report.md",
+            mime="text/markdown",
+            key="download_report_md",
+            type="primary",
+            width="stretch",
+        )
+        with st.expander(
+            "분석 근거 및 기술 정보 보기",
+            expanded=False,
+        ):
+            json_download(
+                label="근거 데이터 JSON",
+                value=report_result.report_json,
+                filename="trade_finance_decision_report.json",
+                key="download_report_json",
             )
-            st.download_button(
-                "통합 상담 리포트 다운로드",
-                data=report_result.markdown,
-                file_name="trade_finance_decision_report.md",
-                mime="text/markdown",
-                key="download_report_md",
-                type="primary",
-                width="stretch",
+        with st.expander(
+            "통합 상담 리포트 미리보기",
+            expanded=False,
+        ):
+            st.markdown(report_result.markdown)
+        with st.expander("고급 · 보고서 검수 기록", expanded=False):
+            st.caption(
+                "상태: {} · critic={} · score={} · rewrite={} · "
+                "fallback_reason={}".format(
+                    report_result.status,
+                    (
+                        "PASS"
+                        if report_result.critique.passed
+                        else "FALLBACK_POLICY"
+                    ),
+                    report_result.critique.score,
+                    report_result.revision_count,
+                    report_result.fallback_reason or "none",
+                )
             )
-            with st.expander(
-                "분석 근거 및 기술 정보 보기",
-                expanded=False,
-            ):
-                json_download(
-                    label="근거 데이터 JSON",
-                    value=report_result.report_json,
-                    filename="trade_finance_decision_report.json",
-                    key="download_report_json",
-                )
-            with st.expander(
-                "통합 상담 리포트 미리보기",
-                expanded=False,
-            ):
-                st.markdown(report_result.markdown)
-            with st.expander("고급 · 보고서 검수 기록", expanded=False):
-                st.caption(
-                    "상태: {} · critic={} · score={} · rewrite={} · "
-                    "fallback_reason={}".format(
-                        report_result.status,
-                        (
-                            "PASS"
-                            if report_result.critique.passed
-                            else "FALLBACK_POLICY"
-                        ),
-                        report_result.critique.score,
-                        report_result.revision_count,
-                        report_result.fallback_reason or "none",
-                    )
-                )
 
 workflow_trace_state = _workflow_from_state()
 if workflow_trace_state is not None:

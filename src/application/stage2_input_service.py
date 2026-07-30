@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 
@@ -41,6 +42,48 @@ class Stage2FormInput(StrictModel):
     revenue_reduction_percent: str = "0"
     revenue_delay_days: int = Field(default=0, ge=0, le=365)
     cost_increase_percent: str = "0"
+
+
+def recommended_stage2_as_of_date(
+    document_input: Dict[str, Any],
+    *,
+    current_date: Optional[date] = None,
+) -> date:
+    """Choose a valid default without changing the confirmed trade schedule."""
+
+    confirmed_trade = confirmed_trade_from_document_input(document_input)
+    settlement_dates = [
+        date.fromisoformat(item.settlement_date)
+        for item in confirmed_trade.events
+    ]
+    today = current_date or date.today()
+    if not settlement_dates:
+        return today
+    return min(today, min(settlement_dates))
+
+
+def validate_stage2_as_of_date(stage2_input: Stage2Input) -> None:
+    """Give the UI an actionable error before the cashflow engine runs."""
+
+    as_of = date.fromisoformat(stage2_input.as_of_date)
+    settlement_dates = [
+        date.fromisoformat(item.settlement_date)
+        for item in stage2_input.exposures
+    ]
+    if not settlement_dates:
+        return
+    earliest_settlement = min(settlement_dates)
+    if earliest_settlement < as_of:
+        raise ValueError(
+            "현금 계산 기준일({})은 가장 이른 예정 결제일({})보다 "
+            "늦을 수 없습니다. 기준일을 {} 이하로 선택하세요. 이미 "
+            "이행된 금액이 있다면 계약서만으로 추정하지 말고 실제 "
+            "입금·지급 내역을 먼저 반영해야 합니다.".format(
+                as_of.isoformat(),
+                earliest_settlement.isoformat(),
+                earliest_settlement.isoformat(),
+            )
+        )
 
 
 def _decimal_text(
