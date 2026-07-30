@@ -25,6 +25,9 @@ from src.application.stage2_input_service import (
     validate_stage2_as_of_date,
 )
 from src.application.consultation_service import build_decision_support
+from src.application.integration_readiness_service import (
+    build_integration_readiness_report,
+)
 from src.application.kb_macro_hedge_service import (
     evaluate_kb_macro_hedge_reference,
     run_kb_macro_hedge_for_confirmed_trade,
@@ -73,6 +76,9 @@ from src.domain.consultation_models import (
 )
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
+)
+from src.domain.integration_readiness_models import (
+    IntegrationReadinessReport,
 )
 from src.domain.kb_macro_hedge_models import (
     KbMacroHedgeExecutionConstraints,
@@ -389,6 +395,123 @@ def _render_kb_macro_hedge_reference(
             filename="kb_macro_hedge_reference.json",
             key="download_kb_macro_hedge_reference",
         )
+
+
+def _render_integration_readiness(
+    report: IntegrationReadinessReport,
+) -> None:
+    status_copy = {
+        "READY": "준비 완료",
+        "DEGRADED": "주의 필요",
+        "BLOCKED": "설정 확인 필요",
+        "DISABLED": "외부 헤지 꺼짐",
+        "NOT_CHECKED": "미점검",
+    }
+    status = status_copy.get(report.status, report.status)
+    if report.status == "READY":
+        st.success("통합 연결 상태 · {}".format(status))
+    elif report.status == "BLOCKED":
+        st.error("통합 연결 상태 · {}".format(status))
+    else:
+        st.warning("통합 연결 상태 · {}".format(status))
+
+    stage1 = report.stage1
+    st.markdown("**환율 예측 · Stage 1**")
+    st.caption(
+        "상태 {} · provider {} · health {} · source {}".format(
+            status_copy.get(stage1.status, stage1.status),
+            stage1.configured_provider,
+            stage1.health_status or "UNKNOWN",
+            stage1.active_source or "NOT_CHECKED",
+        )
+    )
+    st.caption(
+        "예측일 {} · 시장데이터 {} · freshness {} · provider fallback "
+        "{} · upstream partial fallback {}".format(
+            stage1.prediction_date or "UNKNOWN",
+            stage1.market_data_latest_date or "UNKNOWN",
+            (
+                "PASS"
+                if stage1.forecast_fresh is True
+                else "STALE"
+                if stage1.forecast_fresh is False
+                else "NOT_CHECKED"
+            ),
+            (
+                "사용"
+                if stage1.fallback_used is True
+                else "미사용"
+                if stage1.fallback_used is False
+                else "미점검"
+            ),
+            (
+                "사용"
+                if stage1.partial_fallback_used is True
+                else "미사용"
+                if stage1.partial_fallback_used is False
+                else "미점검"
+            ),
+        )
+    )
+
+    spot = report.spot
+    st.markdown("**기준환율 출처**")
+    st.caption(
+        "상태 {} · 설정 {} · 실제 source {}".format(
+            status_copy.get(spot.status, spot.status),
+            spot.configured_provider,
+            spot.active_source or spot.configured_source,
+        )
+    )
+    st.caption(
+        "자격증명 {} · 수동환율 {} · 이 점검의 외부 환율 호출 없음".format(
+            "설정됨" if spot.credential_configured else "미설정",
+            "설정됨" if spot.manual_rate_configured else "거래 입력 필요",
+        )
+    )
+
+    macro = report.kb_macro_hedge
+    st.markdown("**kb_macro_ai 외부 헤지 참고**")
+    st.caption(
+        "상태 {} · flag {} · mode {} · 현재 거래 {}".format(
+            status_copy.get(macro.status, macro.status),
+            "ON" if macro.feature_enabled else "OFF",
+            macro.configured_mode,
+            (
+                "지원"
+                if macro.exposure.supported is True
+                else "지원 밖"
+                if macro.exposure.supported is False
+                else "거래 확정 후 점검"
+            ),
+        )
+    )
+    st.caption(macro.exposure.detail)
+    st.caption(
+        "producer commit · expected {} · actual {}".format(
+            macro.expected_producer_commit_sha or "NOT_CONFIGURED",
+            macro.actual_producer_commit_sha or "NOT_OBSERVED",
+        )
+    )
+    for asset in macro.assets:
+        st.caption(
+            "{} SHA-256 · expected {} · actual {} · {}".format(
+                asset.asset,
+                asset.expected_sha256 or "NOT_CONFIGURED",
+                asset.actual_sha256 or "NOT_OBSERVED",
+                (
+                    "MATCH"
+                    if asset.sha256_matches is True
+                    else "MISMATCH"
+                    if asset.sha256_matches is False
+                    else "NOT_CHECKED"
+                ),
+            )
+        )
+    st.caption(
+        "API key 값은 표시하지 않습니다. 외부 헤지는 단일 USD 수입 지급 "
+        "참고 전용이며 기존 Stage 3·공식 후보·상담 리포트를 변경하지 않습니다."
+    )
 
 
 def _live_source_page_texts(
@@ -2698,6 +2821,60 @@ with st.sidebar:
                 on_click=_demo_all,
                 args=("SELLER",),
                 key="sidebar_export_sample",
+            )
+    with st.expander("Integration Readiness", expanded=False):
+        st.caption(
+            "Stage 1 health·forecast freshness·fallback·spot 출처와 "
+            "kb_macro_ai 고정 commit·SHA·거래 지원 여부를 점검합니다."
+        )
+        st.caption(
+            "현재 설정 · Stage 1 {} · Spot {} · kb_macro_ai {}/{}".format(
+                settings.stage1_provider,
+                settings.spot_rate_provider,
+                (
+                    "ON"
+                    if settings.enable_kb_macro_hedge_reference
+                    else "OFF"
+                ),
+                settings.kb_macro_hedge_mode,
+            )
+        )
+        if st.button(
+            "연동 상태 점검",
+            key="check_integration_readiness",
+            width="stretch",
+        ):
+            try:
+                readiness = build_integration_readiness_report(
+                    settings=settings,
+                    stage2_input=_model_from_state(
+                        "stage2_input",
+                        Stage2Input,
+                    ),
+                    market_integration=_model_from_state(
+                        "market_integration",
+                        MarketIntegrationResult,
+                    ),
+                    active_stage1_check=True,
+                    run_local_cli_e2e=False,
+                )
+                _save_model("integration_readiness", readiness)
+            except Exception as exc:
+                st.error(
+                    "연동 상태를 안전하게 확인하지 못했습니다: {}".format(
+                        type(exc).__name__
+                    )
+                )
+        stored_readiness = _model_from_state(
+            "integration_readiness",
+            IntegrationReadinessReport,
+        )
+        if stored_readiness is not None:
+            _render_integration_readiness(stored_readiness)
+        else:
+            st.caption(
+                "상태 점검 전입니다. 이 버튼은 API key 값을 출력하지 않고 "
+                "kb_macro_ai 모델을 실행하지 않습니다."
             )
     loaded_demo = st.session_state.pop("demo_just_loaded", None)
     if loaded_demo:

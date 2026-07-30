@@ -39,6 +39,7 @@ REQUIRED_FILES = (
     "scripts/export_finetuning_candidates.py",
     "scripts/export_finetuning_dataset.py",
     "scripts/run_decision_demo.py",
+    "scripts/check_integration_readiness.py",
     "docs/ARCHITECTURE.md",
     "docs/REPOSITORY_AUDIT.md",
     "docs/STAGE0_DOCUMENT_INTAKE.md",
@@ -57,6 +58,7 @@ REQUIRED_FILES = (
     "docs/SECURITY_PRIVACY.md",
     "docs/LIMITATIONS.md",
     "docs/LIVE_BENCHMARK_RESULTS.md",
+    "docs/INTEGRATION_READINESS.md",
     "docs/LIVE_BENCHMARK_RUNBOOK.md",
     "docs/SUBMISSION_READINESS.md",
     "docs/DEMO_SCRIPT_KO.md",
@@ -219,6 +221,7 @@ def _check_readme(errors: List[str]) -> None:
     for document in (
         "STAGE1_INTEGRATION.md",
         "SPOT_PROVIDER_SETUP.md",
+        "INTEGRATION_READINESS.md",
         "TEAM_HANDOFF_KO.md",
     ):
         if document not in readme:
@@ -481,6 +484,7 @@ def _check_imports(errors: List[str]) -> None:
         "src.document_intake.normalization",
         "src.document_intake.openai_adapter",
         "src.application.demo_service",
+        "src.application.integration_readiness_service",
         "src.application.market_integration_service",
         "src.application.consultation_service",
         "src.application.official_candidate_service",
@@ -491,6 +495,7 @@ def _check_imports(errors: List[str]) -> None:
         "src.consultation.risk_classifier",
         "src.consultation.trade_settlement_risk",
         "src.domain.consultation_models",
+        "src.domain.integration_readiness_models",
         "src.domain.stage1_web_models",
         "src.domain.trade_risk_models",
         "src.security.upload_guard",

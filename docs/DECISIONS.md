@@ -601,3 +601,40 @@ Trade-off: 계약서만으로 실제 이행 회차를 알 수 없는 동안 Stag
 Revisit condition: 실제 이행내역을 승인된 provenance와 함께 받는
 `actual_outstanding_balance` 계약이 생기거나, 복수 확정 settlement를 Stage 1이
 각각 지원하는 버전 계약이 승인될 때 재검토합니다.
+
+## 33. Integration readiness is a read-only, sanitized control plane
+
+Context: Stage 1 HTTP가 실제로 살아 있는지, fallback이나 stale forecast를 쓰는지,
+Spot이 어느 출처로 준비됐는지, `kb_macro_ai` feature flag·producer commit·입력
+SHA와 현재 거래가 맞는지를 발표자가 서로 다른 화면과 명령으로 확인해야 했습니다.
+개별 계산 테스트 통과만으로 실제 연결 준비 상태를 설명할 수 없고, 반대로 상태
+확인을 위해 환율 API나 외부 헤지 모델을 자동 실행하면 비용·상태 변경 경계가
+불명확해집니다.
+
+Decision: `IntegrationReadinessReport`를 Stage 1~5 결과와 분리한 strict, read-only
+계약으로 둡니다. Streamlit 버튼은 Stage 1 health/forecast만 능동 확인하고 Spot은
+설정 여부 또는 이미 계산된 `SpotQuote.source`만 읽습니다. `kb_macro_ai`는
+flag/mode, exact producer commit, tracked worktree, 허용 경로, 입력 SHA와 현재
+Stage 2 거래 지원 여부를 표시하되 모델을 자동 실행하지 않습니다.
+
+CLI의 명시적 `--run-local-cli-e2e`만 고정 단일 USD 100,000 수입 지급 fixture를
+기존 `run_kb_macro_hedge_for_confirmed_trade`에 전달합니다. 기존 commit/SHA,
+timeout, 사용자 제약, 수학·certificate 검증을 우회하지 않고 raw 요청·응답은 임시
+디렉터리 삭제 경계를 유지합니다. 상태 JSON에는 API key나 Authorization 값,
+Stage 1 전체 URL, 로컬 허용 root를 저장하지 않으며 credential 존재 여부만
+boolean으로 둡니다.
+
+Rationale: 연결 실패, provider fallback, 원본 partial fallback, research-only,
+fixture/manual 확인과 미지원 거래를 한 화면에서 구분하면서 금융 계산과 안전 gate를
+변경하지 않습니다. `DEGRADED`는 숨겨진 성공이 아니라 사용 가능한 연결에 공개된
+주의사항이 있음을 뜻합니다.
+
+Trade-off: Streamlit 점검은 Spot live API와 local CLI E2E를 실행하지 않으므로
+실제 provider 응답은 CLI의 명시 실행 또는 정상 거래 흐름에서 따로 확인해야 합니다.
+현재 거래가 없으면 지원 여부는 `NOT_CHECKED`입니다. readiness 결과는 금융상품
+추천, 가격 유효성, 가입 승인이나 운영 SLA가 아닙니다.
+
+Revisit condition: 인증된 운영 control plane과 secret manager, Stage 1/hedge
+서비스 SLA 계약이 생기면 중앙 health endpoint로 옮길 수 있습니다. 그때도
+readiness가 금융 계산 결과를 변경하거나 외부 참고 결과를 Stage 3~5에 자동
+게시하지 않는 경계는 유지합니다.

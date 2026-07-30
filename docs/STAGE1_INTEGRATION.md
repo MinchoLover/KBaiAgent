@@ -86,3 +86,25 @@ src/integration_assets/stage1/team_model_report_3page.docx
 
 fixture spot은 실시간 환율이 아니며 결과에 `TEST_FIXTURE_NOT_LIVE_RATE`로
 표시됩니다.
+
+## 발표·운영 readiness
+
+다음 명령은 configured provider의 health와 normalized forecast를 읽어 실제 source,
+prediction date, market-data date, freshness, provider fallback과 upstream
+partial fallback을 표시한다.
+
+```bash
+python scripts/check_integration_readiness.py
+```
+
+Streamlit에서는 사이드바 `Integration Readiness`의 `연동 상태 점검`을 누른다.
+Spot은 실제 환율을 새로 조회하지 않고 설정 source와 자격증명 존재 여부만
+표시한다. 현재 분석에 `MarketIntegrationResult`가 있으면 이미 사용된
+`SpotQuote.source`를 함께 표시한다. API key 값과 Stage 1 URL의 자격정보는 상태
+계약에 포함하지 않는다.
+
+`health=OK`, `forecast_fresh=true`, `provider fallback=false`여도 원본 forecast가
+`partial_fallback_used=true` 또는 `research_only=true`이면 전체 Stage 1 readiness는
+`DEGRADED`다. 이는 연결 실패가 아니라 모델 데이터·용도 제한을 숨기지 않는
+표시다. 자세한 상태 계약은
+[INTEGRATION_READINESS.md](INTEGRATION_READINESS.md)를 따른다.

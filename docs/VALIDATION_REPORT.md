@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 한 명령 release gate | `python scripts/verify.py` | PASS |
 | compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q .` | PASS |
-| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 506/506 PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 515/515 PASS |
 | Golden 확정거래 사용자 흐름 | `python scripts/verify_golden_user_flow.py` | API-free Stage 0~5 PASS/FALLBACK, 모든 downstream due date `2026-08-20` |
 | Golden 날짜·상태·음성·AppTest | `python -m unittest tests.test_golden_transaction_e2e -v` | 17/17 PASS |
 | Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
@@ -30,6 +30,58 @@
 | Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
 | Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
 | sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
+| Integration Readiness 집중 회귀 | `python -m unittest tests.test_integration_readiness tests.test_kb_macro_hedge_reference tests.test_stage1_web_integration -v` | 54/54 PASS |
+| 실제 pinned `local_cli` 합성 수입 E2E | `python scripts/check_integration_readiness.py --run-local-cli-e2e` + runbook 고정 환경 | PASS, `REFERENCE_ONLY / MOCK`, validation PASS, 후보 3개 |
+
+## Integration Readiness 실제 점검
+
+2026-07-31 KST에 `scripts/check_integration_readiness.py`로
+Stage 1과 고정 `kb_macro_ai` 로컬 실행을 함께 점검했습니다. 환율 API, OpenAI와
+외부 유료 API는 호출하지 않았습니다.
+
+```text
+Stage 1 configured provider: http
+Stage 1 endpoint: LOCAL_HTTP
+health: OK
+active source: HTTP
+prediction date / market-data date: 2026-07-29 / 2026-07-29
+forecast freshness: PASS
+provider fallback: false
+upstream partial fallback: true
+research only: true
+
+Spot configured provider/source: koreaexim / KOREAEXIM_DEAL_BASE_RATE
+credential configured: true
+spot call performed by readiness check: false
+
+kb_macro_ai feature/mode: true / local_cli
+producer commit:
+  expected=7d3efa41cdc8bbb8da61b6b0c6108bdf55713e3e
+  actual=7d3efa41cdc8bbb8da61b6b0c6108bdf55713e3e
+tracked worktree: clean
+CLI: available
+forecast SHA:
+  b565cfa283ba93541541bce0ef88e8f9e4e5bb2b5557fefdc8429638c678318c
+model config SHA:
+  56904f5fe31312bca5cdf4f8910870c7d02b93faf3c60eade6731d224126e1a3
+market history SHA:
+  78feb433e43f51ba556b39f737db2616cbe3c3bd34d6cd02b68372e473b51c39
+quote template SHA:
+  c537c65b1d33398bd5de7007c56c8189833c04ebfaf46ab04a0b8e1e3213168f
+
+synthetic fixture: IMPORT / USD 100000 / 2026-08-27 / single payable
+local_cli result: REFERENCE_ONLY / MOCK
+validation: PASS
+candidates/ranks: 3 / 1,2,3
+temporary raw output: deleted
+overall readiness: DEGRADED
+```
+
+`DEGRADED`는 연결 또는 E2E 실패가 아니라 Stage 1 원본에 기록된
+`partial_fallback_used=true`, `research_only=true`를 반영한 결과입니다. Spot
+credential은 설정 여부만 확인했고 값은 출력·상태 JSON에 포함하지 않았습니다.
+외부 헤지 결과는 기존 Stage 3, Stage 4, ConsultationPacket과 Stage 5에 전달되지
+않았습니다.
 
 ## Golden 확정 거래 사용자 흐름 회귀
 

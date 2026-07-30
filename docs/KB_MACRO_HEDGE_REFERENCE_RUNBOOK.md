@@ -56,6 +56,19 @@ KB_MACRO_EXPECTED_QUOTE_TEMPLATE_SHA256=c537c65b1d33398bd5de7007c56c8189833c04eb
 .venv/bin/python -m streamlit run app.py
 ```
 
+같은 환경변수로 앱을 열기 전 한 번에 무결성과 합성 수입 E2E를 확인할 수 있다.
+
+```bash
+python scripts/check_integration_readiness.py --run-local-cli-e2e
+```
+
+이 명령은 `USD 100,000`, 지급일 `2026-08-27`, 보유 USD `10,000`, 기존
+선물환 `0`인 합성 단일 수입 지급만 사용한다. 기존 local CLI gate와 응답
+validator를 그대로 통과하며 성공 시 `REFERENCE_ONLY / MOCK`, validation PASS,
+후보 rank `1,2,3`, 임시 raw 삭제를 표시한다. 환율·OpenAI API는 호출하지 않는다.
+결과 필드와 상태 해석은
+[INTEGRATION_READINESS.md](INTEGRATION_READINESS.md)를 본다.
+
 브라우저에서는 다음 순서로 진행한다.
 
 1. 실제 또는 합성 문서에서 `IMPORT`, `USD`, 단일 지급일을 확인한다.

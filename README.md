@@ -196,6 +196,16 @@ MANUAL_USDKRW_RATE=1400
 팀 모델 연결은
 [docs/STAGE1_INTEGRATION.md](docs/STAGE1_INTEGRATION.md), 환율 출처 설정은
 [docs/SPOT_PROVIDER_SETUP.md](docs/SPOT_PROVIDER_SETUP.md)를 봅니다.
+발표·운영 전에는 다음 한 명령과 Streamlit 사이드바의
+`Integration Readiness`로 health, forecast freshness/fallback, spot 출처와
+외부 헤지 commit·SHA·현재 거래 지원 여부를 비밀값 없이 확인할 수 있습니다.
+
+```bash
+python scripts/check_integration_readiness.py
+```
+
+상태 의미와 단일 USD 수입 지급 `local_cli` E2E는
+[docs/INTEGRATION_READINESS.md](docs/INTEGRATION_READINESS.md)를 봅니다.
 단일 USD 수입 지급용 `kb_macro_ai` 헤지는 feature flag 기본 off인 별도 참고
 영역에서 사용합니다. 고정 파일 검증뿐 아니라 pinned producer commit의 공식
 로컬 CLI를 현재 확정 수입 거래로 실행할 수 있으며, 생성된 결과도 KBaiAgent가
@@ -218,7 +228,7 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-07-31 현재 489개 테스트가 통과했습니다.
+검사를 한 명령으로 실행합니다. 2026-07-31 현재 515개 테스트가 통과했습니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
@@ -238,11 +248,13 @@ Baseline v1/v2 합성 8건씩의 결과는
 | Stage 1 HTTP/file/mock | 완료 | `forecast_provider.py` |
 | 제공 Stage 1 JSON 정규화 | 완료 | `web_forecast.py`, fixture tests |
 | Spot 공식/수동/fixture | 완료 | `spot_rate.py`; live 공식 호출은 자격증명 필요 |
+| Integration Readiness | 완료 | CLI+Streamlit health/freshness/fallback/commit/SHA 점검 |
 | 모델/고정 scenario·horizon | 완료 | `scenario_builder.py` |
 | Decimal Stage 2 ledger | 완료 | `src/stage2/` |
 | 위험 코드·상담 Top 3 | 완료 | 기존 finding + 명시적 lexicographic rule, LLM 미사용 |
 | JSON/Markdown 상담 handoff | 완료 | 같은 `ConsultationPacket`에서 UI·Markdown·Stage 5 파생 |
 | Stage 3 제약 후보 | 프로토타입 | 실제 은행 가격 없이 명시적 가정 |
+| `kb_macro_ai` 외부 헤지 참고 | 프로토타입 | 단일 USD 수입 지급, pinned local CLI/file, 목업 가격은 `REFERENCE_ONLY` |
 | 공식자료 검색 | 부분 구현 | 검증된 local snapshot, 선택적 web |
 | 설명 보고서·critic | 완료 | API 없는 template fallback 포함 |
 | 수입·수출 fixture E2E | 완료 | `run_integrated_decision_demo`, tests |

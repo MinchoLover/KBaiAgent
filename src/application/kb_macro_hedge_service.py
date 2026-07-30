@@ -394,6 +394,39 @@ def _current_trade_values(
     )
 
 
+def inspect_kb_macro_exposure_support(
+    stage2_input: Optional[Stage2Input],
+    *,
+    provider_mode: str = "local_cli",
+) -> KbMacroHedgeValidation:
+    """Inspect the existing exposure gate without invoking a provider."""
+
+    if stage2_input is None:
+        checks = _Checks()
+        checks.add(
+            "CURRENT_STAGE2_INPUT",
+            False,
+            "stage2_input",
+            "확정 거래의 Stage 2 입력이 없어 지원 여부를 아직 확인할 수 없습니다.",
+        )
+        return checks.model()
+    unused_values, unsupported = _current_trade_values(
+        stage2_input,
+        provider_mode=provider_mode,
+    )
+    del unused_values
+    if unsupported is not None:
+        return unsupported.validation
+    checks = _Checks()
+    checks.add(
+        "SUPPORTED_SINGLE_USD_IMPORT_PAYABLE",
+        True,
+        "stage2_input.exposures",
+        "단일 USD 수입 지급과 기존 offset 제약을 충족합니다.",
+    )
+    return checks.model()
+
+
 def _request_hash(request: KbMacroHedgeRequest) -> str:
     payload = json.dumps(
         request.model_dump(),
