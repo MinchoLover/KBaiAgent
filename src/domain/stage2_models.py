@@ -10,6 +10,29 @@ PreprocessingWarningCode = Literal[
     "INELIGIBLE_SAME_CURRENCY_FLOW_IGNORED",
 ]
 
+CashflowErrorCode = Literal[
+    "INVALID_DATE_ORDER",
+    "MISSING_REQUIRED_DATE",
+    "INVALID_AMOUNT",
+    "UNSUPPORTED_DIRECTION",
+    "STALE_CONFIRMED_STATE",
+    "INTERNAL_CALCULATION_ERROR",
+]
+
+
+class CashflowErrorDetail(StrictModel):
+    code: CashflowErrorCode
+    stage: Literal["cashflow"] = "cashflow"
+    user_message: str
+    input_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    due_date: Optional[str] = None
+    cashflow_base_date: Optional[str] = None
+    field_path: Optional[str] = None
+    exception_type: Optional[str] = None
+
 
 class SameCurrencyFlow(StrictModel):
     date: str

@@ -17,8 +17,10 @@ from schemas import (
     ValidationResult,
 )
 from src.application.stage2_input_service import (
+    CashflowValidationError,
     Stage2FormInput,
     build_stage2_input_from_form,
+    classify_cashflow_error,
     recommended_stage2_as_of_date,
     validate_stage2_as_of_date,
 )
@@ -83,7 +85,11 @@ from src.domain.product_models import (
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
 from src.domain.stage1_web_models import MarketIntegrationResult
-from src.domain.stage2_models import Stage2Input, Stage2Result
+from src.domain.stage2_models import (
+    CashflowErrorDetail,
+    Stage2Input,
+    Stage2Result,
+)
 from src.domain.stage3_models import Stage3Assumptions, Stage3Result
 from src.domain.trade_risk_models import (
     ProtectionMechanism,
@@ -92,7 +98,10 @@ from src.domain.trade_risk_models import (
     TradeSettlementRiskInput,
 )
 from src.security.upload_guard import validate_upload
-from src.stage2.binding import confirmed_trade_from_document_input
+from src.stage2.binding import (
+    confirmed_analysis_due_date_from_document_input,
+    confirmed_trade_from_document_input,
+)
 from src.ui.components import (
     SCHEDULED_EXPOSURE_WARNING,
     amount_due_user_label,
@@ -119,7 +128,6 @@ from src.ui.state import (
     clear_downstream,
     clear_review_widgets,
     clear_trade_risk_and_related,
-    clear_transaction_widgets,
     input_signature,
     sync_input_signature,
 )
@@ -769,6 +777,27 @@ def _workflow_from_state() -> Optional[WorkflowState]:
 
 def _save_workflow(value: WorkflowState) -> None:
     _save_model("workflow_state", value)
+
+
+def _render_cashflow_error(detail: CashflowErrorDetail) -> None:
+    st.error(detail.user_message)
+    with st.expander("오류 기술 정보", expanded=False):
+        st.write("error code: `{}`".format(detail.code))
+        st.write("stage: `{}`".format(detail.stage))
+        st.write(
+            "input fingerprint: `{}`".format(
+                detail.input_fingerprint or "UNKNOWN"
+            )
+        )
+        st.write("used due_date: `{}`".format(detail.due_date or "UNKNOWN"))
+        st.write(
+            "cashflow base date: `{}`".format(
+                detail.cashflow_base_date or "UNKNOWN"
+            )
+        )
+        st.write(
+            "field path: `{}`".format(detail.field_path or "UNKNOWN")
+        )
 
 
 def _rebuild_consultation_with_payment_statuses(
@@ -1882,7 +1911,7 @@ def _advanced_downloads_title() -> None:
 
 
 def _demo_all(company_role: str = "BUYER") -> None:
-    clear_transaction_widgets(st.session_state)
+    _reset_state()
     st.session_state["run_mode_widget"] = "데모 모드"
     st.session_state["company_role_widget"] = (
         "구매자 · BUYER"
@@ -3657,10 +3686,17 @@ with stage1_tab:
         )
     else:
         trade = document_input["trade"]
-        target_date = (
-            trade["settlement_date"]
-            or trade["cashflow_events"][0]["settlement_date"]
-        )
+        target_date = ""
+        try:
+            target_date = confirmed_analysis_due_date_from_document_input(
+                document_input
+            )
+        except (TypeError, ValueError) as exc:
+            st.error(
+                "확정 결제일을 금융분석에 연결할 수 없습니다: {}".format(
+                    str(exc)
+                )
+            )
         st.session_state.setdefault(
             "stage1_mode_widget",
             (
@@ -3805,8 +3841,14 @@ with stage1_tab:
             "환율 위험 범위 준비하기",
             type="primary",
             key="load_stage1",
+            disabled=not bool(target_date),
         ):
             try:
+                clear_downstream(
+                    st.session_state,
+                    1,
+                    clear_widgets=False,
+                )
                 workflow = _workflow_from_state()
                 if workflow is None:
                     raise ValueError(
@@ -3828,6 +3870,7 @@ with stage1_tab:
                     spot_provider=spot_provider,
                     manual_spot_confirmed=manual_spot_confirmed,
                 )
+                _save_workflow(workflow)
                 if (
                     workflow.market_risk is None
                     or workflow.market_risk.data is None
@@ -3848,7 +3891,6 @@ with stage1_tab:
                         "market_integration",
                         workflow.market_integration,
                     )
-                _save_workflow(workflow)
                 clear_downstream(st.session_state, 2)
                 st.success("환율 가정이 준비되었습니다. 현금 영향을 계산하세요.")
                 st.rerun()
@@ -4118,6 +4160,19 @@ with stage2_tab:
                 extraction=extraction_for_trade_risk,
             )
         trade = document_input["trade"]
+        confirmed_analysis_due_date = ""
+        try:
+            confirmed_analysis_due_date = (
+                confirmed_analysis_due_date_from_document_input(
+                    document_input
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            st.error(
+                "확정 결제일을 현금 계산에 연결할 수 없습니다: {}".format(
+                    str(exc)
+                )
+            )
         stored_stage2_input = _model_from_state(
             "stage2_input",
             Stage2Input,
@@ -4133,8 +4188,7 @@ with stage2_tab:
                     trade["currency"],
                 ),
                 "수입 결제" if trade["trade_type"] == "IMPORT" else "수출 수취",
-                trade["settlement_date"]
-                or trade["cashflow_events"][0]["settlement_date"],
+                confirmed_analysis_due_date or "확인 필요",
             )
         )
         with st.form("stage2_company_input"):
@@ -4312,9 +4366,15 @@ with stage2_tab:
             stage2_submit = st.form_submit_button(
                 "환율·자금 위험 계산하기",
                 type="primary",
+                disabled=not bool(confirmed_analysis_due_date),
             )
 
         if stage2_submit:
+            clear_downstream(
+                st.session_state,
+                2,
+                clear_widgets=False,
+            )
             try:
                 form_input = Stage2FormInput(
                     as_of_date=as_of.isoformat(),
@@ -4350,20 +4410,24 @@ with stage2_tab:
                     workflow,
                     stage2_input,
                 )
+                _save_workflow(workflow)
                 if workflow.cashflow is None or workflow.cashflow.data is None:
-                    raise ValueError(
-                        "결정론 계산에 실패했습니다: {}".format(
+                    detail = workflow.cashflow_error or classify_cashflow_error(
+                        ValueError(
                             ", ".join(
                                 workflow.cashflow.errors
                                 if workflow.cashflow is not None
                                 else []
                             )
-                        )
+                        ),
+                        stage2_input=stage2_input,
                     )
+                    _save_model("cashflow_error", detail)
+                    raise CashflowValidationError(detail)
                 result = workflow.cashflow.data
                 _save_model("stage2_input", stage2_input)
                 _save_model("stage2_result", result)
-                _save_workflow(workflow)
+                st.session_state.pop("cashflow_error", None)
                 clear_downstream(st.session_state, 3)
                 extraction_for_decision = _model_from_state(
                     "extraction",
@@ -4407,8 +4471,20 @@ with stage2_tab:
                 _save_decision_support(decision_support)
                 st.success("환율별 현금 영향 계산을 완료했습니다.")
                 st.rerun()
+            except CashflowValidationError as exc:
+                _save_model("cashflow_error", exc.detail)
+                _render_cashflow_error(exc.detail)
             except (ValueError, TypeError) as exc:
-                st.error("계산 입력을 확인하세요: {}".format(exc))
+                detail = classify_cashflow_error(exc)
+                _save_model("cashflow_error", detail)
+                _render_cashflow_error(detail)
+
+        stored_cashflow_error = _model_from_state(
+            "cashflow_error",
+            CashflowErrorDetail,
+        )
+        if stored_cashflow_error is not None and not stage2_submit:
+            _render_cashflow_error(stored_cashflow_error)
 
         stage2_result = _model_from_state("stage2_result", Stage2Result)
         if stage2_result is not None:

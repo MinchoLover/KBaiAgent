@@ -609,6 +609,9 @@ def run_stage2(
         },
         source_paths={
             "total_foreign_amount": "stage2.input.exposures[].foreign_amount",
+            "settlement_date": (
+                "stage0.confirmation.confirmed_values.settlement_date"
+            ),
             "natural_offset": (
                 "stage2.exposure_computations[].natural_offset"
             ),

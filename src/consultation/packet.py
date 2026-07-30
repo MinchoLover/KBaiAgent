@@ -31,6 +31,7 @@ from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+from src.stage2.binding import validate_downstream_due_date
 from src.stage2.metrics import money_string
 
 
@@ -164,16 +165,6 @@ def _confirmed_fields(
     if checks.due_date_confirmed:
         fields.append("settlement_date")
     return fields
-
-
-def _settlement_date(stage2_result: Stage2Result) -> str:
-    dates = list(
-        dict.fromkeys(
-            item.settlement_date
-            for item in stage2_result.exposure_computations
-        )
-    )
-    return ", ".join(dates)
 
 
 def _required_documents(
@@ -841,6 +832,14 @@ def build_consultation_packet(
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
 ) -> ConsultationPacketResult:
+    confirmed_due_date = validate_downstream_due_date(
+        confirmation=confirmation,
+        stage1_target_date=stage1.target_date,
+        stage2_dates=[
+            item.settlement_date
+            for item in stage2_result.exposure_computations
+        ],
+    )
     worst = _worst_scenario(stage2_result, assessment)
     loss = max(Decimal(worst.loss_vs_base), Decimal("0"))
     counterparty_country = (
@@ -925,7 +924,7 @@ def build_consultation_packet(
             trade_type=stage2_result.trade_type,
             currency=stage2_result.currency,
             counterparty_country=counterparty_country,
-            settlement_date=_settlement_date(stage2_result),
+            settlement_date=confirmed_due_date,
             trade_amount_fx=stage2_result.total_foreign_amount,
             company_role=extraction.company_role,
             incoterm=extraction.incoterm,

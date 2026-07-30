@@ -15,6 +15,7 @@ PIPELINE_KEYS = (
     "market_integration",
     "stage2_input",
     "stage2_result",
+    "cashflow_error",
     "trade_risk_confirmation",
     "trade_risk_assessment",
     "country_environment_input",
@@ -194,7 +195,12 @@ def sync_input_signature(state: object, signature: str) -> bool:
     return changed
 
 
-def clear_downstream(state: object, from_stage: int) -> None:
+def clear_downstream(
+    state: object,
+    from_stage: int,
+    *,
+    clear_widgets: bool = True,
+) -> None:
     stage_keys = {
         0: PIPELINE_KEYS,
         1: (
@@ -202,6 +208,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
             "market_integration",
             "stage2_input",
             "stage2_result",
+            "cashflow_error",
             "risk_assessment",
             "consultation_topics",
             "installment_payment_statuses",
@@ -215,6 +222,7 @@ def clear_downstream(state: object, from_stage: int) -> None:
         2: (
             "stage2_input",
             "stage2_result",
+            "cashflow_error",
             "risk_assessment",
             "consultation_topics",
             "consultation_packet",
@@ -268,7 +276,11 @@ def clear_downstream(state: object, from_stage: int) -> None:
     clear_keys(
         state,
         stage_keys.get(from_stage, ())
-        + stage_widget_keys.get(from_stage, ()),
+        + (
+            stage_widget_keys.get(from_stage, ())
+            if clear_widgets
+            else ()
+        ),
     )
 
 
@@ -284,6 +296,7 @@ def clear_confirmation_and_later(state: object) -> None:
             "market_integration",
             "stage2_input",
             "stage2_result",
+            "cashflow_error",
             "trade_risk_confirmation",
             "trade_risk_assessment",
             "country_environment_input",

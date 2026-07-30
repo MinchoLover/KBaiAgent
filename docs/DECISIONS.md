@@ -562,3 +562,42 @@ Trade-off: 현재 handoff는 로컬 JSON/Markdown 다운로드이며 실제 예�
 Revisit condition: 인증·tenant·동의와 KB 내부 API 계약이 승인된 후에만 packet
 전송 adapter와 처리상태를 추가합니다. 그 전에는 다운로드를 전송 완료로
 표현하지 않습니다.
+
+## 32. Confirmed due date is the only document-workflow settlement date
+
+Context: Golden 계약서 확인 화면은 계약일 `2026-07-29`, 선적일
+`2026-08-05`, 확정 결제일 `2026-08-20`을 올바르게 표시했지만 기존
+`build_stage2_input`이 분할회차를 금융 cashflow event로 직접 만들었습니다.
+Streamlit Stage 1은 명시 settlement date가 없으면 첫 event 날짜로 fallback하여
+USD 20,000 선지급 예정일인 계약일을 target date로 사용했습니다. cashflow 기준일
+`2026-07-30`보다 이 event가 빨라 엔진이
+`settlement_date는 as_of_date보다 빠를 수 없습니다` ValueError를 냈고 UI는
+`cashflow 단계 실패 (ValueError)`만 표시했습니다.
+
+Decision: 사용자 확인 뒤 문서 워크플로의 canonical settlement date는
+`ConfirmationRecord.checks.confirmed_due_date`와
+`confirmed_values.settlement_date`가 일치하는 값 하나입니다. Stage 1,
+Stage 2, UI 요약, `ConsultationPacket`과 Stage 5는 모두 이 값을 재검증합니다.
+계약일·선적일·첫 분할회차일 fallback은 금지합니다.
+
+분할결제는 `trade.installment_schedule`에 원문 회차·금액·날짜·조건을 보존하되,
+현재 계약상 예정 노출 분석은 `amount_due` 전체를 확정 due date에 둔 cashflow
+event 하나로 결속합니다. Golden에서는 USD 20,000 + USD 80,000 =
+USD 100,000이며 실제 선지급 입금 여부는 계속 `UNKNOWN`입니다. 이 결정은
+금융 공식, 위험 임계값, 상담 우선순위나 실제 미수잔액 의미를 변경하지 않습니다.
+
+Stage 입력을 다시 제출하거나 문서 signature·확인값이 바뀌면 종전 금융 결과와
+상담·보고서를 먼저 무효화합니다. 새 분석과 데모 전환은 session state 전체를
+초기화합니다. cashflow 오류는 여섯 개 구조화 코드와 safe fingerprint/date/path로
+남기고 원문·traceback은 사용자 화면에 노출하지 않습니다.
+
+Rationale: 화면과 실제 계산이 같은 확인 snapshot을 사용하고, 오류를 Golden
+파일명 하드코딩 없이 일반적인 날짜 불변식과 음성 테스트로 차단합니다.
+
+Trade-off: 계약서만으로 실제 이행 회차를 알 수 없는 동안 Stage 2는 예정 노출
+전체를 분석합니다. 실제 입금·지급 이력이 확인되면 이미 이행된 금액을 제외하는
+별도 확인 경로가 필요합니다.
+
+Revisit condition: 실제 이행내역을 승인된 provenance와 함께 받는
+`actual_outstanding_balance` 계약이 생기거나, 복수 확정 settlement를 Stage 1이
+각각 지원하는 버전 계약이 승인될 때 재검토합니다.

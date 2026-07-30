@@ -10,6 +10,10 @@ from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Result
 from src.domain.stage3_models import Stage3Result
+from src.stage2.binding import (
+    confirmed_due_date_from_confirmation,
+    validate_downstream_due_date,
+)
 from src.stage5.critic import critique_report
 
 
@@ -416,6 +420,22 @@ def build_report_source_bundle(
     market_integration: Optional[MarketIntegrationResult] = None,
     consultation_packet: Optional[ConsultationPacket] = None,
 ) -> Dict[str, Any]:
+    confirmed_due_date = validate_downstream_due_date(
+        confirmation=confirmation,
+        stage1_target_date=stage1.target_date,
+        stage2_dates=[
+            item.settlement_date
+            for item in stage2.exposure_computations
+        ],
+    )
+    if (
+        consultation_packet is not None
+        and consultation_packet.company_summary.settlement_date
+        != confirmed_due_date
+    ):
+        raise ValueError(
+            "상담 패킷 결제일이 확정 결제일과 일치하지 않습니다."
+        )
     confirmed_values = {
         key: confirmation.confirmed_values.get(key)
         for key in (
@@ -515,25 +535,8 @@ def generate_deterministic_report(
         if stage1.kind == "STRESS"
         else "외부 Stage 1 값은 FORECAST이며 보장값이 아닙니다."
     )
-    settlement_value = confirmation.confirmed_values.get("settlement_date")
-    if settlement_value:
-        due_date = str(settlement_value)
-        due_source = (
-            "stage0.confirmation.confirmed_values.settlement_date"
-        )
-    else:
-        installment_dates = confirmation.confirmed_values.get(
-            "installment_due_dates",
-            [],
-        )
-        due_date = (
-            ", ".join(str(item) for item in installment_dates if item)
-            if isinstance(installment_dates, list)
-            else ""
-        ) or "미확인"
-        due_source = (
-            "stage0.confirmation.confirmed_values.installment_due_dates"
-        )
+    due_date = confirmed_due_date_from_confirmation(confirmation)
+    due_source = "stage0.confirmation.confirmed_values.settlement_date"
     product_lines = "\n".join(
         _product_lines(
             stage4=stage4,

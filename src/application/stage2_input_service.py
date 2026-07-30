@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
@@ -6,6 +8,7 @@ from pydantic import Field
 
 from schemas import StrictModel
 from src.domain.stage2_models import (
+    CashflowErrorDetail,
     CompositeStress,
     ExistingHedge,
     ExposureInput,
@@ -44,6 +47,169 @@ class Stage2FormInput(StrictModel):
     cost_increase_percent: str = "0"
 
 
+class CashflowValidationError(ValueError):
+    def __init__(self, detail: CashflowErrorDetail) -> None:
+        self.detail = detail
+        super().__init__(detail.user_message)
+
+
+def stage2_input_fingerprint(
+    stage2_input: Optional[Stage2Input],
+) -> Optional[str]:
+    if stage2_input is None:
+        return None
+    serialized = json.dumps(
+        stage2_input.model_dump(),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def cashflow_error_detail(
+    *,
+    code: str,
+    user_message: str,
+    stage2_input: Optional[Stage2Input] = None,
+    due_date: Optional[str] = None,
+    cashflow_base_date: Optional[str] = None,
+    field_path: Optional[str] = None,
+    exception_type: Optional[str] = None,
+) -> CashflowErrorDetail:
+    return CashflowErrorDetail(
+        code=code,
+        user_message=user_message,
+        input_fingerprint=stage2_input_fingerprint(stage2_input),
+        due_date=due_date,
+        cashflow_base_date=cashflow_base_date,
+        field_path=field_path,
+        exception_type=exception_type,
+    )
+
+
+def classify_cashflow_error(
+    exc: Exception,
+    *,
+    stage2_input: Optional[Stage2Input] = None,
+) -> CashflowErrorDetail:
+    if isinstance(exc, CashflowValidationError):
+        return exc.detail
+
+    message = str(exc)
+    lowered = message.lower()
+    due_date = None
+    cashflow_base_date = None
+    field_path = None
+    if stage2_input is not None:
+        cashflow_base_date = stage2_input.as_of_date
+        if stage2_input.exposures:
+            due_date = stage2_input.exposures[0].settlement_date
+
+    if (
+        (
+            "settlement_date" in lowered
+            and "as_of_date" in lowered
+        )
+        or (
+            "as_of_date" in lowered
+            and ("이전" in message or "빠를" in message)
+        )
+        or ("기준일" in message and "결제일" in message)
+    ):
+        code = "INVALID_DATE_ORDER"
+        if "krw cashflow" in lowered:
+            field_path = "stage2.krw_cashflows[].date"
+            user_message = (
+                "예정 원화 현금흐름 중 현금 계산 기준일보다 이전인 "
+                "항목이 있습니다. 기준일 이전 이력은 현재 현금과 "
+                "중복되지 않도록 다시 확인하세요."
+            )
+        else:
+            field_path = "stage2.exposures[].settlement_date"
+            user_message = (
+                "확정 결제일({})이 현금 계산 기준일({})보다 이전입니다. "
+                "거래 확인 단계의 결제일과 계산 기준일을 다시 확인하세요."
+            ).format(due_date or "UNKNOWN", cashflow_base_date or "UNKNOWN")
+    elif any(
+        token in lowered
+        for token in (
+            "confirmed_due_date",
+            "settlement_date가 필요",
+            "date가 필요",
+            "결제일이 없습니다",
+            "결제일 확인",
+        )
+    ):
+        code = "MISSING_REQUIRED_DATE"
+        field_path = "stage0.confirmation.confirmed_values.settlement_date"
+        user_message = (
+            "확정 결제일이 없습니다. 거래 확인 단계에서 결제일을 "
+            "확인한 뒤 다시 계산하세요."
+        )
+    elif any(
+        token in lowered
+        for token in (
+            "fingerprint",
+            "확인 기록",
+            "확정 거래",
+            "결속",
+            "snapshot",
+        )
+    ):
+        code = "STALE_CONFIRMED_STATE"
+        field_path = "stage0.confirmation"
+        user_message = (
+            "확정 거래와 현재 금융 입력이 서로 다릅니다. 거래 확인을 "
+            "다시 실행해 최신 확정값으로 분석하세요."
+        )
+    elif any(
+        token in lowered
+        for token in (
+            "amount",
+            "금액",
+            "decimal",
+        )
+    ):
+        code = "INVALID_AMOUNT"
+        field_path = "stage2.exposures[].foreign_amount"
+        user_message = (
+            "분석 금액이 유효하지 않거나 확정 거래금액과 다릅니다. "
+            "거래금액과 분할결제 합계를 다시 확인하세요."
+        )
+    elif any(
+        token in lowered
+        for token in (
+            "trade_type",
+            "direction",
+            "거래 방향",
+            "수입 또는 수출",
+        )
+    ):
+        code = "UNSUPPORTED_DIRECTION"
+        field_path = "stage2.exposures[].trade_type"
+        user_message = (
+            "확정 거래 방향을 금융 계산에 적용할 수 없습니다. "
+            "수입·수출 방향을 다시 확인하세요."
+        )
+    else:
+        code = "INTERNAL_CALCULATION_ERROR"
+        user_message = (
+            "현금흐름 계산 중 내부 오류가 발생했습니다. 입력을 "
+            "보존했으므로 기술정보의 오류 코드를 확인하세요."
+        )
+
+    return cashflow_error_detail(
+        code=code,
+        user_message=user_message,
+        stage2_input=stage2_input,
+        due_date=due_date,
+        cashflow_base_date=cashflow_base_date,
+        field_path=field_path,
+        exception_type=type(exc).__name__,
+    )
+
+
 def recommended_stage2_as_of_date(
     document_input: Dict[str, Any],
     *,
@@ -65,25 +231,51 @@ def recommended_stage2_as_of_date(
 def validate_stage2_as_of_date(stage2_input: Stage2Input) -> None:
     """Give the UI an actionable error before the cashflow engine runs."""
 
-    as_of = date.fromisoformat(stage2_input.as_of_date)
-    settlement_dates = [
-        date.fromisoformat(item.settlement_date)
-        for item in stage2_input.exposures
-    ]
+    try:
+        as_of = date.fromisoformat(stage2_input.as_of_date)
+        settlement_dates = [
+            date.fromisoformat(item.settlement_date)
+            for item in stage2_input.exposures
+        ]
+    except (TypeError, ValueError) as exc:
+        detail = cashflow_error_detail(
+            code="MISSING_REQUIRED_DATE",
+            user_message=(
+                "현금 계산 기준일과 확정 결제일은 YYYY-MM-DD "
+                "형식으로 모두 필요합니다."
+            ),
+            stage2_input=stage2_input,
+            field_path="stage2.as_of_date|stage2.exposures[].settlement_date",
+            exception_type=type(exc).__name__,
+        )
+        raise CashflowValidationError(detail) from exc
     if not settlement_dates:
-        return
+        detail = cashflow_error_detail(
+            code="MISSING_REQUIRED_DATE",
+            user_message="확정 결제일이 있는 금융 노출이 필요합니다.",
+            stage2_input=stage2_input,
+            field_path="stage2.exposures[].settlement_date",
+        )
+        raise CashflowValidationError(detail)
     earliest_settlement = min(settlement_dates)
     if earliest_settlement < as_of:
-        raise ValueError(
-            "현금 계산 기준일({})은 가장 이른 예정 결제일({})보다 "
-            "늦을 수 없습니다. 기준일을 {} 이하로 선택하세요. 이미 "
-            "이행된 금액이 있다면 계약서만으로 추정하지 말고 실제 "
-            "입금·지급 내역을 먼저 반영해야 합니다.".format(
+        detail = cashflow_error_detail(
+            code="INVALID_DATE_ORDER",
+            user_message=(
+                "확정 결제일({})이 현금 계산 기준일({})보다 이전입니다. "
+                "거래 확인 단계의 결제일과 계산 기준일을 다시 확인하세요. "
+                "이미 이행된 금액이 있다면 계약서만으로 추정하지 말고 "
+                "실제 입금·지급 내역을 먼저 반영해야 합니다."
+            ).format(
+                earliest_settlement.isoformat(),
                 as_of.isoformat(),
-                earliest_settlement.isoformat(),
-                earliest_settlement.isoformat(),
-            )
+            ),
+            stage2_input=stage2_input,
+            due_date=earliest_settlement.isoformat(),
+            cashflow_base_date=as_of.isoformat(),
+            field_path="stage2.exposures[].settlement_date",
         )
+        raise CashflowValidationError(detail)
 
 
 def _decimal_text(

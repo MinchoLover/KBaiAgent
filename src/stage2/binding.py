@@ -1,7 +1,7 @@
 import hashlib
 import json
 import re
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Sequence
 
 from pydantic import Field
 
@@ -181,6 +181,68 @@ def _confirmed_values_match_extraction(
     )
 
 
+def confirmed_due_date_from_confirmation(
+    confirmation: ConfirmationRecord,
+) -> str:
+    """Return the one canonical downstream date without a date fallback."""
+
+    checks_value = confirmation.checks.confirmed_due_date
+    snapshot_value = confirmation.confirmed_values.get(
+        "settlement_date"
+    )
+    if not checks_value or not snapshot_value:
+        raise ValueError(
+            "확정 결제일이 없습니다. 계약일이나 분할결제 첫 회차일을 "
+            "대신 사용할 수 없습니다."
+        )
+    checks_date = date_value(
+        str(checks_value),
+        "confirmation.checks.confirmed_due_date",
+    ).isoformat()
+    snapshot_date = date_value(
+        str(snapshot_value),
+        "confirmation.confirmed_values.settlement_date",
+    ).isoformat()
+    if checks_date != snapshot_date:
+        raise ValueError(
+            "확인 기록의 결제일 snapshot이 현재 확인값과 다릅니다."
+        )
+    return checks_date
+
+
+def validate_downstream_due_date(
+    *,
+    confirmation: ConfirmationRecord,
+    stage1_target_date: str,
+    stage2_dates: Sequence[str],
+) -> str:
+    """Fail closed when any downstream stage diverges from confirmation."""
+
+    confirmed_due_date = confirmed_due_date_from_confirmation(
+        confirmation
+    )
+    normalized_stage1 = date_value(
+        stage1_target_date,
+        "stage1.scenario_set.target_date",
+    ).isoformat()
+    if normalized_stage1 != confirmed_due_date:
+        raise ValueError(
+            "Stage 1 target_date가 확정 결제일과 일치하지 않습니다."
+        )
+    if not stage2_dates:
+        raise ValueError("Stage 2 결제·수취일이 없습니다.")
+    for index, value in enumerate(stage2_dates):
+        normalized = date_value(
+            value,
+            "stage2.exposures[{}].settlement_date".format(index),
+        ).isoformat()
+        if normalized != confirmed_due_date:
+            raise ValueError(
+                "Stage 2 결제·수취일이 확정 결제일과 일치하지 않습니다."
+            )
+    return confirmed_due_date
+
+
 def confirmed_trade_from_confirmation(
     *,
     extraction: TradeDocumentExtraction,
@@ -207,32 +269,18 @@ def confirmed_trade_from_confirmation(
     if trade_type not in {"IMPORT", "EXPORT"} or currency is None:
         raise ValueError("확인된 거래 방향과 통화를 결정할 수 없습니다.")
 
-    events: List[ConfirmedTradeEvent] = []
-    if extraction.installments:
-        for installment in extraction.installments:
-            events.append(
-                _normalized_event(
-                    sequence=installment.sequence,
-                    trade_type=trade_type,
-                    currency=installment.currency or currency,
-                    foreign_amount=installment.amount,
-                    settlement_date=installment.due_date,
-                )
-            )
-    else:
-        settlement_date = (
-            confirmation.checks.confirmed_due_date
-            or recomputed.resolved_due_date
+    settlement_date = confirmed_due_date_from_confirmation(
+        confirmation
+    )
+    events = [
+        _normalized_event(
+            sequence=1,
+            trade_type=trade_type,
+            currency=currency,
+            foreign_amount=extraction.amount_due,
+            settlement_date=settlement_date,
         )
-        events.append(
-            _normalized_event(
-                sequence=1,
-                trade_type=trade_type,
-                currency=currency,
-                foreign_amount=extraction.amount_due,
-                settlement_date=settlement_date,
-            )
-        )
+    ]
 
     return _build_binding(
         source_sha256=confirmation.source_sha256,
@@ -303,6 +351,36 @@ def confirmed_trade_from_document_input(
         currency=currency,
         events=events,
     )
+
+
+def confirmed_analysis_due_date_from_document_input(
+    document_input: Dict[str, Any],
+) -> str:
+    """Read the canonical UI/Stage 1 date and reject schedule fallbacks."""
+
+    trade = document_input.get("trade")
+    if not isinstance(trade, dict):
+        raise ValueError("확정 거래 snapshot이 필요합니다.")
+    raw_due_date = trade.get("settlement_date")
+    if not raw_due_date:
+        raise ValueError(
+            "확정 거래 snapshot에 결제일이 없습니다. 계약일이나 첫 "
+            "분할결제일을 대신 사용하지 않습니다."
+        )
+    due_date = date_value(
+        str(raw_due_date),
+        "trade.settlement_date",
+    ).isoformat()
+    binding = confirmed_trade_from_document_input(document_input)
+    if len(binding.events) != 1:
+        raise ValueError(
+            "금융분석용 확정 거래는 하나의 예정 노출 이벤트여야 합니다."
+        )
+    if binding.events[0].settlement_date != due_date:
+        raise ValueError(
+            "금융분석용 거래 이벤트의 날짜가 확정 결제일과 다릅니다."
+        )
+    return due_date
 
 
 def validate_stage2_trade_binding(

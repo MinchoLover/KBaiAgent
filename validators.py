@@ -1557,49 +1557,57 @@ def build_stage2_input(
     if currency is None or amount_due is None or amount_due <= 0:
         raise ValueError("유효한 통화와 0보다 큰 amount_due가 필요합니다.")
 
-    cashflow_events: List[Dict[str, Any]] = []
-    if extraction.installments:
-        for installment in extraction.installments:
-            installment_amount = parse_decimal_string(installment.amount)
-            installment_currency = normalize_currency(
-                installment.currency or currency
-            )
-            installment_due = parse_iso_date(installment.due_date)
-            if (
-                installment_amount is None
-                or installment_amount <= 0
-                or installment_currency is None
-                or installment_due is None
-            ):
-                raise ValueError("분할결제 항목이 완전하지 않습니다.")
-            cashflow_events.append(
-                {
-                    "sequence": installment.sequence,
-                    "currency": installment_currency,
-                    "foreign_amount": format(installment_amount, "f"),
-                    "settlement_date": installment_due.isoformat(),
-                    "condition": installment.condition,
-                }
-            )
-    else:
-        settlement_text = (
-            confirmations.confirmed_due_date
-            or validation.resolved_due_date
-        )
-        settlement = parse_iso_date(settlement_text)
-        if settlement is None:
-            raise ValueError("결제 예정일이 필요합니다.")
-        cashflow_events.append(
-            {
-                "sequence": 1,
-                "currency": currency,
-                "foreign_amount": format(amount_due, "f"),
-                "settlement_date": settlement.isoformat(),
-                "condition": extraction.payment_terms,
-            }
+    settlement_text = confirmations.confirmed_due_date
+    settlement = parse_iso_date(settlement_text)
+    if settlement is None:
+        raise ValueError(
+            "확정 결제일이 필요합니다. 계약일이나 분할결제 첫 회차일을 "
+            "대신 사용하지 않습니다."
         )
 
+    installment_schedule: List[Dict[str, Any]] = []
+    installment_total = Decimal("0")
+    for installment in extraction.installments:
+        installment_amount = parse_decimal_string(installment.amount)
+        installment_currency = normalize_currency(
+            installment.currency or currency
+        )
+        installment_due = parse_iso_date(installment.due_date)
+        if (
+            installment_amount is None
+            or installment_amount <= 0
+            or installment_currency is None
+            or installment_due is None
+        ):
+            raise ValueError("분할결제 항목이 완전하지 않습니다.")
+        installment_total += installment_amount
+        installment_schedule.append(
+            {
+                "sequence": installment.sequence,
+                "currency": installment_currency,
+                "foreign_amount": format(installment_amount, "f"),
+                "settlement_date": installment_due.isoformat(),
+                "condition": installment.condition,
+            }
+        )
+    if installment_schedule and installment_total != amount_due:
+        raise ValueError(
+            "분할결제 합계와 분석 대상 예정 결제액이 일치해야 합니다."
+        )
+
+    cashflow_events = [
+        {
+            "sequence": 1,
+            "currency": currency,
+            "foreign_amount": format(amount_due, "f"),
+            "settlement_date": settlement.isoformat(),
+            "condition": extraction.payment_terms,
+        }
+    ]
+
     contract = parse_iso_date(extraction.contract_date)
+    shipment = parse_iso_date(extraction.shipment_date)
+    settlement_source = "stage0.confirmation.checks.confirmed_due_date"
     return {
         "schema_version": "1.0.0",
         "source": {
@@ -1623,12 +1631,13 @@ def build_stage2_input(
             "contract_date": (
                 contract.isoformat() if contract is not None else None
             ),
-            "settlement_date": (
-                cashflow_events[0]["settlement_date"]
-                if len(cashflow_events) == 1
-                else None
+            "shipment_date": (
+                shipment.isoformat() if shipment is not None else None
             ),
+            "settlement_date": settlement.isoformat(),
+            "settlement_date_source": settlement_source,
             "cashflow_events": cashflow_events,
+            "installment_schedule": installment_schedule,
             "available_foreign_currency": "0",
         },
         "company_cash": {

@@ -13,6 +13,10 @@ from src.config import Settings
 from src.application.market_integration_service import (
     integrate_stage1_market,
 )
+from src.application.stage2_input_service import (
+    cashflow_error_detail,
+    classify_cashflow_error,
+)
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import ConsultationPacket
 from src.domain.country_environment_models import (
@@ -29,7 +33,9 @@ from src.stage1.adapter import load_stage1
 from src.stage1.manual_scenarios import build_manual_stress_scenarios
 from src.stage1.normalizer import normalize_stage1_scenarios
 from src.stage2.binding import (
+    confirmed_due_date_from_confirmation,
     confirmed_trade_from_confirmation,
+    validate_downstream_due_date,
     validate_stage2_trade_binding,
 )
 from src.stage2.engine import run_stage2
@@ -308,6 +314,7 @@ class WorkflowOrchestrator:
             state.market_integration = None
             state.stage2_input = None
             state.cashflow = None
+            state.cashflow_error = None
             state.hedge = None
             state.selected_strategy = None
             state.product_search = None
@@ -318,6 +325,7 @@ class WorkflowOrchestrator:
             state.rewrite_count = 0
         elif stage == "cashflow":
             state.stage2_input = None
+            state.cashflow_error = None
             state.hedge = None
             state.selected_strategy = None
             state.product_search = None
@@ -414,6 +422,42 @@ class WorkflowOrchestrator:
         else:
             currency = str(expected_currency or "").strip().upper()
             target_date = str(expected_target_date or "").strip()
+        try:
+            confirmed_due_date = confirmed_due_date_from_confirmation(
+                state.confirmation
+            )
+        except (TypeError, ValueError) as exc:
+            result = StageResult[Stage1LoadResult](
+                status=StageStatus.FAILED,
+                errors=[
+                    "확정 결제일을 Stage 1에 연결하지 못했습니다: {}".format(
+                        str(exc)
+                    )
+                ],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider="confirmed_trade_binding",
+            )
+            state.market_risk = result
+            state.final_status = StageStatus.FAILED
+            self._record(state, "market_risk", result)
+            return state
+        if target_date and target_date != confirmed_due_date:
+            result = StageResult[Stage1LoadResult](
+                status=StageStatus.FAILED,
+                errors=[
+                    "Stage 1 target_date가 확정 결제일과 일치하지 않습니다."
+                ],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider="confirmed_trade_binding",
+            )
+            state.market_risk = result
+            state.final_status = StageStatus.FAILED
+            self._record(state, "market_risk", result)
+            return state
         if not currency or not target_date:
             result = StageResult[Stage1LoadResult](
                 status=StageStatus.FAILED,
@@ -578,31 +622,100 @@ class WorkflowOrchestrator:
                 stage2_input=stage2_input,
             )
         except (TypeError, ValueError) as exc:
+            detail = classify_cashflow_error(
+                exc,
+                stage2_input=stage2_input,
+            ).model_copy(
+                update={
+                    "code": "STALE_CONFIRMED_STATE",
+                    "user_message": (
+                        "확정 거래와 현재 금융 입력이 서로 다릅니다. "
+                        "거래 확인을 다시 실행해 최신 확정값으로 분석하세요. "
+                        "원인: {}"
+                    ).format(str(exc)),
+                    "field_path": "stage0.confirmation",
+                }
+            )
             result = StageResult[Stage2Result](
                 status=StageStatus.FAILED,
-                errors=[
-                    "확인된 거래와 Stage 2 입력을 결속하지 못했습니다: "
-                    "{}".format(str(exc))
-                ],
+                errors=[detail.user_message],
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
                 duration_ms=self._duration_ms(started_ns),
                 provider="confirmed_trade_binding",
             )
             state.cashflow = result
+            state.cashflow_error = detail
             state.final_status = StageStatus.FAILED
             self._record(state, "cashflow", result)
             return state
         if state.market_risk is None or state.market_risk.data is None:
+            detail = cashflow_error_detail(
+                code="STALE_CONFIRMED_STATE",
+                user_message=(
+                    "환율 가정 결과가 없거나 현재 거래와 맞지 않습니다. "
+                    "환율 위험 범위를 다시 준비하세요."
+                ),
+                stage2_input=stage2_input,
+                due_date=(
+                    stage2_input.exposures[0].settlement_date
+                    if stage2_input.exposures
+                    else None
+                ),
+                cashflow_base_date=stage2_input.as_of_date,
+                field_path="workflow.market_risk",
+            )
             result = StageResult[Stage2Result](
                 status=StageStatus.FAILED,
-                errors=["market_risk 결과가 없어 cashflow를 실행할 수 없습니다."],
+                errors=[detail.user_message],
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
                 duration_ms=self._duration_ms(started_ns),
                 provider="decimal_cashflow_engine",
             )
             state.cashflow = result
+            state.cashflow_error = detail
+            state.final_status = StageStatus.FAILED
+            self._record(state, "cashflow", result)
+            return state
+        try:
+            validate_downstream_due_date(
+                confirmation=state.confirmation,
+                stage1_target_date=(
+                    state.market_risk.data.scenario_set.target_date
+                ),
+                stage2_dates=[
+                    item.settlement_date
+                    for item in stage2_input.exposures
+                ],
+            )
+        except (TypeError, ValueError) as exc:
+            detail = classify_cashflow_error(
+                exc,
+                stage2_input=stage2_input,
+            ).model_copy(
+                update={
+                    "code": "STALE_CONFIRMED_STATE",
+                    "user_message": (
+                        "확정 결제일과 환율·현금흐름 입력의 날짜가 서로 "
+                        "다릅니다. 거래 확인부터 다시 실행하세요."
+                    ),
+                    "field_path": (
+                        "stage0.confirmation|stage1.target_date|"
+                        "stage2.exposures[].settlement_date"
+                    ),
+                }
+            )
+            result = StageResult[Stage2Result](
+                status=StageStatus.FAILED,
+                errors=[detail.user_message],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider="confirmed_trade_binding",
+            )
+            state.cashflow = result
+            state.cashflow_error = detail
             state.final_status = StageStatus.FAILED
             self._record(state, "cashflow", result)
             return state
@@ -628,17 +741,23 @@ class WorkflowOrchestrator:
             )
             state.stage2_input = stage2_input
             state.cashflow = result
+            state.cashflow_error = None
             state.final_status = StageStatus.RUNNING
         except Exception as exc:
+            detail = classify_cashflow_error(
+                exc,
+                stage2_input=stage2_input,
+            )
             result = StageResult[Stage2Result](
                 status=StageStatus.FAILED,
-                errors=[self._safe_error("cashflow", exc)],
+                errors=[detail.user_message],
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
                 duration_ms=self._duration_ms(started_ns),
                 provider="decimal_cashflow_engine",
             )
             state.cashflow = result
+            state.cashflow_error = detail
             state.final_status = StageStatus.FAILED
         self._record(state, "cashflow", result)
         return state
