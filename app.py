@@ -3790,12 +3790,12 @@ if current_page == PAGE_HOME:
             )
         render_sample_info_card(
             (
-                "브라질 Golden 수출 샘플 · API-free 합성문서"
+                "브라질 Golden 수출 샘플"
                 if presentation_mode
-                else "미국 수출 샘플 · API-free 합성문서"
+                else "미국 수출 샘플"
             ),
-            "실제 고객정보가 없으며 모든 데이터는 가명·합성 데이터로 "
-            "구성되어 있습니다.",
+            "실제 고객정보가 없는 API-free 합성문서입니다. 모든 데이터는 "
+            "가명·합성 데이터로 구성되어 있습니다.",
         )
         completed_step = (
             4
