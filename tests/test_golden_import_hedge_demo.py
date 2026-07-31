@@ -380,6 +380,7 @@ class GoldenImportHedgeStreamlitTests(unittest.TestCase):
             app.session_state["stage3_result"] = artifacts[
                 "stage3"
             ].model_dump()
+            app.session_state["active_page"] = "analysis"
             app.run()
             binding = next(
                 item

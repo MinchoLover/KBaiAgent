@@ -45,7 +45,7 @@ class GoldenPresentationTests(unittest.TestCase):
         )
         self.assertEqual(
             summary["missing_information"],
-            "USD 20,000 선지급의 실제 입금 여부와 입금일",
+            "선지급 USD 20,000 실제 입금 여부 확인 필요",
         )
         self.assertEqual(
             summary["source_path"],

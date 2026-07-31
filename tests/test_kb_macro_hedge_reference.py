@@ -1001,6 +1001,8 @@ class KbMacroHedgeStreamlitTests(unittest.TestCase):
                 str(ROOT / "app.py"),
                 default_timeout=25,
             ).run()
+            app.session_state["active_page"] = "analysis"
+            app.run()
 
         self.assertEqual(len(app.exception), 0)
         button = next(
@@ -1045,6 +1047,8 @@ class KbMacroHedgeStreamlitTests(unittest.TestCase):
                 str(ROOT / "app.py"),
                 default_timeout=25,
             ).run()
+            app.session_state["active_page"] = "analysis"
+            app.run()
             checkbox = next(
                 item
                 for item in app.checkbox

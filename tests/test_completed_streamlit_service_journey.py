@@ -12,6 +12,7 @@ from src.application.stage2_input_service import (
     CashflowValidationError,
     Stage2FormInput,
     build_validated_stage2_input_from_form,
+    classify_cashflow_error,
 )
 from src.config import Settings
 from src.stage2.binding import (
@@ -128,6 +129,25 @@ class ConfirmedTransactionProductionTests(unittest.TestCase):
         self.assertEqual(len(detail.input_fingerprint), 64)
         self.assertIn("ValueError", detail.technical_message)
         self.assertNotIn("Traceback", detail.technical_message)
+
+    def test_invalid_editor_direction_is_not_misclassified_as_trade_type(self):
+        detail = classify_cashflow_error(
+            ValueError(
+                "KrwCashflowEvent direction Input should be "
+                "'INFLOW' or 'OUTFLOW'"
+            ),
+            input_fingerprint="f" * 64,
+            supplied_offending_value="invalid-direction",
+        )
+
+        self.assertEqual(detail.code, "INVALID_CASH_INPUT")
+        self.assertEqual(
+            detail.field_path,
+            "stage2.krw_cashflows[].direction",
+        )
+        self.assertEqual(detail.offending_value, "invalid-direction")
+        self.assertIn("INFLOW", detail.user_message)
+        self.assertIn("OUTFLOW", detail.user_message)
 
     def test_export_held_fx_is_retained_as_non_applicable_context(self):
         stage2_input = build_validated_stage2_input_from_form(
@@ -320,6 +340,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 "registered_api_free_fixture",
             )
             snapshot = _state(app, "confirmed_transaction")
+            self.assertEqual(_state(app, "active_page"), "analysis")
             self.assertEqual(snapshot["contract_date"], "2026-07-29")
             self.assertEqual(snapshot["shipment_date"], "2026-08-05")
             self.assertEqual(snapshot["due_date"], "2026-08-20")
@@ -440,6 +461,15 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 self.assertIn(title, card)
                 self.assertIn("상담에서 결정할 사항", card)
                 self.assertIn("다음 행동", card)
+
+            _by_key(
+                app.button,
+                "go_to_consultation_from_summary",
+            ).click().run(timeout=30)
+            self.assertEqual(
+                _state(app, "active_page"),
+                "consultation",
+            )
 
             _by_key(
                 app.button,

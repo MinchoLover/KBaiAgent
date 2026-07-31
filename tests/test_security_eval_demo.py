@@ -428,13 +428,6 @@ class EndToEndTests(unittest.TestCase):
             str(ROOT / "app.py"),
             default_timeout=20,
         ).run()
-        role_widget = next(
-            radio
-            for radio in app.radio
-            if radio.label == "이 거래에서 우리 회사의 역할"
-        )
-        role_widget.set_value("판매자 · SELLER").run()
-        self.assertEqual(len(app.exception), 0)
         export_demo = next(
             button
             for button in app.button
@@ -442,15 +435,8 @@ class EndToEndTests(unittest.TestCase):
         )
         export_demo.click().run()
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(
-            [tab.label for tab in app.tabs],
-            [
-                "1  거래 확인",
-                "2  금융 분석",
-                "3  상담 준비",
-                "4  결과 다운로드",
-            ],
-        )
+        self.assertEqual(app.session_state["active_page"], "analysis")
+        self.assertEqual([tab.label for tab in app.tabs], [])
         self.assertEqual(
             next(
                 radio.value

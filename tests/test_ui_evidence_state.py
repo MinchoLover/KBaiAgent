@@ -322,18 +322,18 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         ).run()
 
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(
-            [item.label for item in app.tabs],
-            [
-                "1  거래 확인",
-                "2  금융 분석",
-                "3  상담 준비",
-                "4  결과 다운로드",
-            ],
-        )
+        self.assertEqual([item.label for item in app.tabs], [])
         button_labels = [item.label for item in app.button]
         self.assertIn("샘플 수출 거래로 체험하기", button_labels)
         self.assertIn("내 거래문서 업로드", button_labels)
+        for navigation_label in (
+            "⌂  홈",
+            "▤  거래",
+            "▥  분석",
+            "▣  상담 준비",
+            "⇩  다운로드",
+        ):
+            self.assertIn(navigation_label, button_labels)
         visible_text = " ".join(
             [item.value for item in app.markdown]
             + [item.value for item in app.caption]
@@ -343,7 +343,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "합성문서",
             "실제 고객정보가 없는",
             "API-free",
-            "금융상품 가입·승인 또는 보험 인수 결과가 아닙니다",
+            "금융상품 가입·승인, 보험 인수 또는 대출 심사 결과가 아닙니다",
             "계약서를 검증하고",
         ):
             self.assertIn(expected, visible_text)
@@ -846,6 +846,13 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             if button.label == "미국 수출 샘플"
         )
         demo.click().run()
+        self.assertEqual(app.session_state["active_page"], "analysis")
+        next(
+            button
+            for button in app.button
+            if button.key == "go_to_consultation_from_summary"
+        ).click().run()
+        self.assertEqual(app.session_state["active_page"], "consultation")
 
         self.assertEqual(len(app.exception), 0)
         visible_text = " ".join(
@@ -866,7 +873,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "2,000,000원",
             "현금 적자",
             "지급 또는 post-credit 부족",
-            "지금 은행과 확인할 순서입니다",
+            "핵심 숫자와 결정사항을 확인한 뒤",
             "상품 승인·보험 인수·대출 심사 결과가 아닙니다",
         ):
             self.assertIn(expected, visible_text)

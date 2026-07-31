@@ -572,6 +572,7 @@ class GoldenStreamlitStateTests(unittest.TestCase):
             )
             app.session_state["report_result"] = report.model_dump()
             app.session_state["workflow_state"] = workflow.model_dump()
+            app.session_state["active_page"] = "analysis"
             app.run()
 
         self.assertEqual(len(app.exception), 0)

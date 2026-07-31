@@ -1279,6 +1279,11 @@ class StreamlitReviewFlowTests(unittest.TestCase):
             str(ROOT / "app.py"),
             default_timeout=20,
         ).run()
+        next(
+            button
+            for button in app.button
+            if button.key == "service_register_document"
+        ).click().run()
         mode = next(
             radio
             for radio in app.radio
