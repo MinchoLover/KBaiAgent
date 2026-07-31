@@ -2492,6 +2492,7 @@ def _advanced_downloads_title() -> None:
 
 def _demo_all(company_role: str = "BUYER") -> None:
     _reset_state()
+    st.session_state["journey_started"] = True
     st.session_state["run_mode_widget"] = "데모 모드"
     st.session_state["company_role_widget"] = (
         "구매자 · BUYER"
@@ -2585,6 +2586,7 @@ def _reset_state() -> None:
 
 def _start_document_registration() -> None:
     _reset_state()
+    st.session_state["journey_started"] = True
     st.session_state["run_mode_widget"] = "실제 문서 분석"
 
 
@@ -3518,47 +3520,54 @@ with st.sidebar:
             "AI 추출값은 사용자 확인 전 계산에 들어가지 않습니다."
         )
 
-st.markdown(
-    "<section class='hero-shell'>"
-    "<div class='hero-copy'>"
-    "<div class='eyebrow'>수출입 기업 재무 담당자용</div>"
-    "<h1>수출입 거래 금융 리스크 분석</h1>"
-    "<p>계약서를 검증하고 환율·현금흐름·결제·회수 위험을 분석해 "
-    "은행 상담 준비사항까지 정리합니다.</p></div></section>",
-    unsafe_allow_html=True,
+journey_started = bool(
+    st.session_state.get("journey_started")
+    or st.session_state.get("extraction")
 )
-with st.container(
-    border=True,
-    key="service_entry_actions",
-):
-    entry_columns = st.columns(2)
+if not journey_started:
+    st.markdown(
+        "<section class='hero-shell'>"
+        "<div class='hero-copy'>"
+        "<div class='eyebrow'>수출입 기업 재무 담당자용</div>"
+        "<h1>수출입 거래 금융 리스크 분석</h1>"
+        "<p>계약서를 검증하고 환율·현금흐름·결제·회수 위험을 분석해 "
+        "은행 상담 준비사항까지 정리합니다.</p></div></section>",
+        unsafe_allow_html=True,
+    )
+    with st.container(
+        border=True,
+        key="service_entry_actions",
+    ):
+        entry_columns = st.columns(2)
+        if presentation_mode:
+            entry_columns[0].button(
+                "샘플 수출 거래로 체험하기",
+                type="primary",
+                width="stretch",
+                on_click=_start_golden_registration,
+                key="service_sample_export",
+            )
+        else:
+            entry_columns[0].button(
+                "샘플 수출 거래로 체험하기",
+                type="primary",
+                width="stretch",
+                on_click=_demo_all,
+                args=("SELLER",),
+                key="service_sample_export",
+            )
+        entry_columns[1].button(
+            "내 거래문서 업로드",
+            width="stretch",
+            on_click=_start_document_registration,
+            key="service_register_document",
+        )
+        st.caption(
+            "샘플은 실제 고객정보가 없는 API-free 합성문서이며, 분석 결과는 "
+            "금융상품 가입·승인 또는 보험 인수 결과가 아닙니다."
+        )
     if presentation_mode:
-        entry_columns[0].button(
-            "샘플 수출 거래로 체험하기",
-            type="primary",
-            width="stretch",
-            on_click=_start_golden_registration,
-            key="service_sample_export",
-        )
-    else:
-        entry_columns[0].button(
-            "샘플 수출 거래로 체험하기",
-            type="primary",
-            width="stretch",
-            on_click=_demo_all,
-            args=("SELLER",),
-            key="service_sample_export",
-        )
-    entry_columns[1].button(
-        "내 거래문서 업로드",
-        width="stretch",
-        on_click=_start_document_registration,
-        key="service_register_document",
-    )
-    st.caption(
-        "샘플은 실제 고객정보가 없는 API-free 합성문서이며, 분석 결과는 "
-        "금융상품 가입·승인 또는 보험 인수 결과가 아닙니다."
-    )
+        st.stop()
 
 stage0_tab, risk_tab, response_tab, stage5_tab = (
     st.tabs(
