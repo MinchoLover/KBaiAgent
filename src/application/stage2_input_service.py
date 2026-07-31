@@ -272,6 +272,7 @@ def classify_cashflow_error(
             "bank_fee",
             "krw cashflow",
             "krw_cashflow",
+            "krwcashflow",
             "현재 원화 현금",
             "최소 운영자금",
             "대출한도",
@@ -301,10 +302,23 @@ def classify_cashflow_error(
                 field_path = path
                 break
         field_path = field_path or "stage2.company_cash"
-        user_message = (
-            "회사 현금 입력을 계산에 사용할 수 없습니다. 표시된 필드의 "
-            "금액·부호·단위를 확인하고 숫자로 다시 입력하세요."
-        )
+        if "krwcashflow" in lowered and "direction" in lowered:
+            field_path = "stage2.krw_cashflows[].direction"
+            user_message = (
+                "예정 원화 현금흐름의 입출금 구분을 확인하세요. "
+                "들어올 금액은 INFLOW, 나갈 금액은 OUTFLOW로 선택해야 합니다."
+            )
+        elif "krwcashflow" in lowered and "category" in lowered:
+            field_path = "stage2.krw_cashflows[].category"
+            user_message = (
+                "예정 원화 현금흐름의 분류를 확인하세요. "
+                "매출·비용·기타 중 하나를 선택해야 합니다."
+            )
+        else:
+            user_message = (
+                "회사 현금 입력을 계산에 사용할 수 없습니다. 표시된 필드의 "
+                "금액·부호·단위를 확인하고 숫자로 다시 입력하세요."
+            )
         if stage2_input is not None:
             value_by_path = {
                 "stage2.current_krw_cash": stage2_input.current_krw_cash,

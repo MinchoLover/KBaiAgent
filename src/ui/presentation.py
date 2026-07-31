@@ -104,6 +104,33 @@ def _payment_method_from_terms(value: Optional[str]) -> str:
     return value
 
 
+def _advance_missing_information_display(value: str) -> str:
+    parts = value.replace("선지급의", "선지급").split()
+    if (
+        len(parts) >= 4
+        and len(parts[0]) == 3
+        and parts[0].isalpha()
+        and parts[2] == "선지급"
+    ):
+        display = "선지급 {} {} {}".format(
+            parts[0],
+            parts[1],
+            " ".join(parts[3:]),
+        )
+    else:
+        display = value
+    normalized = display.replace("선지급의", "선지급")
+    if (
+        normalized.startswith("선지급 ")
+        and "실제 입금" in normalized
+        and "여부" in normalized
+        and "확인 필요" not in normalized
+    ):
+        identity = normalized.split("실제 입금", 1)[0].strip()
+        return "{} 실제 입금 여부 확인 필요".format(identity)
+    return normalized
+
+
 def rationale_item(
     value: ConsultationPacketResult,
     labels: List[str],
@@ -260,6 +287,9 @@ def transaction_summary(
             )
     if not missing_information:
         missing_information = "현재 확인된 핵심 누락정보 없음"
+    missing_information = _advance_missing_information_display(
+        missing_information
+    )
 
     return {
         "trade_type": trade_type,
