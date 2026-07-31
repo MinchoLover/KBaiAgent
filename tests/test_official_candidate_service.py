@@ -82,6 +82,22 @@ class OfficialCandidateServiceTests(unittest.TestCase):
             candidate.matched_consultation_categories,
         )
 
+    def test_export_shortlist_uses_declared_product_type_order(self):
+        shortlist = self.export_demo[
+            "official_candidate_shortlist"
+        ]
+        self.assertEqual(
+            [
+                (item.institution, item.name)
+                for item in shortlist.candidates
+            ],
+            [
+                ("한국무역보험공사", "단기수출보험 검토"),
+                ("KB국민은행", "은행 선물환·외환스왑 상담"),
+                ("한국무역보험공사", "환변동보험 검토"),
+            ],
+        )
+
     def test_unmatched_category_stays_empty_without_invention(self):
         source = self.import_demo["stage4"]
         empty = Stage4Result(

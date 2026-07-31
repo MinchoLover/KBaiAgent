@@ -88,6 +88,8 @@ class GoldenConfirmedTransactionE2ETests(unittest.TestCase):
 
     def test_golden_financial_values_and_consultation_order_are_unchanged(self):
         financials = self.summary["down_5_financials_krw"]
+        self.assertEqual(financials["base_receipt"], "140000000.00")
+        self.assertEqual(financials["down_5_receipt"], "133000000.00")
         self.assertEqual(financials["receipt_loss"], "7000000.00")
         self.assertEqual(financials["ending_cash"], "8000000.00")
         self.assertEqual(
@@ -111,6 +113,23 @@ class GoldenConfirmedTransactionE2ETests(unittest.TestCase):
         self.assertLessEqual(
             self.summary["official_candidate_unique_count"],
             3,
+        )
+        self.assertEqual(
+            self.summary["official_candidates"],
+            [
+                {
+                    "institution": "한국무역보험공사",
+                    "name": "단기수출보험 검토",
+                },
+                {
+                    "institution": "KB국민은행",
+                    "name": "은행 선물환·외환스왑 상담",
+                },
+                {
+                    "institution": "한국무역보험공사",
+                    "name": "환변동보험 검토",
+                },
+            ],
         )
 
     def test_scheduled_exposure_is_not_actual_outstanding_balance(self):
@@ -378,7 +397,7 @@ class GoldenStreamlitStateTests(unittest.TestCase):
         sample = next(
             item
             for item in app.button
-            if item.key == "service_sample_export"
+            if item.label == "미국 수출 샘플"
         )
         sample.click().run()
         app.session_state["cashflow_error"] = {
@@ -415,7 +434,7 @@ class GoldenStreamlitStateTests(unittest.TestCase):
         sample = next(
             item
             for item in app.button
-            if item.key == "service_sample_export"
+            if item.label == "미국 수출 샘플"
         )
         sample.click().run()
         before_keys = {
@@ -593,10 +612,10 @@ class GoldenStreamlitStateTests(unittest.TestCase):
             item.label for item in app.get("download_button")
         ]
         self.assertIn("상담 준비서 다운로드", downloads)
-        self.assertIn("JSON 데이터 다운로드", downloads)
+        self.assertIn("JSON 다운로드", downloads)
         self.assertLess(
             downloads.index("상담 준비서 다운로드"),
-            downloads.index("JSON 데이터 다운로드"),
+            downloads.index("JSON 다운로드"),
         )
 
 

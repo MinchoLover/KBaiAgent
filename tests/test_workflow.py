@@ -429,6 +429,36 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNone(state.hedge)
         self.assertIsNone(state.final_report)
 
+    def test_hedge_retry_failure_removes_previous_successful_outputs(self):
+        orchestrator = WorkflowOrchestrator(settings=Settings())
+        state = orchestrator.run(
+            self._confirmed_state(orchestrator),
+            self._request(),
+        )
+        self.assertIsNotNone(state.hedge.data)
+        self.assertIsNotNone(state.product_search)
+        self.assertIsNotNone(state.final_report)
+
+        def fail_hedge(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("sensitive upstream detail")
+
+        orchestrator.hedge_runner = fail_hedge
+        state = orchestrator.run_hedge(state)
+
+        self.assertEqual(state.hedge.status, StageStatus.FAILED)
+        self.assertIsNone(state.hedge.data)
+        self.assertIsNone(state.product_search)
+        self.assertIsNone(state.final_report)
+        self.assertEqual(
+            state.hedge.errors,
+            ["hedge 단계 실패 (RuntimeError)"],
+        )
+        self.assertNotIn(
+            "sensitive upstream detail",
+            " ".join(state.errors),
+        )
+
     def test_trace_excludes_document_content_and_financial_payloads(self):
         state = WorkflowOrchestrator(settings=Settings()).run(
             self._confirmed_state(),

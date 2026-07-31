@@ -20,7 +20,10 @@ from src.stage2.binding import (
     document_input_from_confirmed_transaction,
 )
 from src.stage2.engine import run_stage2
+from src.domain.stage3_models import Stage3Result
 from src.ui.state import PIPELINE_KEYS
+from src.workflow.result import StageResult, StageStatus
+from src.workflow.state import WorkflowState
 from tests.golden_consultation_fixture import (
     build_golden_consultation_fixture,
 )
@@ -66,6 +69,38 @@ class ConfirmedTransactionProductionTests(unittest.TestCase):
         self.assertEqual(result.extraction.explicit_due_date, "2026-08-20")
         self.assertEqual(result.extraction.amount_due, "100000.00")
         self.assertFalse(result.validation.stage2_allowed)
+
+    def test_registered_document_is_available_only_in_demo_boundaries(self):
+        registered = presentation_document()
+        development_result = extract_registered_document(
+            file_bytes=registered.file_bytes,
+            filename=registered.filename,
+            mime_type=registered.mime_type,
+            company_role="SELLER",
+            company_country="KR",
+            settings=Settings(
+                app_env="development",
+                demo_mode=True,
+                openai_api_key=None,
+                enable_live_document_extraction=False,
+            ),
+        )
+        production_result = extract_registered_document(
+            file_bytes=registered.file_bytes,
+            filename=registered.filename,
+            mime_type=registered.mime_type,
+            company_role="SELLER",
+            company_country="KR",
+            settings=Settings(
+                app_env="production",
+                demo_mode=False,
+                openai_api_key=None,
+                enable_live_document_extraction=False,
+            ),
+        )
+
+        self.assertIsNotNone(development_result)
+        self.assertIsNone(production_result)
 
     def test_snapshot_is_the_stage_contract_and_keeps_dates_separate(self):
         snapshot = confirmed_transaction_from_confirmation(
@@ -272,42 +307,21 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
 
     @staticmethod
     def _run_golden_cashflow(app):
-        values = {
+        expected_text_defaults = {
             "stage2_current_cash_widget": "20000000.00",
             "stage2_minimum_buffer_widget": "10000000.00",
             "stage2_credit_limit_widget": "0.00",
             "stage2_acceptable_loss_widget": "5000000.00",
             "stage2_usable_fx_widget": "0.00",
-            "stage2_same_flow_amount_widget": "0",
-            "stage2_hedge_amount_widget": "0",
-            "stage2_locked_rate_widget": "1400",
-            "stage2_hedge_fee_widget": "0",
             "stage2_bank_spread_widget": "0",
             "stage2_bank_fee_widget": "0.00",
         }
-        for key, value in values.items():
-            _by_key(app.text_input, key).set_value(value)
-        _by_key(
+        for key, value in expected_text_defaults.items():
+            assert _by_key(app.text_input, key).value == value
+        assert _by_key(
             app.date_input,
             "stage2_as_of_widget",
-        ).set_value(date(2026, 7, 29))
-        _by_key(
-            app.date_input,
-            "stage2_same_flow_date_widget",
-        ).set_value(date(2026, 7, 29))
-        app.session_state["krw_cashflow_editor"] = {
-            "edited_rows": {},
-            "added_rows": [
-                {
-                    "date": "2026-08-20",
-                    "amount": "145000000.00",
-                    "direction": "OUTFLOW",
-                    "category": "COST",
-                    "description": "수출대금으로 충당할 합성 운영비",
-                }
-            ],
-            "deleted_rows": [],
-        }
+        ).value == date(2026, 7, 29)
         _by_key(
             app.button,
             (
@@ -434,6 +448,10 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             self.assertEqual(len(result_cards), 1)
             for expected in (
                 "환율 -5% 시 원화 수취액 7,000,000원 감소",
+                "기준 원화 수취액",
+                "140,000,000원",
+                "환율 -5% 원화 수취액",
+                "133,000,000원",
                 "허용손실 5,000,000원 초과",
                 "스트레스 후 예상 현금 8,000,000원",
                 "목표 버퍼 10,000,000원",
@@ -508,6 +526,17 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 len(identities),
                 len(shortlist["candidates"]),
             )
+            self.assertEqual(
+                [
+                    (item["institution"], item["name"])
+                    for item in shortlist["candidates"]
+                ],
+                [
+                    ("한국무역보험공사", "단기수출보험 검토"),
+                    ("KB국민은행", "은행 선물환·외환스왑 상담"),
+                    ("한국무역보험공사", "환변동보험 검토"),
+                ],
+            )
             _by_key(
                 app.button,
                 "generate_report",
@@ -534,8 +563,8 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 item.label for item in app.get("download_button")
             }
             self.assertIn("상담 준비서 다운로드", labels)
-            self.assertIn("JSON 데이터 다운로드", labels)
-            self.assertIn("통합 상담 리포트 다운로드", labels)
+            self.assertIn("JSON 다운로드", labels)
+            self.assertIn("통합 보고서 다운로드", labels)
 
             _by_key(
                 app.text_input,
@@ -563,3 +592,57 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             }
             self.assertEqual(remaining, set())
             self.assertEqual(len(app.exception), 0)
+
+    def test_stage3_internal_failure_is_persistent_and_actionable(self):
+        from streamlit.testing.v1 import AppTest
+
+        environment = {
+            "APP_ENV": "presentation",
+            "OPENAI_API_KEY": "",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "STAGE1_MODE": "manual",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=30,
+            ).run(timeout=30)
+            self._confirm_document(app)
+            self._run_stage1_and_trade_risk(app)
+            self._run_golden_cashflow(app)
+
+            workflow = WorkflowState.model_validate(
+                app.session_state["workflow_state"]
+            )
+            workflow.hedge = StageResult[Stage3Result](
+                status=StageStatus.FAILED,
+                errors=["hedge 단계 실패 (RuntimeError)"],
+                provider="grid_hedge_optimizer",
+            )
+            workflow.product_search = None
+            workflow.report = None
+            workflow.final_report = None
+            app.session_state["workflow_state"] = workflow.model_dump()
+            app.session_state["active_page"] = "consultation"
+            if "stage3_result" in app.session_state:
+                del app.session_state["stage3_result"]
+            app.run(timeout=30)
+
+            self.assertEqual(len(app.exception), 0)
+            visible_errors = " ".join(
+                item.value for item in app.error
+            )
+            self.assertIn("시스템 오류", visible_errors)
+            self.assertIn("헤지 대응안 비교", visible_errors)
+            technical = " ".join(
+                item.value for item in app.markdown
+            )
+            self.assertIn("STAGE3_UNEXPECTED_ERROR", technical)
+            self.assertIn("stage3.hedge", technical)
+            self.assertIn(
+                workflow.confirmed_transaction.input_fingerprint,
+                technical,
+            )
+            self.assertNotIn("Traceback", technical)

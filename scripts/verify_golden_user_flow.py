@@ -202,6 +202,8 @@ def golden_user_flow_summary() -> Dict[str, Any]:
             ),
         },
         "down_5_financials_krw": {
+            "base_receipt": stage2.base_required_or_proceeds_krw,
+            "down_5_receipt": down_five.fx_krw_inflow,
             "receipt_loss": down_five.loss_vs_base,
             "ending_cash": down_five.ending_cash,
             "minimum_cash_buffer": (
@@ -224,6 +226,13 @@ def golden_user_flow_summary() -> Dict[str, Any]:
                 for item in artifacts["shortlist"].candidates
             }
         ),
+        "official_candidates": [
+            {
+                "institution": item.institution,
+                "name": item.name,
+            }
+            for item in artifacts["shortlist"].candidates
+        ],
         "stage3_candidate_status": state.hedge.data.status,
     }
 
