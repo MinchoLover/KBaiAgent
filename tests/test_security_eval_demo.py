@@ -446,9 +446,9 @@ class EndToEndTests(unittest.TestCase):
             [tab.label for tab in app.tabs],
             [
                 "1  거래 확인",
-                "2  금융 리스크 분석",
+                "2  금융 분석",
                 "3  상담 준비",
-                "4  결과 및 전달",
+                "4  결과 다운로드",
             ],
         )
         self.assertEqual(
@@ -461,7 +461,8 @@ class EndToEndTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                "환율 하락 시 수출대금 원화 수취 감소" in item.value
+                "환율 -5% 시 원화 수취액 7,000,000원 감소"
+                in item.value
                 for item in app.markdown
             )
         )

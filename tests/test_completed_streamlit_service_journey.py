@@ -173,7 +173,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
     def _confirm_document(app):
         _by_key(
             app.button,
-            "service_register_document",
+            "service_sample_export",
         ).click().run(timeout=30)
         _by_key(app.button, "analyze_document").click().run(timeout=30)
         _by_key(
@@ -195,7 +195,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             app.button,
             (
                 "FormSubmitter:critical_confirmation-"
-                "거래정보를 확인하고 확정하기"
+                "원문과 확인하고 금융분석 시작"
             ),
         ).click().run(timeout=30)
 
@@ -405,12 +405,61 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 ],
                 "UNKNOWN",
             )
+            result_cards = [
+                item.value
+                for item in app.markdown
+                if "<div class='result-grid'>" in item.value
+            ]
+            self.assertEqual(len(result_cards), 1)
+            for expected in (
+                "환율 -5% 시 원화 수취액 7,000,000원 감소",
+                "허용손실 5,000,000원 초과",
+                "스트레스 후 예상 현금 8,000,000원",
+                "목표 버퍼 10,000,000원",
+                "버퍼 부족 2,000,000원",
+                "현금 적자 0원",
+                "지급 또는 post-credit 부족 0원",
+                "USD 80,000",
+                "Open Account / T/T",
+            ):
+                self.assertIn(expected, result_cards[0])
+            consultation_cards = [
+                item.value
+                for item in app.markdown
+                if "<div class='consultation-card'>" in item.value
+            ]
+            self.assertEqual(len(consultation_cards), 3)
+            for card, title in zip(
+                consultation_cards,
+                [
+                    "수출대금 회수 보호 상담",
+                    "환율 관리 상담",
+                    "운영자금 버퍼·수출대금 회수시점 상담",
+                ],
+            ):
+                self.assertIn(title, card)
+                self.assertIn("상담에서 결정할 사항", card)
+                self.assertIn("다음 행동", card)
 
             _by_key(
                 app.button,
                 "optimize_stage3",
             ).click().run(timeout=30)
-            self.assertIsNotNone(_state(app, "stage3_result"))
+            stage3_result = _state(app, "stage3_result")
+            self.assertIsNotNone(stage3_result)
+            if not stage3_result["candidates"]:
+                self.assertTrue(
+                    any(
+                        "현재 입력된 조건에서는 제시할 수 있는 "
+                        "헤지 비교안이 없습니다."
+                        in item.value
+                        for item in app.info
+                    )
+                )
+                self.assertIn(
+                    "헤지 비교 기술정보",
+                    [item.label for item in app.expander],
+                )
             _by_key(
                 app.button,
                 "search_stage4",
@@ -455,7 +504,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 item.label for item in app.get("download_button")
             }
             self.assertIn("상담 준비서 다운로드", labels)
-            self.assertIn("JSON 데이터 내려받기", labels)
+            self.assertIn("JSON 데이터 다운로드", labels)
             self.assertIn("통합 상담 리포트 다운로드", labels)
 
             _by_key(

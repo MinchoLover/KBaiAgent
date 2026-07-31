@@ -38,19 +38,18 @@ APP_ENV=presentation python -m streamlit run app.py
 ```
 
 발표 모드는 첫 화면과 사이드바의 미국·수입 API-free 샘플 실행 버튼을 숨기고
-`브라질 Golden 문서 등록하기`만 주 CTA로 표시합니다. 또한 발표자가 아래
+`샘플 수출 거래로 체험하기`만 주 CTA로 표시합니다. 또한 발표자가 아래
 업로드 영역으로 바로 이동해도 미국 fixture가 선택되지 않도록 문서 등록 모드로
 고정합니다. 이 환경변수는 UI 진입 경로만 바꾸며 Golden 결과를 자동 주입하거나,
 금융 계산·상담 순위·ConsultationPacket·문서 추출 provider를 변경하지 않습니다.
 기본 개발 모드는 `APP_ENV=development`이거나 `APP_ENV`를 지정하지 않은
 상태이며 기존 샘플 버튼과 데모 모드 선택이 그대로 표시됩니다.
 
-앱 첫 화면의 `미국 수출 샘플로 체험하기`는 실제 고객정보가 없는 미국 수출
-fixture로 정식 서비스 여정을 빠르게 확인하는 별도 경로입니다. 발표에서는
-브라질 Golden 수출 계약만 단일 사례로 사용하고 미국 수출 샘플 버튼을 누르지
-않습니다. Golden 수치는 Golden PDF를 `거래문서 등록하기` 경로에서 검토하거나
-Golden 전용 API-free 테스트로 증명합니다. 미국 샘플의 국가·일정·상담 결과를
-브라질 Golden 결과처럼 설명하지 않습니다.
+앱 첫 화면의 `샘플 수출 거래로 체험하기`는 실제 고객정보가 없는 브라질 Golden
+fixture를 문서 등록 상태로 불러와 정식 서비스 여정을 시작합니다. 발표에서는
+브라질 Golden 단일 사례만 사용합니다. 개발 모드의 고급 설정에 남겨 둔 미국 수출 샘플은
+회귀 확인용 보조 경로이며, 미국 샘플의 국가·일정·상담 결과를 브라질 Golden
+결과처럼 설명하지 않습니다.
 
 Expected data와 수동 입력은 다음 두 파일을 옆 화면에 준비합니다.
 
@@ -113,18 +112,18 @@ Country validation의 스캔형 8건은 메인 성공 데모에 사용하지 않
 
 | 단계 | 클릭·입력 | 강조할 결과 | 발표자 한 문장 | 실패 시 fallback |
 | --- | --- | --- | --- | --- |
-| 1. Golden 계약서 업로드 | 첫 화면 `거래문서 등록하기`; 역할 `판매자 · SELLER`; 회사국가 `KR`; Golden PDF 업로드; `문서 분석하고 거래정보 채우기` | 2페이지 텍스트 PDF와 합성·법적 효력 없음 표시 | “실제 고객정보가 없는 합성 계약서 한 장으로 시작합니다.” | PDF와 `expected_extraction.json`을 나란히 보여주고 수정 후 Live가 미검증임을 밝힘 |
-| 2. 텍스트 evidence 확인 | `1 거래 확인`의 `원문 근거 보기`에서 판매자·구매자·금액·결제일 근거 펼치기 | 각 exact quote의 page 1/2 연결 | “텍스트 레이어의 짧은 인용이 실제 페이지에 있는지 일반 코드가 대조합니다.” | `python -m unittest tests.test_source_evidence_recovery -v` 결과 제시 |
+| 1. Golden 계약서 업로드 | 첫 화면 `샘플 수출 거래로 체험하기`; 등록된 Golden 문서를 확인하고 `문서 분석하고 거래정보 채우기` | 2페이지 텍스트 PDF와 합성·법적 효력 없음 표시 | “실제 고객정보가 없는 합성 계약서 한 장으로 시작합니다.” | PDF와 `expected_extraction.json`을 나란히 보여주고 수정 후 Live가 미검증임을 밝힘 |
+| 2. 텍스트 evidence 확인 | `1 거래 확인`의 `상세 거래정보`에서 원문 근거를 펼치기 | 각 exact quote의 page 1/2 연결 | “텍스트 레이어의 짧은 인용이 실제 페이지에 있는지 일반 코드가 대조합니다.” | `python -m unittest tests.test_source_evidence_recovery -v` 결과 제시 |
 | 3. 핵심 거래값 사용자 확인 | `KR/BR`, `EXPORT`, `USD`, `100000.00`, `2026-08-20` 확인 후 확인 버튼 | `분석 대상 예정 수취액 USD 100,000`; 실제 미수잔액 `UNKNOWN` | “계약서의 예정 결제액을 기준으로 분석하며 실제 입금이력을 반영한 현재 미수잔액은 별도 확인이 필요합니다.” | `expected_extraction.json`과 Golden consultation fixture 결과를 제시하고 미국 샘플로 전환하지 않음 |
-| 4. 거래·회수 조건 확인 | `2 금융 리스크 분석` → 거래처 `기존`, 선지급 `비율 확인 20%`, 잔금 `Open Account`, 기간 22일, 보호수단 `없음 확인` | `EXPORT_RECEIVABLE_COLLECTION_RISK`, `ELEVATED_REVIEW` | “기존 거래처라도 Open Account이고 적용 가능한 보호수단이 없으면 회수보호 상담을 추가 검토합니다.” | `demo_inputs.json`과 Golden domain test 결과 제시 |
+| 4. 거래·회수 조건 확인 | `2 금융 분석` → 거래처 `기존`, 선지급 `비율 확인 20%`, 잔금 `Open Account`, 기간 22일, 보호수단 `없음 확인` | `EXPORT_RECEIVABLE_COLLECTION_RISK`, `ELEVATED_REVIEW` | “기존 거래처라도 Open Account이고 적용 가능한 보호수단이 없으면 회수보호 상담을 추가 검토합니다.” | `demo_inputs.json`과 Golden domain test 결과 제시 |
 | 5. 환율 시장 문맥 확인 | 같은 탭의 환율 상세 펼치기 | 하락 0.712·상승 0.288, q90 하락 3.6%, `보정확률 아님` | “방향점수와 q90은 실제 발생확률이 아니며 뉴스도 금융 숫자를 바꾸지 않습니다.” | Stage 1 fixture JSON의 hash·고정 값을 표시 |
 | 6. 원화 현금 영향 확인 | 현금 20,000,000; 버퍼 10,000,000; 한도 0; 운영비 145,000,000 입력 후 계산 | 기준 수취 140,000,000원; -5% 수취 133,000,000원; 감소 7,000,000원; 결제 후 8,000,000원; 버퍼 부족 2,000,000원; 지급부족 0원 | “환율 하락 손실, 운영자금 버퍼 부족, 지급불능을 서로 다른 숫자로 분리합니다.” | `test_demo_finance_inputs_produce_meaningful_existing_stage2_result` 결과 제시 |
 | 7. 환헤지 비교안 확인 | `3 상담 준비` 아래 선택 분석의 안정성·균형·비용 후보 열기 | 후보별 비율·비용 가정·최저 현금, 최대 3개 | “이 값은 실제 견적이나 자동 추천이 아니라 동일 입력의 계산상 비교안입니다.” | Golden API-free 계산 테스트 결과를 제시하고 다른 국가 fixture를 섞지 않음 |
 | 8. 국가·무역환경 확인 | 브라질 국가환경 섹션과 공식 근거 펼치기 | OECD raw 4, World Bank·WTO 별도 축, 국가환경 `STANDARD_REVIEW`; 별도 거래·회수 위험 `ELEVATED_REVIEW` | “세 공식 축을 국가 신용점수로 합치지 않고 이 거래에서 확인할 상담 순서만 제시합니다.” | versioned offline snapshot과 T4 테스트 결과 제시 |
-| 9. 상담 Top 3 확인 | `3 상담 준비` 또는 `4 결과 및 전달` 상단의 카드 확인 | 1순위 회수 보호 → 2순위 환율 → 3순위 운영자금 버퍼; 각 카드의 숫자·부족정보·기대 결정·다음 행동 | “이 순서는 AI 추천이나 승인등급이 아니라 기존 위험 finding의 결정론적 검토 순서입니다.” | `tests.test_consultation_priority`와 JSON packet 출력 제시 |
+| 9. 상담 Top 3 확인 | `2 금융 분석`의 핵심 결과 바로 아래 카드 확인 | 1순위 회수 보호 → 2순위 환율 → 3순위 운영자금 버퍼; 각 카드의 숫자·부족정보·기대 결정·다음 행동 | “이 순서는 AI 추천이나 승인등급이 아니라 기존 위험 finding의 결정론적 검토 순서입니다.” | `tests.test_consultation_priority`와 JSON packet 출력 제시 |
 | 10. 실제 입금 상태 경계 확인 | 1순위 카드의 `USD 20,000 선지급 실제 입금 여부 UNKNOWN` 확인 | 부족정보 첫 항목과 보호수단 현황에 UNKNOWN 표시 | “계약상 예정 노출액은 10만 달러지만 실제 선지급 입금 여부는 계약서만으로 확정하지 않습니다.” | Golden packet Markdown에서 동일 항목 표시 |
 | 11. 공식 상담 후보 확인 | Top 3 카드의 `준비자료·질문·공식 후보` 펼치기 | 공식 URL·검증일·연결 이유, eligibility UNKNOWN, approval CONSULTATION_REQUIRED | “공식 출처와 상담범주가 맞는 후보만 연결하고 가입 가능성은 확정하지 않습니다.” | offline KB snapshot을 사용하고 후보가 없으면 빈 상태 유지 |
-| 12. 한 페이지 handoff 확인 | `4 결과 및 전달` → Top 3와 `상담 준비서 다운로드` | 거래·회차·보호수단·Top 3·준비자료·질문·공식후보·trace가 같은 JSON에서 파생 | “다운로드는 상담 준비자료이며 예약·RM 전송·신청 완료가 아닙니다.” | 결정론 Markdown handoff와 Stage 5 fallback 표시 |
+| 12. 한 페이지 handoff 확인 | `4 결과 다운로드` → `상담 준비서 다운로드` | 거래·회차·보호수단·Top 3·준비자료·질문·공식후보·trace가 같은 JSON에서 파생 | “다운로드는 상담 준비자료이며 예약·RM 전송·신청 완료가 아닙니다.” | 결정론 Markdown handoff와 Stage 5 fallback 표시 |
 
 ## Golden 발표 숫자
 

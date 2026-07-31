@@ -326,14 +326,14 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             [item.label for item in app.tabs],
             [
                 "1  거래 확인",
-                "2  금융 리스크 분석",
+                "2  금융 분석",
                 "3  상담 준비",
-                "4  결과 및 전달",
+                "4  결과 다운로드",
             ],
         )
         button_labels = [item.label for item in app.button]
-        self.assertIn("거래문서 등록하기", button_labels)
-        self.assertIn("미국 수출 샘플로 체험하기", button_labels)
+        self.assertIn("샘플 수출 거래로 체험하기", button_labels)
+        self.assertIn("내 거래문서 업로드", button_labels)
         visible_text = " ".join(
             [item.value for item in app.markdown]
             + [item.value for item in app.caption]
@@ -343,16 +343,14 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "합성문서",
             "실제 고객정보가 없는",
             "API-free",
-            "금융상품 가입·승인 결과가 아닙니다",
-            "원문 근거가 확인된 값만 분석",
-            "사용자 확인 전 금융계산 차단",
-            "미국 수출 샘플",
-            "발표용 검증 사례",
-            "브라질 Golden 수출 계약",
-            "미국 샘플과 결과를 혼합하지 않음",
+            "금융상품 가입·승인 또는 보험 인수 결과가 아닙니다",
+            "계약서를 검증하고",
         ):
             self.assertIn(expected, visible_text)
-        self.assertNotIn("Golden 데모 시작", visible_text)
+        self.assertIn(
+            "분석 환경 및 고급 설정",
+            [item.label for item in app.expander],
+        )
 
         register = next(
             button
@@ -370,7 +368,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             [item.label for item in app.get("file_uploader")],
         )
 
-    def test_presentation_mode_shows_only_golden_registration_path(self):
+    def test_presentation_mode_uses_golden_sample_as_primary_path(self):
         from streamlit.testing.v1 import AppTest
 
         with patch.dict(
@@ -384,12 +382,9 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
 
             self.assertEqual(len(app.exception), 0)
             button_labels = [item.label for item in app.button]
-            self.assertIn(
-                "브라질 Golden 문서 등록하기",
-                button_labels,
-            )
+            self.assertIn("샘플 수출 거래로 체험하기", button_labels)
+            self.assertIn("내 거래문서 업로드", button_labels)
             for hidden_sample in (
-                "미국 수출 샘플로 체험하기",
                 "미국 수출 샘플",
                 "수입기업 대표 데모",
             ):
@@ -399,14 +394,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
                 [item.value for item in app.markdown]
                 + [item.value for item in app.caption]
             )
-            self.assertIn(
-                "브라질 Golden 수출 계약 검증 시작",
-                visible_text,
-            )
-            self.assertIn(
-                "문서 등록 전용 진입 화면",
-                visible_text,
-            )
+            self.assertIn("API-free 합성문서", visible_text)
             self.assertNotIn(
                 "미국 수출 샘플",
                 visible_text,
@@ -419,13 +407,19 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
                 "분석할 문서",
                 [item.label for item in app.radio],
             )
+            self.assertEqual(len(app.tabs), 0)
+            self.assertEqual(len(app.get("file_uploader")), 0)
+            self.assertNotIn(
+                "이 거래에서 우리 회사의 역할",
+                [item.label for item in app.radio],
+            )
 
-            register = next(
+            sample = next(
                 button
                 for button in app.button
-                if button.key == "service_register_document"
+                if button.key == "service_sample_export"
             )
-            register.click().run()
+            sample.click().run()
             self.assertEqual(len(app.exception), 0)
             self.assertEqual(
                 app.session_state["run_mode_widget"],
@@ -434,6 +428,10 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             self.assertIn(
                 "거래문서 업로드",
                 [item.label for item in app.get("file_uploader")],
+            )
+            self.assertEqual(
+                app.session_state["registered_document_id"],
+                "golden_export_contract_v1",
             )
             self.assertNotIn(
                 "consultation_packet",
@@ -497,11 +495,11 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             ]
         )
         for expected in (
-            "한국 (KR) 판매자 → 미국 (US) 구매자",
-            "금융 리스크 분석 요약",
+            "한국 판매자 → 미국 구매자",
+            "이번 거래의 핵심 결과",
             "분석 대상 예정 수취액",
             "USD 100,000",
-            "환율 변동 시 원화 수취 감소",
+            "환율 -5% 시 원화 수취액",
             "7,000,000원",
             "스트레스 후 예상 현금",
             "8,000,000원",
@@ -509,27 +507,27 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "10,000,000원",
             "목표 현금 버퍼 부족",
             "2,000,000원",
-            "현금 적자 / 지급 부족",
-            "0원 / 0원",
+            "현금 적자 0원",
+            "지급 또는 post-credit 부족 0원",
             "현재 미수·미지급 잔액은",
             "지급불능 또는 필요 대출금이 아닙니다",
             "준비자료",
             "은행에 물어볼 질문",
-            "상담에서 기대하는 결정",
-            "공식 출처 확인",
+            "상담에서 결정할 사항",
+            "통합 상담 리포트 미리보기",
         ):
             self.assertIn(expected, visible_text)
         download_labels = [
             item.label for item in app.get("download_button")
         ]
         self.assertIn("상담 준비서 다운로드", download_labels)
-        self.assertIn("JSON 데이터 내려받기", download_labels)
+        self.assertIn("JSON 데이터 다운로드", download_labels)
         self.assertLess(
             download_labels.index("상담 준비서 다운로드"),
-            download_labels.index("JSON 데이터 내려받기"),
+            download_labels.index("JSON 데이터 다운로드"),
         )
         self.assertNotIn(
-            "한국 (KR) 판매자 → 브라질 (BR) 구매자",
+            "한국 판매자 → 브라질 구매자",
             visible_text,
         )
         self.assertNotIn("잔금 예정: USD 80,000", visible_text)
@@ -537,10 +535,9 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "상담 준비서 미리보기",
             [item.label for item in app.expander],
         )
-        self.assertIn(
-            "통합 상담 리포트 미리보기",
-            [item.label for item in app.expander],
-        )
+        self.assertIn("공식 출처 확인", Path(
+            "app.py"
+        ).read_text(encoding="utf-8"))
         for prohibited in (
             "상담사에게 전송 완료",
             "상담 예약 완료",
@@ -613,8 +610,14 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             ],
         )
         self.assertIn(
-            "통합 상담 리포트 미리보기",
+            "고급 · 통합 보고서와 기술정보",
             [item.label for item in app.expander],
+        )
+        self.assertTrue(
+            any(
+                "통합 상담 리포트 미리보기" in item.value
+                for item in app.markdown
+            )
         )
 
     def test_service_ctas_keep_explicit_narrow_screen_layout(self):
@@ -632,7 +635,8 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         self.assertIn("grid-template-columns: 1fr", css)
         self.assertIn("overflow-x: auto", css)
         self.assertIn("padding: 0 0.2rem", css)
-        self.assertIn(":has(.journey-step)", css)
+        self.assertIn(".st-key-consultation_top3", css)
+        self.assertIn(".st-key-result_actions", css)
         self.assertIn(
             'div[data-testid="stDownloadButton"] > '
             'button[kind="primary"]',
@@ -642,11 +646,11 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "app.py"
         ).read_text(encoding="utf-8"))
         self.assertIn(
-            "거래문서 등록하기",
+            "내 거래문서 업로드",
             [item.label for item in app.button],
         )
         self.assertIn(
-            "미국 수출 샘플로 체험하기",
+            "샘플 수출 거래로 체험하기",
             [item.label for item in app.button],
         )
 
@@ -655,11 +659,11 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             encoding="utf-8"
         )
         normalized = " ".join(script.split())
-        self.assertIn("미국 수출 샘플로 체험하기", normalized)
+        self.assertIn("샘플 수출 거래로 체험하기", normalized)
         self.assertIn("브라질 Golden", normalized)
         self.assertIn("발표에서는 브라질 Golden", normalized)
         self.assertIn("APP_ENV=presentation", normalized)
-        self.assertIn("브라질 Golden 문서 등록하기", normalized)
+        self.assertIn("샘플 수출 거래로 체험하기", normalized)
         self.assertIn("Golden 결과를 자동 주입하거나", normalized)
         self.assertNotIn("수출기업 대표 데모", normalized)
 
@@ -861,14 +865,26 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "7,000,000원",
             "2,000,000원",
             "현금 적자",
-            "지급·신용한도 반영 후 부족",
-            "높은 검토 우선도",
+            "지급 또는 post-credit 부족",
+            "지금 은행과 확인할 순서입니다",
             "상품 승인·보험 인수·대출 심사 결과가 아닙니다",
         ):
             self.assertIn(expected, visible_text)
         self.assertIn(
             "상담 준비서 다운로드",
             [item.label for item in app.get("download_button")],
+        )
+        self.assertTrue(
+            any(
+                "현재 입력된 조건에서는 제시할 수 있는 "
+                "헤지 비교안이 없습니다."
+                in item.value
+                for item in app.info
+            )
+        )
+        self.assertIn(
+            "헤지 비교 기술정보",
+            [item.label for item in app.expander],
         )
         for prohibited in (
             "승인될 것입니다",
@@ -917,13 +933,14 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             visible_text,
         )
         for expected in (
-            "한국 (KR) 판매자 → 브라질 (BR) 구매자",
+            "상대국 브라질",
             "USD 100,000",
             "7,000,000원",
             "8,000,000원",
             "10,000,000원",
             "2,000,000원",
-            "0원 / 0원",
+            "현금 적자 0원",
+            "지급 또는 post-credit 부족 0원",
             "현재 미수·미지급 잔액은",
         ):
             self.assertIn(expected, visible_text)

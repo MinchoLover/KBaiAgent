@@ -448,7 +448,7 @@ class IntegrationReadinessStreamlitTests(unittest.TestCase):
             + [item.value for item in app.warning]
             + [item.value for item in app.success]
         )
-        self.assertIn("Integration Readiness", [
+        self.assertIn("분석 환경 및 고급 설정", [
             item.label for item in app.expander
         ])
         self.assertIn("forecast freshness", visible)

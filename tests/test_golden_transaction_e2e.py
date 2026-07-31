@@ -583,7 +583,7 @@ class GoldenStreamlitStateTests(unittest.TestCase):
                 for item in app.metric
             ]
         )
-        self.assertIn("결제 예정일 2026-08-20 기준", visible)
+        self.assertIn("결제 예정일 2026-08-20", visible)
         self.assertIn("결제일 2026-08-20", visible)
         self.assertIn("확정 결제일 2026-08-20", visible)
         self.assertIn("브라질", visible)
@@ -592,10 +592,10 @@ class GoldenStreamlitStateTests(unittest.TestCase):
             item.label for item in app.get("download_button")
         ]
         self.assertIn("상담 준비서 다운로드", downloads)
-        self.assertIn("JSON 데이터 내려받기", downloads)
+        self.assertIn("JSON 데이터 다운로드", downloads)
         self.assertLess(
             downloads.index("상담 준비서 다운로드"),
-            downloads.index("JSON 데이터 내려받기"),
+            downloads.index("JSON 데이터 다운로드"),
         )
 
 
