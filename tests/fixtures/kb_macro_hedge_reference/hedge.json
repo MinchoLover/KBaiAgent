@@ -1,0 +1,136 @@
+{
+  "schema_version": "krw_hedge_recommendation_v1",
+  "forecast_json_reference": {
+    "schema_version": "krw_forecast_web_v1",
+    "prediction_date": "2026-07-29",
+    "horizon_trading_days": 21,
+    "path": "latest_forecast.json"
+  },
+  "company_exposure": {
+    "exposure_type": "usd_payable",
+    "amount_usd": 100000,
+    "payment_date": "2026-08-27",
+    "payment_certainty": 1.0,
+    "maximum_acceptable_cost_krw": 135000000,
+    "maximum_budget_exceedance_probability": 0.15,
+    "risk_tolerance": "medium",
+    "existing_usd_cash": 10000,
+    "existing_forward_usd": 0,
+    "maximum_total_hedge_ratio": 1.0,
+    "option_premium_budget_krw": 1500000,
+    "allowed_instruments": [
+      "forward",
+      "vanilla_usd_call"
+    ]
+  },
+  "exposure_calculation": {
+    "gross_exposure_usd": 100000.0,
+    "natural_hedge_usd": 10000.0,
+    "existing_forward_usd": 0.0,
+    "net_exposure_usd": 90000.0
+  },
+  "horizon_alignment": {
+    "forecast_horizon_trading_days": 21,
+    "business_days_from_prediction_to_payment": 21,
+    "difference_trading_days": 0,
+    "within_three_trading_days": true,
+    "warning": null
+  },
+  "pricing_snapshot": {
+    "quotes_are_mock": true,
+    "usdkrw_spot": 1450.0,
+    "forward_rate_krw_per_usd": 1451.0,
+    "option_quotes": [
+      {
+        "option_id": "call_atm",
+        "strike_krw_per_usd": 1450.0,
+        "premium_krw_per_usd": 17.0
+      }
+    ]
+  },
+  "recommended_hedge_combinations": [
+    {
+      "rank": 1,
+      "strategy_type": "forward_only",
+      "forward_ratio": 1.0,
+      "option_ratio": 0.0,
+      "unhedged_ratio": 0.0,
+      "notional_usd": {
+        "forward": 90000.0,
+        "call_option": 0.0,
+        "unhedged": 0.0
+      },
+      "option_premium_krw": 0.0,
+      "option": null,
+      "scenario_metrics": {
+        "expected_cost_krw": 130000000.0,
+        "cvar_95_cost_krw": 130000000.0
+      },
+      "objective_components_krw": {
+        "total_objective_score": 130000000.0
+      }
+    },
+    {
+      "rank": 2,
+      "strategy_type": "forward_and_call_option",
+      "forward_ratio": 0.9,
+      "option_ratio": 0.1,
+      "unhedged_ratio": 0.0,
+      "notional_usd": {
+        "forward": 81000.0,
+        "call_option": 9000.0,
+        "unhedged": 0.0
+      },
+      "option_premium_krw": 153000.0,
+      "option": {
+        "option_id": "call_atm",
+        "strike_krw_per_usd": 1450.0,
+        "premium_krw_per_usd": 17.0
+      },
+      "scenario_metrics": {
+        "expected_cost_krw": 130100000.0,
+        "cvar_95_cost_krw": 130200000.0
+      },
+      "objective_components_krw": {
+        "total_objective_score": 130300000.0
+      }
+    },
+    {
+      "rank": 3,
+      "strategy_type": "forward_and_call_option",
+      "forward_ratio": 0.8,
+      "option_ratio": 0.2,
+      "unhedged_ratio": 0.0,
+      "notional_usd": {
+        "forward": 72000.0,
+        "call_option": 18000.0,
+        "unhedged": 0.0
+      },
+      "option_premium_krw": 306000.0,
+      "option": {
+        "option_id": "call_atm",
+        "strike_krw_per_usd": 1450.0,
+        "premium_krw_per_usd": 17.0
+      },
+      "scenario_metrics": {
+        "expected_cost_krw": 130200000.0,
+        "cvar_95_cost_krw": 130400000.0
+      },
+      "objective_components_krw": {
+        "total_objective_score": 130500000.0
+      }
+    }
+  ],
+  "verification": {
+    "finite_grid_optimality_certificate": {
+      "enumeration_complete": true,
+      "top3_are_lowest_objective_scores": true
+    },
+    "constraints": {
+      "no_over_hedging": true,
+      "option_premium_within_budget": true,
+      "ratios_sum_to_one": true
+    }
+  },
+  "prototype_notice": "Synthetic adapter fixture with mock quotes; not advice."
+}

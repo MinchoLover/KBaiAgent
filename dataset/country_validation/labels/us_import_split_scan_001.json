@@ -1,0 +1,132 @@
+{
+  "document_type": "SALES_CONTRACT",
+  "document_number": "US-IMP-SPLIT-001",
+  "seller_name": "Liberty Lantern Test Equipment LLC",
+  "seller_country": "US",
+  "buyer_name": "Blue Hanul Synthetic Imports Ltd.",
+  "buyer_country": "KR",
+  "company_role": "BUYER",
+  "trade_type": "IMPORT",
+  "currency": "USD",
+  "grand_total": "120000.00",
+  "amount_due": "120000.00",
+  "issue_date": null,
+  "contract_date": "2026-08-05",
+  "shipment_date": null,
+  "explicit_due_date": null,
+  "derived_due_date": null,
+  "payment_terms": "Split payment - 30% and 70%",
+  "incoterm": null,
+  "installments": [
+    {
+      "sequence": 1,
+      "amount": "36000.00",
+      "currency": "USD",
+      "due_date": "2026-08-20",
+      "condition": "30% scheduled first payment"
+    },
+    {
+      "sequence": 2,
+      "amount": "84000.00",
+      "currency": "USD",
+      "due_date": "2026-10-20",
+      "condition": "70% scheduled final payment"
+    }
+  ],
+  "evidence": [
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "TEST DOCUMENT - NO LEGAL EFFECT",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The English test-only notice is printed at the top."
+    },
+    {
+      "field": "document_notice",
+      "page": 1,
+      "source_text": "합성 테스트 문서 - 법적 효력 없음",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The Korean test-only notice is printed at the top."
+    },
+    {
+      "field": "seller_name",
+      "page": 1,
+      "source_text": "Seller: Liberty Lantern Test Equipment LLC",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The seller name is explicitly labelled."
+    },
+    {
+      "field": "seller_country",
+      "page": 1,
+      "source_text": "Seller Country: United States (US)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The seller country and ISO alpha-2 code are explicit."
+    },
+    {
+      "field": "buyer_name",
+      "page": 1,
+      "source_text": "Buyer: Blue Hanul Synthetic Imports Ltd.",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The buyer name is explicitly labelled."
+    },
+    {
+      "field": "buyer_country",
+      "page": 1,
+      "source_text": "Buyer Country: Republic of Korea (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The buyer country and ISO alpha-2 code are explicit."
+    },
+    {
+      "field": "contract_date",
+      "page": 1,
+      "source_text": "Contract Date: 2026-08-05",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The contract date is explicit."
+    },
+    {
+      "field": "currency",
+      "page": 1,
+      "source_text": "Contract Currency: USD",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The contract currency is explicit."
+    },
+    {
+      "field": "grand_total",
+      "page": 1,
+      "source_text": "Total Amount / Amount Due: USD 120000.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The total amount is explicit."
+    },
+    {
+      "field": "amount_due",
+      "page": 1,
+      "source_text": "Total Amount / Amount Due: USD 120000.00",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The full contract amount remains due."
+    },
+    {
+      "field": "payment_terms",
+      "page": 1,
+      "source_text": "Payment Terms: Split payment - 30% and 70%",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The split-payment terms are explicit."
+    },
+    {
+      "field": "installments",
+      "page": 1,
+      "source_text": "Installment 1: 30% | USD 36000.00 | Due 2026-08-20",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The first installment amount and date are explicit."
+    },
+    {
+      "field": "installments",
+      "page": 1,
+      "source_text": "Installment 2: 70% | USD 84000.00 | Due 2026-10-20",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "The second installment amount and date are explicit."
+    }
+  ],
+  "warnings": [],
+  "missing_required_fields": [],
+  "needs_human_review": true
+}

@@ -102,6 +102,11 @@ def build_ledger(
         if initial_cash < minimum_buffer
         else None
     )
+    first_cash_deficit_date = (
+        as_of_date.isoformat()
+        if initial_cash < 0
+        else None
+    )
     maximum_buffer_shortfall = max(
         minimum_buffer - initial_cash,
         Decimal("0"),
@@ -134,6 +139,8 @@ def build_ledger(
         )
         if buffer_shortfall > 0 and first_buffer_shortfall_date is None:
             first_buffer_shortfall_date = event_date.isoformat()
+        if cash_deficit > 0 and first_cash_deficit_date is None:
+            first_cash_deficit_date = event_date.isoformat()
         maximum_buffer_shortfall = max(
             maximum_buffer_shortfall,
             buffer_shortfall,
@@ -169,6 +176,7 @@ def build_ledger(
         "ending_cash": balance,
         "minimum_cash": minimum_cash,
         "first_buffer_shortfall_date": first_buffer_shortfall_date,
+        "first_cash_deficit_date": first_cash_deficit_date,
         "maximum_buffer_shortfall": maximum_buffer_shortfall,
         "cash_deficit": maximum_cash_deficit,
         "post_credit_shortfall": maximum_post_credit_shortfall,

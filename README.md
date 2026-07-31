@@ -1,186 +1,309 @@
-# 수출입 환율·현금흐름 리스크 Copilot
+# 수출입 금융 의사결정 지원 에이전트
 
-상업송장·국제매매계약서·구매주문서를 근거와 함께 구조화하고, 사용자가 핵심값을
-확인한 뒤 환율 시나리오별 원화 현금흐름을 `Decimal`로 계산하는 로컬 Streamlit
-MVP입니다. 헤지 전략과 금융상품은 확정 자문이 아닌 검토 후보로만 제시합니다.
-완전 자율형 멀티에이전트가 아니라, 사용자 확인과 결정론 검증을 선행 조건으로 하는
-상태 기반 통제형 워크플로입니다.
+## 1. 프로젝트 한 줄 설명
 
-## 5분 실행
+수출입 거래의 환율 위험을 기업의 실제 현금 문제로 변환하고, 필요한 금융 상담까지
+연결하는 AI 에이전트입니다.
 
-Python 3.9 환경에서 다음 명령을 실행합니다.
+> 이 서비스의 핵심은 환율을 예측하는 것이 아니라, 환율 변화가 특정 기업의 실제
+> 결제와 현금흐름에 미치는 영향을 계산하고 다음 금융 상담을 준비하게 하는 것입니다.
+
+주 사용자는 수출입 기업의 재무·자금 담당자이고, KB 담당자는 사용자가 공유한 상담
+패킷을 검토하는 후속 사용자입니다.
+
+## 2. 해결하려는 문제
+
+환율 계산기만으로는 다음 질문에 답하기 어렵습니다.
+
+- 보유 외화·확정 외화 유입·기존 헤지를 빼면 실제 열린 노출은 얼마인가?
+- 불리한 환율에서 지급액 또는 원화 수취액은 얼마나 변하는가?
+- 예정 매출·비용 뒤에도 최소 운영자금을 지키는가?
+- 현금과 대출한도를 반영해도 실제 지급 부족이 남는가?
+- 어떤 대응을 검토하고 은행 상담에 무엇을 준비해야 하는가?
+
+## 3. 일반 환율 계산기와의 차이
+
+```text
+거래 문서 또는 샘플
+→ AI 구조화 추출
+→ 규칙 검증과 사용자 확인
+→ 팀 Stage 1 시장모델 + 별도 Spot
+→ 모델 경로위험 / 고정 스트레스 분리
+→ Decimal 환노출·날짜별 현금흐름
+→ 구조화 위험 코드
+→ 제약 기반 헤지 시뮬레이션 후보
+→ 공식자료 후보
+→ KB 상담 패킷과 검증된 보고서
+```
+
+`buffer_shortfall`은 최소 운영자금 기준 부족이고, `actual_cash_deficit`은 음수
+현금잔고, `post_credit_deficit`은 대출한도 뒤에도 남는 실제 부족입니다.
+
+## 4. 핵심 사용자 흐름
+
+1. PDF·PNG·JPG/JPEG 거래 문서를 올리거나 수입·수출 샘플을 선택합니다.
+2. 국가명을 ISO 코드로 정규화하고 회사 역할·거래 방향·통화·금액·결제일을
+   원문 evidence와 대조해 확인합니다.
+3. `위험 진단`에서 확인된 기준환율과 회사 현금·최소운영자금·신용한도를 입력합니다.
+4. 불리한 환율에서의 추가 부담, 최저 현금잔고와 신용한도 사용 후 부족을 확인합니다.
+5. `대응안 비교`에서 안정성·균형·비용 관점의 계산상 후보와 선택적 공식자료를 봅니다.
+6. `상담자료`에서 결정론적으로 정렬된 위험 기반 상담 Top 3, 숫자 근거,
+   부족정보, 기대 결정과 다음 행동을 확인하고 같은 JSON에서 만든 Markdown
+   handoff를 내려받습니다.
+
+내부 Stage 1 provider, 21거래일 모델 결과, 전체 계산표, JSON과 실행 trace는 삭제하지
+않고 각 화면의 접힌 상세 영역에서 확인할 수 있습니다.
+
+금액 용어는 다음처럼 구분합니다.
+
+- `grand_total`: 문서에 명시된 계약 또는 청구 총액
+- `amount_due`: Stage 2 분석에 투입되는 계약상 미결제 예정 노출액. 내부 JSON
+  필드명은 하위 호환성을 위해 유지하며, 화면에서는 수출이면
+  `분석 대상 예정 수취액`, 수입이면 `분석 대상 예정 지급액`으로 표시
+- 실제 미수·미지급 잔액: 입금·지급 이력을 반영해야 알 수 있는 별도 개념이며
+  계약서만으로 확인할 수 없으면 `UNKNOWN`
+
+> 계약서에 명시된 예정 결제액을 기준으로 분석합니다.
+> 실제 입금·지급 이력이 확인되면 이미 이행된 금액을 제외해야 합니다.
+
+결제일이 모델의 21거래일 범위 밖이면 `HORIZON_MISMATCH`가 발생합니다. 이때
+Stage 1은 초기 21일 시장 문맥으로만 표시하고 전체 결제기간 숫자는 고정
+스트레스로만 계산합니다.
+
+## 5. AI가 맡는 역할
+
+- `src/document_intake/openai_adapter.py`: 비정형 문서를 구조화
+- 별도 `kb_macro_ai`: USD/KRW 방향·경로위험 모델
+- `src/stage4/official_search.py`: 활성화한 경우 공식 도메인 자료 검색
+- `src/stage5/report_agent.py`: 이미 계산된 JSON을 자연어로 설명
+
+AI 추출값은 Pydantic·결정론 규칙·사용자 확인 전에는 계산에 전달하지 않습니다.
+`United States`, `Republic of Korea` 같은 자연어 국가는 검증 전에 `US`, `KR`로
+정규화하고 원본과 변경 이력을 audit에 보존합니다. 금액 원문에 실제 통화 코드가
+있을 때만 currency evidence를 안전하게 연결합니다.
+당사자 이름·국가는 각각 정확한 field evidence와 현재 값의 원문 일치를 요구합니다.
+텍스트 PDF는 메모리 안에서 인용문이 실제 페이지에 있는지와 당사자·통화·금액·날짜·
+지급조건 값이 일치하는지를 결정론적으로 대조합니다. 이미지·스캔 문서는 독립 텍스트
+원문이 없어 `OCR_REQUIRED`와 field-level 사용자 확인 전 계산을 차단합니다. 사용자가
+값을 수정하면 이전 evidence를 자동 폐기한 뒤 전체 검증을 다시 실행합니다.
+Stage 1 v25 방향 점수는 시장 문맥 전용이며
+`probability_calibrated=false`이면 실제 발생확률이나 기대손실 가중치가 아닙니다.
+뉴스는 가격 예측 입력이 아니고 금융 숫자를 변경하지 않습니다.
+
+## 6. 결정론적 계산 엔진이 맡는 역할
+
+`src/stage2/`는 `Decimal`과 날짜순 ledger로 다음을 계산합니다.
+
+- 보유 외화·동일통화 확정 흐름·기존 헤지와 열린 환노출
+- 기준/모델 분위수/고정 스트레스의 원화 지급 또는 수취
+- 수입 추가비용, 수출 원화 수취 감소
+- 날짜별 잔고, 최초·최대 운영자금 부족, 현금 적자, 신용 후 실제 부족
+- 손실한도 초과와 모든 숫자의 source path
+
+내부 환율은 항상 외화 1단위당 원화입니다. JPY(100) 고시는 provider에서
+`KRW_PER_1_JPY`로 정규화합니다. 유리한 시나리오는 음수 손실이 아니라
+`loss_vs_base=0`, 방향값은 `signed_impact_vs_base`로 분리합니다.
+
+## 7. 금융 안전장치
+
+- q90을 90% 발생확률로 표현하지 않음
+- 21거래일 모델을 90일 결제일로 외삽하지 않음
+- Stage 1에 없는 spot을 임의 추정하지 않음
+- 수동 spot은 사용자 확인 전 차단
+- LLM이 환율·손실·잔고·부족·헤지비율을 계산하지 않음
+- 헤지 결과는 `SIMULATED_CANDIDATE`, 해가 없으면 강제 추천하지 않음
+- 상품 가입·대출 승인·보험 인수·헤지 주문·적격성을 확정하지 않음
+- 출처·기준일 없는 상품을 최종 후보에서 제외
+- 보고서 숫자와 JSON path 불일치, 확률/q90/horizon/news 오용 시 critic 차단
+- 상담 순위는 LLM이나 종합점수가 아니라 기존 risk finding과 명시적 category
+  tie-break로 결정하며 승인·보험 인수·대출 심사 등급으로 사용하지 않음
+- `buffer_shortfall`과 `cash_deficit`·`post_credit_deficit`을 함께 표시하고,
+  후자의 두 값이 0이면 지급불능이나 대출 필요성으로 표현하지 않음
+- API key가 없거나 critic이 실패하면 결정론 보고서
+
+## 8. 대표 수입·수출 데모
+
+외부 API 없이 팀 Stage 1 fixture와 fixture spot으로 실행합니다.
 
 ```bash
-cd /Users/jeongminchan/Desktop/invoice_intake_mvp
-cp .env.example .env
+python scripts/run_decision_demo.py --company-role BUYER --format summary
+python scripts/run_decision_demo.py --company-role SELLER --format summary
+python scripts/run_decision_demo.py --company-role BUYER --format markdown
+```
+
+수입 대표값:
+
+- 수입 USD 100,000, 결제용 보유 USD 20,000, 열린 노출 USD 80,000
+- 기준 1,400원 필요액 112,000,000원
+- +5% 1,470원 필요액 117,600,000원, 추가비용 5,600,000원
+- 현재 현금 130,000,000원, 확정 유입 40,000,000원, 확정 비용 45,000,000원
+- +5% 결제 후 7,400,000원, 최소 운영자금 부족 2,600,000원
+- 현금은 양수이므로 실제 지급부족 0원
+
+수출 데모는 환율 하락 → 원화 수취 감소 → 현금 위험의 반대 방향을 검증합니다.
+두 사례의 결제일은 21거래일 밖이므로 모델 분위수는 시장 문맥으로만 보이고
+결제 숫자는 고정 스트레스에서 나옵니다.
+
+메인 발표용 텍스트 레이어 Golden 수출계약서는 저장소의 불변 fixture를 사용합니다.
+
+```bash
+shasum -a 256 dataset/golden_demo/golden_export_contract.pdf
+python -m unittest tests.test_golden_trade_demo -v
+```
+
+`dataset/golden_demo/golden_export_contract.pdf`는 KR 판매자·BR 구매자,
+USD 100,000, 20/80 분할결제와 2026-08-20 잔금일을 가진 합성 계약서입니다.
+기대 SHA-256은
+`5330a1a572488005f7b02cccfc7150fbaa8b38c84bb9290da1e0c6e1c3a0a91c`이며,
+일상 preflight에서는 generator로 덮어쓰지 않습니다.
+Expected evidence와 사용자 입력은 같은 디렉터리의 JSON에 있습니다. 최초 Golden
+Live v1은 핵심값 일치 후 amount/due-date evidence 검증에서 차단됐지만, 이후
+source-grounded recovery 적용 상태의 승인된 Golden Live 1건에서
+`validation_pass=true`, 사용자 확인 후 `stage2_allowed=true`를 확인했습니다.
+이번 정리 작업에서는 Live API를 다시 호출하지 않았고 raw response를 저장하지
+않았습니다. 한 건의 합성문서 성공을 전체 문서 정확도로 일반화하지 않습니다.
+발표 순서는
+[docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md)를 따릅니다.
+
+외부 헤지 결속용 Golden 수입계약은 기존 수출 Golden과 별도입니다.
+
+```bash
+shasum -a 256 \
+  dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf
+python scripts/verify_golden_import_hedge_flow.py
+python -m unittest tests.test_golden_import_hedge_demo -v
+```
+
+이 문서는 `BUYER / KR`, 단일 `IMPORT / USD 100,000 / 2026-08-27` 거래입니다.
+사용자 입력 보유 USD 10,000을 반영하면 Stage 2와 외부 request의 순노출은
+USD 90,000입니다. 기존 Stage 3의 세 계산상 비교안과 `kb_macro_ai`의
+`REFERENCE_ONLY / MOCK` 세 참고안은 별도 결과이며 통합 순위나 Stage 4·상담
+리포트 연결을 만들지 않습니다. API-free 검증은 expected extraction을 test
+double로 사용하므로 Live 추출 정확도 주장이 아닙니다. 직접 첨부·입력·클릭
+순서는
+[docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md](docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md)를
+따릅니다.
+
+## 9. 실행 방법
+
+Python 3.9, Streamlit 단일 앱입니다. DB와 Docker는 필요하지 않습니다.
+
+```bash
+git clone https://github.com/MinchoLover/KBaiAgent.git
+cd KBaiAgent
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-브라우저에서 `http://localhost:8501`을 엽니다. API 키가 없어도 데모 모드와
-`전체 오프라인 데모 실행`이 동작합니다.
-
-- macOS: `chmod +x run_mac.command && ./run_mac.command`
-- Windows: `run_windows.bat` 더블클릭
-- 빠른 안내: [START_HERE.md](START_HERE.md)
-
-## 실제 문서 추출
-
-`.env`의 `OPENAI_API_KEY`를 채우고 앱에서 `실제 API 모드`를 선택합니다. 키는
-서버 환경변수에서만 읽고 화면·로그에 출력하지 않습니다. 모델 접근 오류가 나면
-계정에서 사용 가능한 vision 및 Structured Outputs 지원 모델로 `OPENAI_MODEL`과
-`OPENAI_FALLBACK_MODEL`을 변경합니다.
-
-OpenAI 연결은 한 adapter에 격리되어 있습니다. 공식 Python SDK의 Responses API
-`responses.parse(..., text_format=TradeDocumentExtraction)`를 사용하고, 이미지에는
-`input_image`, PDF에는 base64 `input_file`을 보냅니다. 기본 모델을 두 번 시도한 뒤
-선택적 fallback 모델을 한 번 시도합니다. 참고:
-[Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs),
-[File inputs](https://developers.openai.com/api/docs/guides/file-inputs),
-[Images and vision](https://developers.openai.com/api/docs/guides/images-vision).
-
-비용이 발생하는 한 건 smoke test:
+팀 Stage 1 HTTP 연결:
 
 ```bash
-python scripts/live_smoke_test.py samples/sample_invoice.png
+curl --fail --silent http://127.0.0.1:8765/health
 ```
-
-## 앱 흐름
-
-```text
-0 문서 업로드·추출
-→ 사용자 수정 및 통화·금액·결제일 확인 gate
-→ 1 수동 스트레스 또는 외부 Stage 1
-→ 2 환위험·날짜별 현금잔고 계산
-→ 3 헤지 비율 후보 grid 탐색
-→ 4 공식 출처 상품·제도 후보
-→ 5 critic 검수 보고서 또는 결정론 fallback
-→ case ID 기반 실행 trace
-```
-
-`STRESS`, `FORECAST`, `CALCULATION`, `EXPLICIT`, `DERIVED`, `INFERRED` 상태를
-화면과 JSON에서 구분합니다. 모델 추출값은 확인 전 금융 계산에 들어가지 않습니다.
-
-`src/workflow/orchestrator.py`가 순서, 확인 gate, 실패·fallback, 보고서 재작성 상한,
-종료 상태를 관리합니다. `app.py`는 입력 수집과 결과 표시를 담당하고 금융 계산은
-`src/stage2/`, 헤지 탐색은 `src/stage3/`에서 수행합니다. offline demo도 같은
-orchestrator를 사용합니다. Stage 2 직전에는 문서 SHA, 거래 방향·통화와 회차별
-금액·결제일로 확정 거래 fingerprint를 다시 계산해 입력과 대조합니다.
-
-- 상세 구조와 Mermaid: [ARCHITECTURE.md](ARCHITECTURE.md)
-- 감사·변경·잔여 위험: [REFACTORING_REPORT.md](REFACTORING_REPORT.md)
-
-## Stage 1 팀 연결
-
-앱에서 JSON 업로드 또는 REST endpoint를 선택합니다. 최소 계약은 다음과 같습니다.
-
-```json
-{
-  "schema_version": "1.0",
-  "currency": "USD",
-  "quote_convention": "KRW_PER_1_FC",
-  "rate_unit_foreign_currency": "1",
-  "as_of": "2026-07-23T09:00:00+09:00",
-  "target_date": "2026-10-21",
-  "kind": "FORECAST",
-  "scenarios": [
-    {"name": "LOW", "rate": "1330", "is_base": false, "probability": "0.20"},
-    {"name": "BASE", "rate": "1400", "is_base": true, "probability": "0.60"},
-    {"name": "HIGH", "rate": "1515", "is_base": false, "probability": "0.20"}
-  ]
-}
-```
-
-통화·기준일·base 개수·양수 환율·확률 합계를 검증합니다. `rate_unit_foreign_currency`
-가 `100`이면 JPY 등 100통화 단위 표시를 내부 1통화 단위로 정규화합니다. endpoint
-오류나 schema 오류가 나면 명시적으로 `MANUAL_FALLBACK` 스트레스로 전환합니다.
-상세 계약은 [docs/STAGE1_CONTRACT.md](docs/STAGE1_CONTRACT.md)에 있습니다.
-
-REST endpoint는 기본적으로 HTTPS와 public IP만 허용하고 URL userinfo, fragment,
-redirect, 사설·loopback·link-local·예약 IP를 차단합니다. 운영 환경에서는 exact
-hostname allowlist도 설정합니다.
 
 ```dotenv
-STAGE1_ALLOWED_HOSTS=stage1.example.com
-STAGE1_ALLOW_PRIVATE_ENDPOINTS=false
+STAGE1_PROVIDER=http
+STAGE1_BASE_URL=http://127.0.0.1:8765
+STAGE1_FORECAST_FILE=src/integration_assets/stage1/latest_forecast.json
+SPOT_RATE_PROVIDER=manual
+MANUAL_USDKRW_RATE=1400
 ```
 
-로컬 개발 서버가 꼭 필요할 때만 `STAGE1_ALLOW_PRIVATE_ENDPOINTS=true`와
-`STAGE1_ALLOWED_HOSTS=localhost`를 함께 명시합니다.
-
-공식 web 상품 검색이 실패하면 offline 공식 KB로 전환합니다. 공식 출처가 확인되지
-않은 경우 candidates를 빈 배열로 유지하며 보고서 LLM이 상품을 새로 만들지 못하도록
-prompt와 critic 양쪽에서 검사합니다. 검색 cache는 timezone 포함 생성시각과 24시간
-기본 TTL을 검증하며, TTL은 `OFFICIAL_SEARCH_CACHE_TTL_HOURS`로 조정합니다.
-
-## 데이터셋·평가
-
-16건의 가상 합성 문서와 기존 샘플 참조 1건을 `dataset/manifest.jsonl`로 관리합니다.
-모든 합성 문서 상단에는 `TEST DOCUMENT - NO LEGAL EFFECT`가 있습니다. 기존 샘플은
-`dataset/documents/`로 복사하지 않고 원본 경로를 manifest에서 참조합니다.
+전체 변수는 `env.template`, 빠른 시작은 [START_HERE.md](START_HERE.md)를 봅니다.
+팀 모델 연결은
+[docs/STAGE1_INTEGRATION.md](docs/STAGE1_INTEGRATION.md), 환율 출처 설정은
+[docs/SPOT_PROVIDER_SETUP.md](docs/SPOT_PROVIDER_SETUP.md)를 봅니다.
+발표·운영 전에는 다음 한 명령과 Streamlit 사이드바의
+`Integration Readiness`로 health, forecast freshness/fallback, spot 출처와
+외부 헤지 commit·SHA·현재 거래 지원 여부를 비밀값 없이 확인할 수 있습니다.
 
 ```bash
-python scripts/generate_synthetic_dataset.py
-python scripts/evaluate_extraction.py --mode offline
-python scripts/evaluate_extraction.py --mode live --max-cases 2
-python scripts/run_regression.py
+python scripts/check_integration_readiness.py
 ```
 
-offline fixture는 평가 코드와 label 계약을 검사하며 실제 모델 품질 점수가 아닙니다.
-live 결과가 실제 baseline입니다. 비용 단가는 CLI의
-`--input-cost-per-million`, `--output-cost-per-million`으로 기록할 수 있습니다.
+상태 의미와 단일 USD 수입 지급 `local_cli` E2E는
+[docs/INTEGRATION_READINESS.md](docs/INTEGRATION_READINESS.md)를 봅니다.
+단일 USD 수입 지급용 `kb_macro_ai` 헤지는 feature flag 기본 off인 별도 참고
+영역에서 사용합니다. 고정 파일 검증뿐 아니라 pinned producer commit의 공식
+로컬 CLI를 현재 확정 수입 거래로 실행할 수 있으며, 생성된 결과도 KBaiAgent가
+다시 검증합니다. 목업 가격의 외부 후보는 `REFERENCE_ONLY`이고 기존 Stage 3,
+Stage 4와 상담 리포트를 대체하지 않습니다. Streamlit 설정과 클릭 순서는
+[docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md](docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md)를
+봅니다.
+현재 순수 Streamlit 구조라 독립 REST endpoint 대신 typed 서비스 계층을
+구현했습니다. API 분리는 인증·tenant 설계와 함께 후속 범위입니다.
 
-Few-shot 파일은 모델 파인튜닝 데이터가 아니라 각 요청에 참고 문맥으로 포함되는 정답
-예시입니다. 현재 프로젝트는 파인튜닝하지 않습니다.
-
-1. 먼저 baseline 평가를 수행합니다.
-2. 프롬프트와 결정론 검증으로 해결되지 않는 반복 오류가 수치로 확인될 때만
-   파인튜닝을 검토합니다.
-3. 학습셋과 테스트셋을 분리합니다.
-4. 테스트셋을 파인튜닝 데이터에 절대 포함하지 않습니다.
-5. 사용자 확인, 모든 필수 evidence, 검증 PASS, 사람 승인을 모두 만족한 train 사례만
-   후보로 내보냅니다.
-
-```bash
-python scripts/export_finetuning_candidates.py
-# 호환 명령
-python scripts/export_finetuning_dataset.py
-```
-
-이 명령은 job을 실행하지 않으며 `artifacts/fine_tuning_candidate.jsonl`과 제외 사유를
-기록한 `artifacts/fine_tuning_excluded.jsonl`만 만듭니다.
-
-## 품질 검사
+## 10. 테스트 방법
 
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache \
-  python -m compileall -q app.py src tests
+  python -m compileall -q -x '(^|/)(\.venv|\.git|__pycache__)(/|$)' .
 python -m unittest discover -s tests -v
 python scripts/evaluate_extraction.py --mode offline
 python scripts/run_regression.py
 python scripts/verify.py
 ```
 
-현재 suite는 API 키 없이 174개 테스트를 실행합니다. 확인 전 Cashflow 차단,
-확정 거래와 Stage 2 입력의 변조 방지, Decimal·날짜 계약, 분할결제 배분, Stage 1
-fallback, 상품 empty-state, critic 1회 재작성, report fallback, trace privacy,
-Streamlit 없는 orchestrator 실행, REST SSRF 경계와 cache TTL을 포함합니다.
-검증 근거와 실제 결과는
-[docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md), 알려진 한계는
-[docs/LIMITATIONS.md](docs/LIMITATIONS.md)에 있습니다.
+`python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
+검사를 한 명령으로 실행합니다. 2026-07-31 현재 529개 테스트가 통과했습니다.
+최신 실제 실행 결과는
+[docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
+live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
 
-## 보안·범위
+미국·브라질 합성문서 Live 평가는 기본 비활성이고, 양수 사례 제한·명시적 확인·
+고유 run ID가 모두 필요합니다. 실행·비용·주장 범위는
+[docs/LIVE_BENCHMARK_RUNBOOK.md](docs/LIVE_BENCHMARK_RUNBOOK.md), 제출 전 사실
+확인은 [docs/SUBMISSION_READINESS.md](docs/SUBMISSION_READINESS.md), 실행한
+Baseline v1/v2 합성 8건씩의 결과는
+[docs/LIVE_BENCHMARK_RESULTS.md](docs/LIVE_BENCHMARK_RESULTS.md)를 봅니다.
 
-- PDF/PNG/JPG/JPEG, 기본 15MB 이하, PDF 20페이지 이하
-- 확장자·브라우저 MIME·magic bytes·실제 이미지/PDF 파싱을 교차 검증
-- archive·암호화/손상 PDF·위장 파일 거부
-- 원문 전체와 API 키를 로그에 기록하지 않음
-- 실제 업로드를 dataset에 자동 복사하지 않음
-- 문서 안의 지시는 신뢰하지 않는 데이터로 취급
-- 웹 검색은 공식 도메인 allowlist만 허용하고 기본값은 OFF
-- Stage 1 REST는 기본적으로 HTTPS/public IP 및 선택적 exact host allowlist 적용
-- 공식 검색 cache는 timezone 포함 생성시각과 TTL 검증
+## 11. 현재 구현 상태
 
-본 앱은 금융·법률·회계 자문, 상품 승인, 수익 또는 손실 회피를 보장하지 않습니다.
+| 영역 | 상태 | 근거 |
+| --- | --- | --- |
+| 문서 인테이크·사용자 확인 | 완료 | 국가·날짜·evidence 정규화, 5필드 workflow gate |
+| Stage 1 HTTP/file/mock | 완료 | `forecast_provider.py` |
+| 제공 Stage 1 JSON 정규화 | 완료 | `web_forecast.py`, fixture tests |
+| Spot 공식/수동/fixture | 완료 | `spot_rate.py`; live 공식 호출은 자격증명 필요 |
+| Integration Readiness | 완료 | CLI+Streamlit health/freshness/fallback/commit/SHA 점검 |
+| 모델/고정 scenario·horizon | 완료 | `scenario_builder.py` |
+| Decimal Stage 2 ledger | 완료 | `src/stage2/` |
+| 위험 코드·상담 Top 3 | 완료 | 기존 finding + 명시적 lexicographic rule, LLM 미사용 |
+| JSON/Markdown 상담 handoff | 완료 | 같은 `ConsultationPacket`에서 UI·Markdown·Stage 5 파생 |
+| Stage 3 제약 후보 | 프로토타입 | 실제 은행 가격 없이 명시적 가정 |
+| `kb_macro_ai` 외부 헤지 참고 | 프로토타입 | 단일 USD 수입 지급, pinned local CLI/file, 목업 가격은 `REFERENCE_ONLY` |
+| 공식자료 검색 | 부분 구현 | 검증된 local snapshot, 선택적 web |
+| 설명 보고서·critic | 완료 | API 없는 template fallback 포함 |
+| 수입·수출 fixture E2E | 완료 | `run_integrated_decision_demo`, tests |
+| Golden text-layer 발표자료 | 완료 | 불변 PDF·expected evidence·Golden 상담 통합 tests |
+| 인증·DB·독립 API·은행 내부연동 | 미구현 | 운영 확장 범위 |
+
+구조는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 기존 canonical 설명은
+[ARCHITECTURE.md](ARCHITECTURE.md), 감사는
+[docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md), 과거 리팩터링 내역은
+[REFACTORING_REPORT.md](REFACTORING_REPORT.md)를 봅니다.
+
+2026-07-29 제출 직전 통합 사실기록은 다음 문서를 canonical 최종 감사 묶음으로
+사용합니다.
+
+- [최종 프로젝트 보고서](docs/FINAL_PROJECT_REPORT.md)
+- [최종 기술 감사](docs/FINAL_TECHNICAL_AUDIT.md)
+- [상담 강화 보고서](docs/CONSULTATION_STRENGTHENING_REPORT.md)
+- [최종 실행 계획](docs/FINAL_ACTION_PLAN.md)
+
+## 12. 미구현 기능과 향후 확장
+
+- 42·63거래일 모델과 USD/KRW 외 통화 모델
+- 실제 은행 forward quote·한도·회계·세무 반영
+- KB 내부 상품·심사·대출 API
+- 자동 적격성·승인·주문
+- 사용자 인증·tenant 분리·중앙 감사로그·운영 DB
+- malware scan, 비동기 queue, CI/CD와 production observability
+- 허가된 실제 문서·live LLM·공식 환율 API 운영 benchmark
+
+현재 한계는 [docs/LIMITATIONS.md](docs/LIMITATIONS.md), 팀 인계는
+[docs/TEAM_HANDOFF_KO.md](docs/TEAM_HANDOFF_KO.md), 데모 대본은
+[docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md), 7장 발표 원고는
+[docs/PITCH_3MIN_KO.md](docs/PITCH_3MIN_KO.md)를 확인하세요.

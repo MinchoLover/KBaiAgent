@@ -272,6 +272,97 @@ class WorkflowTests(unittest.TestCase):
             ],
         )
 
+    def test_web_forecast_workflow_uses_mock_and_fixture_spot(self):
+        orchestrator = WorkflowOrchestrator(
+            settings=Settings(
+                demo_mode=True,
+                stage1_provider="mock",
+                spot_rate_provider="fixture",
+            )
+        )
+        state = orchestrator.run(
+            self._confirmed_state(orchestrator),
+            self._request(
+                stage1_mode="WEB_FORECAST",
+                stage1_provider="mock",
+                spot_provider="fixture",
+            ),
+        )
+
+        self.assertEqual(state.final_status, StageStatus.SUCCEEDED)
+        self.assertIsNotNone(state.market_integration)
+        self.assertEqual(
+            state.market_integration.forecast_load.source,
+            "MOCK",
+        )
+        self.assertEqual(
+            state.market_integration.spot_quote.rate,
+            "1400.00",
+        )
+        self.assertFalse(
+            state.market_integration.forecast_load.forecast.direction
+            .calibrated_probability
+        )
+        self.assertTrue(
+            state.market_integration.scenario_build.horizon_mismatch
+        )
+        self.assertTrue(
+            all(
+                item.source_kind != "STAGE1_MODEL_QUANTILE"
+                for item in state.market_risk.data.scenario_set.scenarios
+            )
+        )
+        self.assertIn(
+            "HORIZON_MISMATCH",
+            " ".join(state.market_risk.warnings),
+        )
+
+    def test_web_forecast_blocks_unconfirmed_manual_spot(self):
+        orchestrator = WorkflowOrchestrator(
+            settings=Settings(
+                demo_mode=False,
+                stage1_provider="mock",
+                spot_rate_provider="manual",
+            )
+        )
+        state = orchestrator.run(
+            self._confirmed_state(orchestrator),
+            self._request(
+                stage1_mode="WEB_FORECAST",
+                stage1_provider="mock",
+                spot_provider="manual",
+                manual_spot_confirmed=False,
+            ),
+        )
+
+        self.assertEqual(state.market_risk.status, StageStatus.FAILED)
+        self.assertEqual(state.final_status, StageStatus.FAILED)
+        self.assertIsNone(state.cashflow)
+        self.assertIsNone(state.hedge)
+        self.assertIsNone(state.final_report)
+
+    def test_infeasible_hedge_continues_with_human_consultation_report(self):
+        orchestrator = WorkflowOrchestrator(settings=Settings())
+        constrained_input = self.demo["stage2_input"].model_copy(
+            update={"acceptable_fx_loss": "0"}
+        )
+        state = orchestrator.run(
+            self._confirmed_state(orchestrator),
+            self._request(stage2_input=constrained_input),
+        )
+
+        self.assertEqual(state.final_status, StageStatus.SUCCEEDED)
+        self.assertEqual(
+            state.hedge.data.status,
+            "NO_FEASIBLE_CANDIDATE",
+        )
+        self.assertEqual(state.hedge.data.candidates, [])
+        self.assertIn(
+            "추가 자금·결제조건 조정·은행 상담",
+            state.final_report.markdown,
+        )
+        self.assertTrue(state.final_report.critique.passed)
+
     def test_official_product_failure_falls_back_to_offline_kb(self):
         def fail_official(**unused_kwargs):
             raise RuntimeError("official search unavailable")

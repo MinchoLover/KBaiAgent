@@ -1,9 +1,28 @@
 # Assumptions and Limitations
 
+## Stage 1 시장모델과 환율
+
+- 모델 지원 범위는 USD/KRW 한 통화쌍과 21거래일입니다.
+- v25 방향 점수는 보정된 발생확률이 아니며 기대손실 가중치로 사용하지 않습니다.
+- v36/v34 q90은 90% 발생확률이 아니라 모델 예측분포의 상위 경로위험 분위수입니다.
+- 정확한 미래 환율을 예측하지 않으며 Stage 1 JSON에 없는 spot을 추정하지 않습니다.
+- 결제일이 horizon 밖이면 모델 시나리오는 초기 21거래일 시장 문맥일 뿐이고,
+  결제기간 숫자는 고정 스트레스로만 계산합니다.
+- 뉴스는 설명용이며 방향 점수·분위수·손실 숫자를 변경하지 않습니다.
+- 모델과 제공 fixture는 연구·대회용입니다.
+- fixture spot 1,400원은 실시간 환율이 아닙니다. 운영 시 공식 reference 또는
+  사용자가 확인한 수동 환율이 필요합니다.
+
 ## 문서 AI
 
 - 합성 데이터 중심이며 실제 OCR 품질·언어·레이아웃 분포의 live baseline은 API 키가
   있어야 측정할 수 있습니다.
+- 텍스트 PDF는 모델 인용문이 실제 페이지에 존재하는지와 당사자·통화·금액·날짜·
+  지급조건 값이 일치하는지를 결정론적으로 검사합니다. 이미지형 PDF는 로컬 `pypdf`
+  텍스트 레이어가 비어 있고 독립 OCR 엔진은 아직 없습니다. 따라서 vision이 반환한
+  evidence는 자동 검증하지 않고 `EVIDENCE_UNVERIFIABLE`, `MISSING_CORE_EVIDENCE`,
+  `OCR_REQUIRED`로 계산 전달을 차단합니다. 사용자가 원문을 직접 대조한 field-level
+  override만 허용합니다.
 - 손글씨, 암호화 PDF, 스캔 20페이지 초과, 표가 매우 복잡한 계약서는 P0 범위 밖입니다.
 - 회사 역할은 사용자가 선택하며 회사 국가와 문서 당사자 국가가 다르면 review로
   보냅니다. 동일 국가 간 거래나 삼각무역의 import/export 법적 판정은 지원하지 않습니다.
@@ -31,11 +50,13 @@
 
 ## 전략·상품
 
-- Stage 3 비용률과 staged risk factor는 데모 가정이며 실제 최적화나 투자 자문이
+- Stage 3 비용률, forward effective rate와 staged risk factor는 공개된
+  `assumptions_contract` 아래의 시뮬레이션 가정이며 실제 최적화·주문·투자 자문이
   아닙니다.
 - Stage 4 offline KB는 2026-07-23 확인 snapshot이며 자격·금리·한도·신청기간 최신성을
   보장하지 않습니다.
 - official web search도 URL과 설명 후보만 제공하며 승인 가능성을 판정하지 않습니다.
+- 금융상품 가입·대출심사·보험인수·헤지 계약 가능성을 보장하지 않습니다.
 - official web search cache는 기본 24시간 TTL과 allowlist·모델·질의·거래방향을
   재검증합니다. TTL 안의 자료도 상품 조건 최신성을 보장하지 않으므로 확인일과 공식
   페이지를 사람이 다시 확인해야 합니다.
@@ -47,6 +68,17 @@
 - API가 없거나 Stage 4 공식 후보가 비었거나 critic이 재실패하면 안전한 template
   보고서로 fallback합니다.
 
+## 상담과 handoff
+
+- 상담 Top 3는 기존 risk finding과 명시적 MVP category rule의 검토 순서이며
+  KB 공식 routing policy, 승인등급·보험 인수등급·대출 심사등급이 아닙니다.
+- Golden의 선지급 실제 입금 상태는 사용자가 별도로 확인하지 않으면 `UNKNOWN`입니다.
+  로컬 확인은 은행 계좌·수납내역 조회를 대신하지 않습니다.
+- 공식 후보는 최대 3개의 출처 확인 항목이고 eligibility·가격·한도·승인은
+  확정하지 않습니다. 후보가 없으면 상품을 생성하지 않습니다.
+- Streamlit과 Markdown은 상담 준비 handoff입니다. 실제 상담 예약, RM 전송,
+  고객 매칭, 신청, 내부심사와 상담 결과 회수는 구현하지 않았습니다.
+
 ## 운영
 
 - 단일 로컬 Streamlit 앱이며 사용자 인증, 권한 분리, 중앙 DB, malware scan,
@@ -57,7 +89,10 @@
   길이가 큽니다. view 함수 분리는 후속 UI 리팩터링 범위입니다.
 - macOS Python 3.9.6에서 검증했습니다. Windows launcher는 제공했지만 이 환경에서
   직접 실행 검증하지 못했습니다.
-- 실제 OpenAI 호출과 공식 web search는 API 키가 없어 실행하지 않았습니다.
+- 미국·브라질 합성문서 전체 8건의 V1/V2 Live baseline과 recovery 이후 Golden
+  합성문서 1건을 기록했지만 실제 고객문서 성능으로 일반화할 수 없습니다. 이번
+  상담 검증에서는 OpenAI Live, 공식 web search와 공식 환율 API를 실행하지
+  않았습니다.
 - Stage 1 REST endpoint는 HTTPS/public IP, redirect 금지, 선택적 exact host
   allowlist를 적용합니다. DNS 검증과 실제 연결 사이 rebinding 위험을 더 줄이려면
   production egress proxy 또는 방화벽 allowlist가 추가로 필요합니다.

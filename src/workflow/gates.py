@@ -3,6 +3,7 @@ from typing import List
 from pydantic import Field
 
 from schemas import StrictModel
+from src.stage2.binding import validate_confirmed_transaction_snapshot
 from src.workflow.state import WorkflowState
 
 
@@ -37,5 +38,26 @@ def confirmation_gate(state: WorkflowState) -> GateDecision:
             )
         )
     ):
-        reasons.append("통화·금액·결제일 사용자 확인이 완료되지 않았습니다.")
+        reasons.append(
+            "거래 방향·통화·금액·결제일 사용자 확인이 완료되지 않았습니다."
+        )
+    if state.confirmed_transaction is None:
+        reasons.append("canonical confirmed transaction snapshot이 없습니다.")
+    elif (
+        state.extracted_trade is not None
+        and state.confirmation is not None
+        and state.confirmation_validation is not None
+    ):
+        try:
+            validate_confirmed_transaction_snapshot(
+                snapshot=state.confirmed_transaction,
+                extraction=state.extracted_trade,
+                validation=state.confirmation_validation,
+                confirmation=state.confirmation,
+            )
+        except (TypeError, ValueError) as exc:
+            reasons.append(
+                "canonical confirmed transaction이 stale 상태입니다: "
+                "{}".format(str(exc))
+            )
     return GateDecision(allowed=not reasons, reasons=list(dict.fromkeys(reasons)))

@@ -445,6 +445,12 @@ class Stage5Tests(unittest.TestCase):
             stage2=self.demo["stage2"],
             stage3=self.demo["stage3"],
             stage4=self.demo["stage4"],
+            confirmed_transaction=(
+                self.demo["workflow_state"].confirmed_transaction
+            ),
+            consultation_packet=self.demo[
+                "consultation_packet"
+            ].packet,
             settings=Settings(openai_api_key="test-only"),
             client=client,
         )
@@ -474,6 +480,12 @@ class Stage5Tests(unittest.TestCase):
             stage2=self.demo["stage2"],
             stage3=self.demo["stage3"],
             stage4=self.demo["stage4"],
+            confirmed_transaction=(
+                self.demo["workflow_state"].confirmed_transaction
+            ),
+            consultation_packet=self.demo[
+                "consultation_packet"
+            ].packet,
             settings=Settings(openai_api_key="test-only"),
             client=client,
             max_revisions=1,
@@ -499,6 +511,9 @@ class Stage5Tests(unittest.TestCase):
             stage2=self.demo["stage2"],
             stage3=self.demo["stage3"],
             stage4=self.demo["stage4"],
+            confirmed_transaction=(
+                self.demo["workflow_state"].confirmed_transaction
+            ),
             settings=Settings(openai_api_key="test-only"),
             client=client,
         )
@@ -539,6 +554,9 @@ class Stage5Tests(unittest.TestCase):
             stage2=self.demo["stage2"],
             stage3=self.demo["stage3"],
             stage4=empty_stage4,
+            confirmed_transaction=(
+                self.demo["workflow_state"].confirmed_transaction
+            ),
             settings=Settings(openai_api_key="test-only"),
             client=client,
         )
@@ -568,6 +586,9 @@ class Stage5Tests(unittest.TestCase):
             stage2=self.demo["stage2"],
             stage3=self.demo["stage3"],
             stage4=self.demo["stage4"],
+            confirmed_transaction=(
+                self.demo["workflow_state"].confirmed_transaction
+            ),
             settings=Settings(openai_api_key="test-only"),
             client=client,
         )

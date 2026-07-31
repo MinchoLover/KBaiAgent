@@ -11,11 +11,35 @@ URL_RE = re.compile(r"https?://[^)\s]+")
 REQUIRED_SECTIONS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("거래 요약", ("거래 요약",)),
     ("환노출·현금흐름", ("현금흐름 영향", "현재 환노출")),
-    ("헤지 후보", ("전략 후보", "헤지 후보")),
-    ("금융상품과 출처", ("금융상품", "상품 후보")),
+    (
+        "헤지 후보",
+        ("전략 후보", "헤지 후보", "환헤지 시뮬레이션 후보"),
+    ),
+    (
+        "금융상품과 출처",
+        ("금융상품", "상품 후보", "공식 출처 상담 후보"),
+    ),
     ("한계", ("가정·한계", "한계·면책", "면책")),
     ("다음 행동", ("상담 시 질문", "상담 질문", "다음 행동")),
 )
+TRADE_RISK_TYPE_LABELS = {
+    "IMPORT_PREPAYMENT_PERFORMANCE_RISK": (
+        "수입 선지급·계약이행 위험"
+    ),
+    "EXPORT_RECEIVABLE_COLLECTION_RISK": "수출대금 회수 위험",
+}
+TRADE_RISK_PRIORITY_LABELS = {
+    "STANDARD_REVIEW": "일반 검토",
+    "ELEVATED_REVIEW": "추가 검토 필요",
+    "HIGH_REVIEW": "우선 검토 필요",
+    "UNKNOWN": "정보 확인 필요",
+}
+COUNTRY_REVIEW_PRIORITY_LABELS = {
+    "STANDARD_REVIEW": "통상 검토",
+    "ELEVATED_REVIEW": "추가 검토",
+    "HIGH_REVIEW": "우선 검토",
+    "INSUFFICIENT_INFORMATION": "정보 부족",
+}
 
 
 def _normalized_number(token: str) -> str:
@@ -49,12 +73,72 @@ def _resolve_path(source_bundle: Any, path: str) -> Any:
     return current
 
 
-def _missing_sections(markdown: str) -> List[str]:
+def _missing_sections(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    required = list(REQUIRED_SECTIONS)
+    if (
+        isinstance(source_bundle, dict)
+        and isinstance(source_bundle.get("consultation"), dict)
+    ):
+        consultation = source_bundle["consultation"]
+        required.extend(
+            [
+                (
+                    "거래·결제조건 위험",
+                    ("거래·결제조건 위험", "결제·회수 위험"),
+                ),
+                (
+                    "검토할 금융 대응",
+                    ("검토할 금융 대응", "금융 대응"),
+                ),
+            ]
+        )
+        if isinstance(
+            consultation.get("country_environment"),
+            dict,
+        ):
+            required.append(
+                (
+                    "국가·무역환경 검토",
+                    ("국가·무역환경 검토",),
+                )
+            )
     return [
         label
-        for label, aliases in REQUIRED_SECTIONS
+        for label, aliases in required
         if not any(alias in markdown for alias in aliases)
     ]
+
+
+def _authoritative_product_source(
+    source_bundle: Any,
+) -> Tuple[List[Any], str]:
+    if not isinstance(source_bundle, dict):
+        return [], "stage4.candidates"
+    consultation = source_bundle.get("consultation")
+    if isinstance(consultation, dict):
+        shortlist = consultation.get("official_candidate_shortlist")
+        candidates = (
+            shortlist.get("candidates", [])
+            if isinstance(shortlist, dict)
+            else []
+        )
+        return (
+            candidates if isinstance(candidates, list) else [],
+            "consultation.official_candidate_shortlist.candidates",
+        )
+    stage4 = source_bundle.get("stage4", {})
+    candidates = (
+        stage4.get("candidates", [])
+        if isinstance(stage4, dict)
+        else []
+    )
+    return (
+        candidates if isinstance(candidates, list) else [],
+        "stage4.candidates",
+    )
 
 
 def _product_grounding_issues(
@@ -62,18 +146,12 @@ def _product_grounding_issues(
     source_bundle: Any,
 ) -> List[str]:
     issues: List[str] = []
-    stage4 = (
-        source_bundle.get("stage4", {})
-        if isinstance(source_bundle, dict)
-        else {}
-    )
-    stage4_candidates = (
-        stage4.get("candidates", [])
-        if isinstance(stage4, dict)
-        else []
+    candidates, source_prefix = _authoritative_product_source(
+        source_bundle
     )
     product_section = re.search(
-        r"(?is)##[^\n]*(?:금융상품|상품 후보)[^\n]*\n"
+        r"(?is)##[^\n]*(?:금융상품|상품 후보|공식 출처 상담 후보)"
+        r"[^\n]*\n"
         r"(.*?)(?=\n##|\Z)",
         markdown,
     )
@@ -85,17 +163,732 @@ def _product_grounding_issues(
             product_tags = [
                 item
                 for item in SOURCE_TAG_RE.findall(stripped)
-                if item.startswith("stage4.candidates.")
+                if re.fullmatch(
+                    re.escape(source_prefix) + r"\.\d+",
+                    item,
+                )
             ]
             if not product_tags:
                 issues.append(
-                    "상품 후보 주장에 공식 Stage 4 근거가 없습니다."
+                    "상품 후보 주장에 현재 상담과 연결된 공식 근거가 없습니다."
                 )
-    if not stage4_candidates and re.search(
-        r"\[source:\s*stage4\.candidates\.",
+                continue
+            try:
+                candidate = _resolve_path(
+                    source_bundle,
+                    product_tags[0],
+                )
+            except KeyError:
+                continue
+            if not isinstance(candidate, dict):
+                issues.append("상품 후보 근거가 후보 객체가 아닙니다.")
+                continue
+            name = str(candidate.get("name", "")).strip()
+            if name and name not in stripped:
+                issues.append(
+                    "상품명이 인용한 공식 후보와 일치하지 않습니다."
+                )
+            institution = str(
+                candidate.get("institution", "")
+            ).strip()
+            if institution and institution not in stripped:
+                issues.append(
+                    "기관명이 인용한 공식 후보와 일치하지 않습니다."
+                )
+            source = candidate.get("source", {})
+            official_url = (
+                str(source.get("url", "")).strip()
+                if isinstance(source, dict)
+                else ""
+            )
+            line_urls = URL_RE.findall(stripped)
+            if not line_urls:
+                issues.append("상품 후보에 공식 URL이 없습니다.")
+            elif any(item != official_url for item in line_urls):
+                issues.append(
+                    "상품 링크가 인용한 공식 후보 URL과 일치하지 않습니다."
+                )
+            if (
+                re.search(
+                    r"(?:가입|이용|대출|지원).{0,20}"
+                    r"(?:가능합니다|가능함|확정|대상입니다)",
+                    stripped,
+                )
+                and not re.search(
+                    r"(?:여부|상담\s*필요|확인\s*필요|확정하지)",
+                    stripped,
+                )
+            ):
+                issues.append(
+                    "공식 후보의 이용 자격이나 승인 가능성을 확정했습니다."
+                )
+    if not candidates and re.search(
+        r"\[source:\s*" + re.escape(source_prefix) + r"\.",
         markdown,
     ):
-        issues.append("빈 Stage 4 결과에서 상품 후보를 생성했습니다.")
+        issues.append("빈 공식 shortlist에서 상품 후보를 생성했습니다.")
+    return list(dict.fromkeys(issues))
+
+
+def _consultation_grounding_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    issues: List[str] = []
+    trade_risk = consultation.get("trade_settlement_risk")
+    trade_section = re.search(
+        r"(?is)##[^\n]*(?:거래·결제조건 위험|결제·회수 위험)"
+        r"[^\n]*\n(.*?)(?=\n##|\Z)",
+        markdown,
+    )
+    if isinstance(trade_risk, dict):
+        if (
+            trade_section is None
+            or not any(
+                item.startswith("consultation.trade_settlement_risk")
+                for item in SOURCE_TAG_RE.findall(
+                    trade_section.group(1)
+                )
+            )
+        ):
+            issues.append(
+                "거래·결제조건 위험 주장에 확인된 위험평가 근거가 없습니다."
+            )
+        else:
+            trade_text = trade_section.group(1)
+            risk_type = str(trade_risk.get("risk_type", ""))
+            risk_type_label = TRADE_RISK_TYPE_LABELS.get(risk_type)
+            if (
+                risk_type_label is not None
+                and risk_type_label not in trade_text
+            ):
+                issues.append(
+                    "위험 유형이 인용한 거래위험 결과와 일치하지 않습니다."
+                )
+            review_priority = str(
+                trade_risk.get("review_priority", "")
+            )
+            priority_label = TRADE_RISK_PRIORITY_LABELS.get(
+                review_priority
+            )
+            if (
+                priority_label is not None
+                and priority_label not in trade_text
+            ):
+                issues.append(
+                    "검토 우선도가 인용한 거래위험 결과와 일치하지 않습니다."
+                )
+            for line in trade_text.splitlines():
+                factor_tags = [
+                    item
+                    for item in SOURCE_TAG_RE.findall(line)
+                    if re.fullmatch(
+                        r"consultation\.trade_settlement_risk"
+                        r"\.factors\.\d+",
+                        item,
+                    )
+                ]
+                for factor_tag in factor_tags:
+                    try:
+                        factor = _resolve_path(
+                            source_bundle,
+                            factor_tag,
+                        )
+                    except KeyError:
+                        continue
+                    reason = (
+                        str(factor.get("reason", "")).strip()
+                        if isinstance(factor, dict)
+                        else ""
+                    )
+                    if reason and reason not in line:
+                        issues.append(
+                            "위험 요인이 인용한 결정론 결과와 "
+                            "일치하지 않습니다."
+                        )
+    elif re.search(
+        r"\[source:\s*consultation\.trade_settlement_risk",
+        markdown,
+    ):
+        issues.append(
+            "거래·결제조건 위험 결과가 없는데 위험평가를 인용했습니다."
+        )
+
+    response_section = re.search(
+        r"(?is)##[^\n]*검토할 금융 대응[^\n]*\n"
+        r"(.*?)(?=\n##|\Z)",
+        markdown,
+    )
+    priorities = consultation.get("consultation_priorities", [])
+    if isinstance(priorities, list) and priorities:
+        if response_section is None:
+            issues.append("금융 대응 항목 섹션이 없습니다.")
+            return list(dict.fromkeys(issues))
+        response_text = response_section.group(1)
+        shortlist = consultation.get("official_candidate_shortlist")
+        shortlist_candidates = (
+            shortlist.get("candidates", [])
+            if isinstance(shortlist, dict)
+            else []
+        )
+        authoritative_product_ids = {
+            str(item.get("product_id", ""))
+            for item in shortlist_candidates
+            if isinstance(item, dict)
+        }
+        positions: List[int] = []
+        for index, priority in enumerate(priorities):
+            if not isinstance(priority, dict):
+                continue
+            source_path = (
+                "consultation.consultation_priorities.{}".format(index)
+            )
+            position = response_text.find(
+                "[source: {}]".format(source_path)
+            )
+            if position < 0:
+                issues.append(
+                    "상담 Top 3 항목에 구조화된 priority 근거가 없습니다."
+                )
+                continue
+            positions.append(position)
+            sourced_lines = [
+                line
+                for line in response_text.splitlines()
+                if "[source: {}]".format(source_path) in line
+            ]
+            sourced_text = " ".join(sourced_lines)
+            title = str(priority.get("title", "")).strip()
+            if title and title not in sourced_text:
+                issues.append(
+                    "금융 대응 제목이 인용한 상담 항목과 일치하지 않습니다."
+                )
+            rank = priority.get("rank")
+            if rank is not None and "{}순위".format(rank) not in sourced_text:
+                issues.append(
+                    "상담 검토 순위가 구조화된 priority와 일치하지 않습니다."
+                )
+            for field, issue in (
+                (
+                    "priority_reason",
+                    "상담 priority 이유가 구조화 결과와 일치하지 않습니다.",
+                ),
+                (
+                    "expected_decision",
+                    "상담 expected decision이 구조화 결과와 일치하지 않습니다.",
+                ),
+                (
+                    "next_action",
+                    "상담 next action이 구조화 결과와 일치하지 않습니다.",
+                ),
+                (
+                    "disclaimer",
+                    "상담 검토 순위 고지문이 누락되거나 변경됐습니다.",
+                ),
+            ):
+                expected = str(priority.get(field, "")).strip()
+                if expected and expected not in sourced_text:
+                    issues.append(issue)
+            official_candidates = priority.get(
+                "official_candidates",
+                [],
+            )
+            if isinstance(official_candidates, list):
+                for candidate in official_candidates:
+                    if not isinstance(candidate, dict):
+                        continue
+                    product_id = str(
+                        candidate.get("product_id", "")
+                    )
+                    if product_id not in authoritative_product_ids:
+                        continue
+                    name = str(candidate.get("name", "")).strip()
+                    if name and name not in sourced_text:
+                        issues.append(
+                            "상품명이 인용한 공식 후보와 일치하지 않습니다."
+                        )
+                    institution = str(
+                        candidate.get("institution", "")
+                    ).strip()
+                    if institution and institution not in sourced_text:
+                        issues.append(
+                            "기관명이 인용한 공식 후보와 일치하지 않습니다."
+                        )
+        if positions != sorted(positions):
+            issues.append(
+                "상담 Top 3가 구조화된 결정론 순서와 다르게 재정렬됐습니다."
+            )
+        return list(dict.fromkeys(issues))
+
+    topics = consultation.get("consultation_topics", [])
+    if isinstance(topics, list) and topics:
+        if response_section is None:
+            issues.append("금융 대응 항목 섹션이 없습니다.")
+        else:
+            for line in response_section.group(1).splitlines():
+                stripped = line.strip()
+                if (
+                    not stripped.startswith("-")
+                    or "없습니다" in stripped
+                ):
+                    continue
+                if not any(
+                    re.fullmatch(
+                        r"consultation\.consultation_topics\.\d+",
+                        item,
+                    )
+                    for item in SOURCE_TAG_RE.findall(stripped)
+                ):
+                    issues.append(
+                        "금융 대응 주장에 구조화된 상담 항목 근거가 없습니다."
+                    )
+                    continue
+                topic_tag = next(
+                    item
+                    for item in SOURCE_TAG_RE.findall(stripped)
+                    if re.fullmatch(
+                        r"consultation\.consultation_topics\.\d+",
+                        item,
+                    )
+                )
+                try:
+                    topic = _resolve_path(source_bundle, topic_tag)
+                except KeyError:
+                    continue
+                title = (
+                    str(topic.get("title", "")).strip()
+                    if isinstance(topic, dict)
+                    else ""
+                )
+                if title and title not in stripped:
+                    issues.append(
+                        "금융 대응 제목이 인용한 상담 항목과 "
+                        "일치하지 않습니다."
+                    )
+    return list(dict.fromkeys(issues))
+
+
+def _risk_boundary_issues(markdown: str) -> List[str]:
+    issues: List[str] = []
+    for line in markdown.splitlines():
+        if (
+            re.search(
+                r"(?:공식\s*심사등급|부도확률|보험\s*인수판단)",
+                line,
+                re.IGNORECASE,
+            )
+            and not re.search(
+                r"(?:아닙니다|아니며|제공하지|확정하지|판단하지)",
+                line,
+            )
+        ):
+            issues.append(
+                "거래·결제 검토 결과를 공식 등급·확률·인수판단으로 "
+                "표현했습니다."
+            )
+        if (
+            re.search(
+                r"(?:결제|회수).{0,25}위험",
+                line,
+                re.IGNORECASE,
+            )
+            and re.search(
+                r"(?:선물환|환헤지).{0,20}(?:비율|비중).{0,20}"
+                r"(?:높|늘|증가|낮|줄|감소)",
+                line,
+                re.IGNORECASE,
+            )
+            and "변경하지" not in line
+        ):
+            issues.append(
+                "결제·회수 위험이 환헤지 비율을 직접 변경한다고 "
+                "표현했습니다."
+            )
+    return list(dict.fromkeys(issues))
+
+
+def _consultation_priority_boundary_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    del source_bundle
+    issues: List[str] = []
+    for line in markdown.splitlines():
+        negated = bool(
+            re.search(
+                r"(?:아니|않|금지|확정하지|판단하지|보장하지)",
+                line,
+            )
+        )
+        if (
+            re.search(
+                r"(?:상담|검토).{0,20}(?:순위|우선순위).{0,30}"
+                r"(?:승인등급|승인\s*가능성|보험\s*인수등급|대출\s*등급)",
+                line,
+                re.IGNORECASE,
+            )
+            and not negated
+        ):
+            issues.append(
+                "상담 검토 순위를 승인·인수·대출 등급으로 표현했습니다."
+            )
+        if (
+            re.search(
+                r"(?:buffer|버퍼|운영자금).{0,45}"
+                r"(?:지급불능|부도|대출.{0,12}필요)",
+                line,
+                re.IGNORECASE,
+            )
+            and not negated
+        ):
+            issues.append(
+                "buffer shortfall을 지급불능 또는 대출 필요성으로 표현했습니다."
+            )
+        if (
+            re.search(
+                r"(?:예정\s*(?:수취|결제)\s*(?:액|노출액)|"
+                r"USD\s*100[,\s]?000).{0,40}"
+                r"(?:실제\s*)?(?:현재\s*)?(?:미수|미지급)잔액",
+                line,
+                re.IGNORECASE,
+            )
+            and not negated
+        ):
+            issues.append(
+                "예정 결제 노출액을 실제 현재 미수·미지급잔액으로 표현했습니다."
+            )
+        if (
+            re.search(
+                r"(?:Stage\s*3|헤지|선물환).{0,35}"
+                r"(?:최적\s*(?:추천|상품|헤지)|반드시\s*실행|"
+                r"가장\s*좋은\s*추천)",
+                line,
+                re.IGNORECASE,
+            )
+            and not negated
+        ):
+            issues.append(
+                "Stage 3 계산상 후보를 최적 추천 또는 실행 지시로 표현했습니다."
+            )
+        if (
+            re.search(
+                r"(?:RM|상담자|영업점|KB\s*내부).{0,35}"
+                r"(?:전송\s*완료|예약\s*완료|신청\s*완료|"
+                r"심사\s*연결\s*완료)",
+                line,
+                re.IGNORECASE,
+            )
+            and not negated
+        ):
+            issues.append(
+                "다운로드 또는 상담 준비를 실제 RM 전송·예약·신청으로 "
+                "표현했습니다."
+            )
+    return list(dict.fromkeys(issues))
+
+
+def _country_environment_grounding_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    country_environment = consultation.get("country_environment")
+    section = re.search(
+        r"(?is)##[^\n]*국가·무역환경 검토[^\n]*\n"
+        r"(.*?)(?=\n##|\Z)",
+        markdown,
+    )
+    if not isinstance(country_environment, dict):
+        if re.search(
+            r"\[source:\s*consultation\.country_environment",
+            markdown,
+        ):
+            return [
+                "국가·무역환경 결과가 없는데 해당 근거를 인용했습니다."
+            ]
+        return []
+    issues: List[str] = []
+    if (
+        section is None
+        or not any(
+            item.startswith("consultation.country_environment")
+            for item in SOURCE_TAG_RE.findall(section.group(1))
+        )
+    ):
+        issues.append(
+            "국가·무역환경 주장에 구조화된 T4 근거가 없습니다."
+        )
+        return issues
+    text = section.group(1)
+    country = str(country_environment.get("country", ""))
+    if country and country not in text:
+        issues.append("거래국이 T4 구조화 결과와 일치하지 않습니다.")
+    priority = str(
+        country_environment.get("review_priority", "")
+    )
+    priority_label = COUNTRY_REVIEW_PRIORITY_LABELS.get(priority)
+    if priority_label and priority_label not in text:
+        issues.append(
+            "국가·무역환경 검토 우선순위가 구조화 결과와 일치하지 않습니다."
+        )
+
+    references = country_environment.get(
+        "official_source_references",
+        [],
+    )
+    official_urls = {
+        str(item.get("official_url", ""))
+        for item in references
+        if isinstance(item, dict)
+    }
+    for url in URL_RE.findall(text):
+        if url not in official_urls:
+            issues.append(
+                "국가·무역환경 URL이 snapshot 공식 출처와 일치하지 않습니다."
+            )
+
+    oecd = country_environment.get("oecd_payment_transfer", {})
+    if isinstance(oecd, dict):
+        status = str(oecd.get("status", ""))
+        raw = oecd.get("raw_classification")
+        if status == "CLASSIFIED" and raw == 4:
+            if re.search(
+                r"(?:KBaiAgent\s*)?(?:국가|위험|신용)\s*등급"
+                r".{0,12}(?<![0-9])4(?![0-9])",
+                text,
+                re.IGNORECASE,
+            ):
+                issues.append(
+                    "Brazil OECD raw 4를 자체 국가등급으로 표현했습니다."
+                )
+        if status == "HIGH_INCOME_OECD_UNCLASSIFIED":
+            for line in text.splitlines():
+                if "미분류" not in line:
+                    continue
+                affirmative_low_claim = re.search(
+                    r"미분류.{0,35}"
+                    r"(?:\bLOW\b|(?<![0-9])0(?![0-9])|안전|"
+                    r"낮은\s*위험).{0,12}"
+                    r"(?:입니다|이다|로\s*(?:판정|분류|간주)|"
+                    r"으로\s*(?:판정|분류|간주))",
+                    line,
+                    re.IGNORECASE,
+                )
+                if (
+                    affirmative_low_claim
+                    or (
+                        re.search(
+                            r"(?:\bLOW\b|(?<![0-9])0(?![0-9])|"
+                            r"안전|낮은\s*위험)",
+                            line,
+                            re.IGNORECASE,
+                        )
+                        and not re.search(
+                            r"(?:아니|않|금지|변환하지|의미하지)",
+                            line,
+                        )
+                    )
+                ):
+                    issues.append(
+                        "US OECD 미분류를 LOW·0·안전으로 표현했습니다."
+                    )
+                if (
+                    re.search(r"(?:자료\s*없음|정보\s*부족)", line)
+                    and not re.search(r"(?:아니|구분)", line)
+                ):
+                    issues.append(
+                        "US OECD 미분류를 DATA_UNAVAILABLE과 혼동했습니다."
+                    )
+
+    if (
+        re.search(
+            r"(?:OECD|World Bank|WTO).{0,80}"
+            r"(?:합산|가중평균|종합).{0,30}"
+            r"(?:0\s*[~～-]\s*100|100\s*점|점수)",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        and not re.search(
+            r"(?:합산|가중평균|종합).{0,20}"
+            r"(?:않|아니|금지|만들지)",
+            text,
+        )
+    ):
+        issues.append("세 국가 신호를 하나의 숫자 점수로 합산했습니다.")
+
+    world_bank = country_environment.get(
+        "world_bank_macro_environment",
+        {},
+    )
+    observations = (
+        world_bank.get("observations", [])
+        if isinstance(world_bank, dict)
+        else []
+    )
+    periods = {
+        str(item.get("observation_period", ""))
+        for item in observations
+        if isinstance(item, dict)
+    }
+    if len(periods) > 1:
+        for line in text.splitlines():
+            if (
+                re.search(
+                    r"(?:모든|세)\s*지표.{0,25}"
+                    r"(?:같은\s*시점|동일\s*연도|2025년)",
+                    line,
+                )
+                and not re.search(r"(?:아니|않|다르)", line)
+            ):
+                issues.append(
+                    "서로 다른 World Bank 관측연도를 같은 시점으로 표현했습니다."
+                )
+    return list(dict.fromkeys(issues))
+
+
+def _country_policy_boundary_issues(markdown: str) -> List[str]:
+    issues: List[str] = []
+    for line in markdown.splitlines():
+        if (
+            re.search(
+                r"(?:국가|OECD|World Bank|WTO).{0,35}"
+                r"(?:신용등급|부도확률|공식\s*심사등급)",
+                line,
+                re.IGNORECASE,
+            )
+            and not re.search(
+                r"(?:아니|않|금지|제공하지|만들지|변환하지)",
+                line,
+            )
+        ):
+            issues.append(
+                "국가 신호를 국가 신용등급·부도확률·공식 심사등급으로 표현했습니다."
+            )
+        if (
+            re.search(
+                r"(?:국가|OECD|World Bank|WTO).{0,45}"
+                r"(?:환헤지|선물환).{0,20}(?:비율|비중).{0,20}"
+                r"(?:변경|조정|높|낮|늘|줄)",
+                line,
+                re.IGNORECASE,
+            )
+            and not re.search(r"(?:않|아니|금지)", line)
+        ):
+            issues.append("국가 신호로 환헤지 비율을 변경했습니다.")
+        if (
+            re.search(
+                r"(?:국가|OECD|World Bank|WTO).{0,45}"
+                r"(?:Stage\s*2|현금흐름|현금).{0,20}"
+                r"(?:변경|조정|증가|감소)",
+                line,
+                re.IGNORECASE,
+            )
+            and not re.search(r"(?:않|아니|금지)", line)
+        ):
+            issues.append("국가 신호로 Stage 2 현금흐름을 변경했습니다.")
+    return list(dict.fromkeys(issues))
+
+
+def _market_policy_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    integration = source_bundle.get("market_integration")
+    if not isinstance(integration, dict):
+        return []
+    issues: List[str] = []
+    forecast_load = integration.get("forecast_load") or {}
+    forecast = (
+        forecast_load.get("forecast", {})
+        if isinstance(forecast_load, dict)
+        else {}
+    )
+    direction = (
+        forecast.get("direction", {})
+        if isinstance(forecast, dict)
+        else {}
+    )
+    scenario_build = integration.get("scenario_build") or {}
+    market_context = (
+        forecast.get("market_context", {})
+        if isinstance(forecast, dict)
+        else {}
+    )
+
+    if re.search(
+        r"q90.{0,40}(?:90\s*%\s*(?:확률|가능성)|90퍼센트)",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        issues.append("q90을 90% 발생확률로 오해하게 표현했습니다.")
+    if (
+        isinstance(direction, dict)
+        and direction.get("calibrated_probability") is False
+    ):
+        for line in markdown.splitlines():
+            if (
+                re.search(
+                    r"(?:방향\s*점수|up_score|down_score).{0,80}"
+                    r"(?:실제\s*)?(?:발생)?확률",
+                    line,
+                    re.IGNORECASE,
+                )
+                and "보정된 실제 발생확률이 아닙니다" not in line
+            ):
+                issues.append(
+                    "미보정 방향 점수를 실제 발생확률로 표현했습니다."
+                )
+                break
+    if (
+        isinstance(scenario_build, dict)
+        and scenario_build.get("horizon_mismatch") is True
+    ):
+        for line in markdown.splitlines():
+            if (
+                re.search(
+                    r"(?:결제기간|결제일까지|90일).{0,40}"
+                    r"(?:예측|전망)",
+                    line,
+                    re.IGNORECASE,
+                )
+                and "예측하지" not in line
+                and "예측이 아닙니다" not in line
+            ):
+                issues.append(
+                    "21거래일 모델을 결제기간 밖으로 외삽했습니다."
+                )
+                break
+    if (
+        isinstance(market_context, dict)
+        and market_context.get("news_used_as_predictor") is False
+    ):
+        for line in markdown.splitlines():
+            if (
+                re.search(
+                    r"뉴스.{0,40}(?:환율|손실|결제액).{0,30}"
+                    r"(?:계산에 반영|수치를 변경|숫자를 변경)",
+                    line,
+                    re.IGNORECASE,
+                )
+                and "반영하지" not in line
+                and "변경하지" not in line
+            ):
+                issues.append(
+                    "설명용 뉴스를 금융 숫자 계산에 사용한 것처럼 "
+                    "표현했습니다."
+                )
+                break
     return list(dict.fromkeys(issues))
 
 
@@ -214,7 +1007,7 @@ def critique_report(
         issues.append(issue)
         evidence_issues.append(issue)
 
-    missing_sections = _missing_sections(markdown)
+    missing_sections = _missing_sections(markdown, source_bundle)
     for label in missing_sections:
         issue = "필수 보고서 섹션 누락: {}".format(label)
         issues.append(issue)
@@ -223,6 +1016,44 @@ def critique_report(
     for issue in _product_grounding_issues(markdown, source_bundle):
         issues.append(issue)
         evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
+    for issue in _consultation_grounding_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
+    for issue in _country_environment_grounding_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
+    for issue in _risk_boundary_issues(markdown):
+        issues.append(issue)
+        recommendation_issues.append(issue)
+        prohibited_claims.append(issue)
+
+    for issue in _consultation_priority_boundary_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        recommendation_issues.append(issue)
+        prohibited_claims.append(issue)
+
+    for issue in _country_policy_boundary_issues(markdown):
+        issues.append(issue)
+        recommendation_issues.append(issue)
+        prohibited_claims.append(issue)
+
+    for issue in _market_policy_issues(markdown, source_bundle):
+        issues.append(issue)
         recommendation_issues.append(issue)
 
     unique_issues = list(dict.fromkeys(issues))

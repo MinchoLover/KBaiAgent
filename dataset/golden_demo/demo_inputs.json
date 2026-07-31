@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "case_id": "golden_export_br_001",
+  "source_document": "dataset/golden_demo/golden_export_contract.pdf",
+  "classification": {
+    "synthetic_document": true,
+    "real_customer_document": false,
+    "not_legally_binding": true,
+    "live_extraction_executed": false
+  },
+  "country_normalization_expectations": [
+    {
+      "field": "seller_country",
+      "raw_value": "Republic of Korea (KR)",
+      "normalized_value": "KR",
+      "normalization_method": "VERIFIED_COUNTRY_NAME_AND_CODE",
+      "warning": null
+    },
+    {
+      "field": "buyer_country",
+      "raw_value": "Brazil (BR)",
+      "normalized_value": "BR",
+      "normalization_method": "VERIFIED_COUNTRY_NAME_AND_CODE",
+      "warning": null
+    }
+  ],
+  "document_facts_outside_extraction_schema": {
+    "letter_of_credit_status": "NOT_REQUIRED",
+    "letter_of_credit_source_quote": "No documentary credit is required under this Contract.",
+    "independent_bank_guarantee_status": "NOT_PROVIDED",
+    "guarantee_source_quote": "No independent bank payment guarantee is provided."
+  },
+  "user_confirmed_trade_inputs": {
+    "counterparty_relationship": "EXISTING",
+    "advance_payment_ratio": "0.2",
+    "balance_payment_method": "OPEN_ACCOUNT",
+    "payment_term_days": 22,
+    "payment_term_basis": "CONFIRMED_DATE_INTERVAL",
+    "protection_information_status": "NONE_CONFIRMED",
+    "protection_mechanisms": [],
+    "field_sources": {
+      "counterparty_relationship": "USER_CONFIRMED",
+      "advance_payment_ratio": "DOCUMENT_EXPLICIT",
+      "balance_payment_method": "DOCUMENT_EXPLICIT",
+      "payment_term_days": "DETERMINISTIC_DERIVED",
+      "protection_information_status": "USER_CONFIRMED"
+    }
+  },
+  "presenter_only_inputs": {
+    "company_type": "CORPORATION",
+    "credit_insurance": "NO",
+    "independent_guarantee": "NO",
+    "existing_hedge": "NONE"
+  },
+  "company_finance_manual_inputs": {
+    "as_of_date": "2026-07-29",
+    "usable_fx_balance": "0.00",
+    "current_krw_cash": "20000000.00",
+    "minimum_cash_buffer": "10000000.00",
+    "credit_limit": "0.00",
+    "acceptable_fx_loss": "5000000.00",
+    "confirmed_krw_cashflows": [
+      {
+        "date": "2026-08-20",
+        "amount": "145000000.00",
+        "direction": "OUTFLOW",
+        "category": "COST",
+        "description": "수출대금으로 충당할 합성 운영비"
+      }
+    ],
+    "bank_spread_bps": "0",
+    "bank_fee": "0.00"
+  },
+  "stage1_horizon_expectation": {
+    "forecast_prediction_date": "2026-07-27",
+    "forecast_horizon_trading_days": 21,
+    "forecast_horizon_end_date": "2026-08-25",
+    "settlement_date": "2026-08-20",
+    "within_supported_horizon": true
+  },
+  "fixture_disclosure": {
+    "purpose": "GOLDEN_DEMO_EXPECTED_DATA_VALIDATION",
+    "evaluation_mode": "FIXTURE",
+    "model_accuracy_claim_allowed": false,
+    "live_extraction": false
+  }
+}

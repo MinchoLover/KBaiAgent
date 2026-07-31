@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "case_id": "golden_import_us_hedge_001",
+  "source_document": "dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf",
+  "classification": {
+    "synthetic_document": true,
+    "real_customer_document": false,
+    "not_legally_binding": true,
+    "test_split": true,
+    "fine_tuning_candidate": false,
+    "live_extraction_executed": false
+  },
+  "country_normalization_expectations": [
+    {
+      "field": "seller_country",
+      "raw_value": "United States (US)",
+      "normalized_value": "US",
+      "normalization_method": "VERIFIED_COUNTRY_NAME_AND_CODE",
+      "warning": null
+    },
+    {
+      "field": "buyer_country",
+      "raw_value": "Republic of Korea (KR)",
+      "normalized_value": "KR",
+      "normalization_method": "VERIFIED_COUNTRY_NAME_AND_CODE",
+      "warning": null
+    }
+  ],
+  "document_facts_outside_extraction_schema": {
+    "letter_of_credit_status": "NOT_REQUIRED",
+    "letter_of_credit_source_quote": "No documentary credit is required under this Contract.",
+    "independent_bank_guarantee_status": "NOT_PROVIDED",
+    "guarantee_source_quote": "No independent bank payment guarantee is provided.",
+    "installment_structure": "SINGLE_PAYMENT_ONLY",
+    "installment_source_quote": "This Contract contains one payment obligation and no installment schedule."
+  },
+  "user_confirmed_trade_inputs": {
+    "counterparty_relationship": "EXISTING",
+    "advance_payment_ratio": "0",
+    "balance_payment_method": "OPEN_ACCOUNT",
+    "payment_term_days": 29,
+    "payment_term_basis": "CONFIRMED_DATE_INTERVAL",
+    "protection_information_status": "NONE_CONFIRMED",
+    "protection_mechanisms": [],
+    "field_sources": {
+      "counterparty_relationship": "USER_CONFIRMED",
+      "advance_payment_ratio": "DOCUMENT_EXPLICIT",
+      "balance_payment_method": "DOCUMENT_EXPLICIT",
+      "payment_term_days": "DETERMINISTIC_DERIVED",
+      "protection_information_status": "USER_CONFIRMED"
+    }
+  },
+  "company_finance_manual_inputs": {
+    "as_of_date": "2026-07-29",
+    "usable_fx_balance": "10000.00",
+    "current_krw_cash": "140000000.00",
+    "minimum_cash_buffer": "10000000.00",
+    "credit_limit": "0.00",
+    "acceptable_fx_loss": "5000000.00",
+    "confirmed_krw_cashflows": [],
+    "existing_forward_usd": "0.00",
+    "existing_forward_rate": "1400.00",
+    "existing_forward_fee": "0.00",
+    "bank_spread_bps": "0",
+    "bank_fee": "0.00"
+  },
+  "stage1_fixture": {
+    "base_rate": "1400.00",
+    "adverse_rate": "1470.00",
+    "fixed_10_adverse_rate": "1540.00",
+    "target_date": "2026-08-27",
+    "kind": "STRESS"
+  },
+  "kb_macro_hedge_expectation": {
+    "scope": "SINGLE_USD_IMPORT_PAYABLE_REFERENCE_ONLY",
+    "amount_usd": "100000.00",
+    "payment_date": "2026-08-27",
+    "existing_usd_cash": "10000.00",
+    "existing_forward_usd": "0.00",
+    "net_exposure_usd": "90000.00",
+    "pricing_status": "MOCK",
+    "maximum_status": "REFERENCE_ONLY",
+    "candidate_count": 3,
+    "candidate_ranks": [
+      1,
+      2,
+      3
+    ]
+  },
+  "kb_macro_user_constraints": {
+    "payment_certainty": "1.0",
+    "maximum_acceptable_cost_krw": "135000000",
+    "maximum_budget_exceedance_probability": "0.15",
+    "risk_tolerance": "medium",
+    "maximum_total_hedge_ratio": "1.0",
+    "option_premium_budget_krw": "1500000",
+    "allowed_instruments": [
+      "forward",
+      "vanilla_usd_call"
+    ]
+  },
+  "fixture_disclosure": {
+    "purpose": "DIRECT_UPLOAD_PIPELINE_AND_HEDGE_ADAPTER_VALIDATION",
+    "evaluation_mode": "FIXTURE",
+    "model_accuracy_claim_allowed": false,
+    "live_extraction": false
+  }
+}

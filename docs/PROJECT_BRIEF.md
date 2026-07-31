@@ -12,23 +12,38 @@
 
 ## Primary journey
 
-1. 사용자가 PDF/이미지 무역문서를 안전하게 업로드하거나 가상 데모 문서를 연다.
-2. 추출된 통화·금액·결제일과 원문 근거를 검토하고 명시적으로 확인한다.
-3. 워크플로가 구조화된 환율 시나리오를 받아 `Decimal` 현금흐름과 헤지 후보를
-   결정론적으로 계산하고, 공식 출처가 있는 상품 후보만 연결한다.
-4. 보고서 생성 결과를 독립 critic이 검사하고, 필요하면 한 번만 재작성한 뒤 안전한
-   결정론 보고서까지 포함한 최종 상태와 trace를 보여준다.
+1. `문서 확인`에서 PDF/이미지 또는 가상 데모를 열고 핵심 거래값을 원문과 대조한다.
+2. `위험 진단`에서 거래처·결제·보호조건을 확인하고, 환율 범위와 회사 자금 방어선을
+   입력해 결제·회수 검토 우선도와 추가 부담·지급 부족을 각각 계산한다.
+3. `대응안 비교`에서 안정성·균형·비용 관점의 계산상 후보와 선택적 공식 정보를
+   비교한다.
+4. `상담자료`에서 위험 기반 상담 Top 3와 숫자 근거·부족정보·기대 결정·다음
+   행동을 확인하고 같은 JSON에서 생성된 Markdown handoff를 받는다.
 
 ## Definition of done
 
 A user can:
 
-- 기존 Streamlit 버튼 흐름과 전체 오프라인 데모를 그대로 사용할 수 있다.
-- 확인 전 계산이 차단되고, 외부 Stage/API 실패 시 표시된 fallback 결과를 받을 수 있다.
-- 기업 재무 담당자 관점의 업무 용어로 거래 확인, 환율 가정, 현금 영향, 대응 전략,
-  상담 후보와 리포트 흐름을 이해할 수 있다.
-- JSON, validator code, provider와 workflow trace는 필요할 때만 고급 영역에서 확인할
-  수 있다.
+- 네 개의 업무 단계만 보고 전체 오프라인 데모를 완주할 수 있다.
+- 확인 전 계산이 차단되고, Stage 1 HTTP 실패 시 표시된 file/mock fallback 결과를
+  받을 수 있다.
+- 21거래일 밖 결제에는 모델 분위수 환율을 적용하지 않고 고정 스트레스만 계산한다.
+- 핵심 거래값, 불리한 경우 추가 부담, 최저 현금잔고와 신용 후 부족을 먼저 확인한다.
+- 수입 선지급·계약이행 위험과 수출대금 회수 위험을 구분하고, 정보가 없으면
+  `UNKNOWN` 상태와 확인할 항목을 받는다.
+- 결제·회수 위험에 맞는 상담 범주, 확인 질문과 준비서류를 보고서에서 받되 특정
+  상품 가입이나 승인 결과로 오해하지 않는다.
+- 상담 범주와 직접 연결되고 공식 출처가 확인된 후보만 최대 3개 받으며, 매칭이
+  없으면 상품을 임의 생성하지 않은 빈 상태를 확인한다.
+- 확장 보고서에서도 같은 거래·결제 위험, 금융 대응과 공식 후보만 보며 원시 검색
+  후보가 다시 섞이지 않는다.
+- 상담 Top 3가 기존 risk finding과 명시적 tie-break로만 결정되고, UI·JSON·
+  Markdown·Stage 5에서 같은 순서와 숫자를 유지한다.
+- 계약서만으로 선지급 이행 여부를 알 수 없으면 `UNKNOWN`을 표시하고 사용자
+  확인 시 해당 부족정보와 packet fingerprint만 갱신한다.
+- 내부 오류 code, JSON, provider와 workflow trace는 접힌 개발·감사용 영역에서만
+  확인한다.
+- 대응 후보가 금융 추천이 아니라 가정 기반 비교안임을 이해할 수 있다.
 - 각 Stage 상태, provider, fallback, 경고, critic 및 재작성 횟수를 trace에서 확인할 수 있다.
 
 The team can verify:
@@ -39,17 +54,24 @@ The team can verify:
 
 ## P0 scope
 
-1. 기존 Stage 모델 위에 `WorkflowState`, 공통 `StageResult`, 안전한 trace를 도입한다.
-2. 확인 게이트와 Stage 순서, 실패·fallback·종료 조건을 오케스트레이터로 이동한다.
-3. 보고서 critic 결과·1회 재작성·fallback 사유를 구조화하고 상품 근거 경계를 강화한다.
-4. 오프라인 데모와 Streamlit을 같은 오케스트레이션 경로에 연결하고 문서·테스트를 갱신한다.
+1. 기존 여섯 Stage 탭과 일곱 단계 표시를 네 개의 사용자 업무 단계로 통합한다.
+2. 문서 확인에서 핵심 필드와 추가 문서정보를 분리하고 validation code를 쉬운
+   행동 문구로 바꾼다.
+3. 환율 근거·추가 자금·계산표는 접고 위험 상태와 핵심 금액 네 개를 먼저 표시한다.
+4. 대응 후보의 순위 표현을 제거하고 사람이 읽는 상담자료 다운로드를 우선한다.
+5. 사용자 확인된 거래처·선지급·잔여대금·보호수단으로 결제·회수 검토 우선도를
+   결정론적으로 표시하되 숫자 신용점수나 자동 승인 판단은 만들지 않는다.
+6. 확인된 상담 범주를 공식 source record와 결정론적으로 연결하고 사용자에게는
+   직접 맞는 후보만 최대 3개 표시한다.
+7. 상담 packet을 authoritative JSON으로 두고 한 페이지 사람이 읽는 handoff와
+   Stage 5 보고서를 동일 source에서 파생한다.
 
 ## Non-goals
 
 - Stage 1 팀의 예측 모델 또는 JSON/REST 계약 재구현
-- 완전 자율형 멀티에이전트, 자동 금융 자문·상품 승인 판단
-- Stage 2 계산식이나 Stage 3 grid 점수의 변경
-- 실제 OpenAI 호출, 실제 공식 웹 검색, 배포·인증·중앙 로그 구축
+- Stage 2/3의 환노출·ledger·후보 점수 계산식 변경
+- 자동 금융 자문·상품 승인 판단 또는 실제 은행 견적 연결
+- production 인증·중앙 로그·배포 구조 추가
 
 ## Constraints
 
@@ -65,9 +87,30 @@ The team can verify:
 
 | Journey | Given | When | Then |
 |---|---|---|---|
-| Primary success | 확인된 가상 거래와 offline 설정 | 오케스트레이터를 실행 | Stage 0~5, 최종 보고서, 안전한 trace가 생성된다 |
+| Primary success | 확인된 가상 거래와 offline 설정 | 대표 데모를 실행 | 네 업무 단계에 계산 결과와 상담자료가 표시된다 |
+| Country document validation | 미국·브라질 합성 스캔·사진 8건 | 별도 fixture 평가를 실행 | 기존 baseline을 바꾸지 않고 분할결제·사건 기준·통화 누락·Balance Due 사례를 재현한다 |
+| Navigation | 초기 앱 | 화면을 연다 | 문서 확인·위험 진단·대응안 비교·상담자료 네 탭만 표시된다 |
+| Information hierarchy | 위험 계산 완료 | 결과를 본다 | 핵심 금액 네 개가 상세 계산표보다 먼저 표시된다 |
+| Import settlement risk | 신규 수입 거래처, 30% 선지급, 보호수단 없음 확인 | 거래조건을 확인 | 수입 선지급·계약이행 `우선 검토 필요`와 구체적 근거가 표시된다 |
+| Export collection risk | 신규 수출 거래처, Open Account 90일, 보호수단 없음 확인 | 거래조건을 확인 | 수출대금 회수 `우선 검토 필요`와 구체적 근거가 표시된다 |
+| Unknown protection | 보호수단 정보가 없음 | 거래조건을 확인 | 없음으로 간주하거나 감경하지 않고 `정보 확인 필요`로 표시된다 |
+| Risk boundary | 결제·회수 우선도가 높음 | 결과를 저장 | Stage 2 현금 또는 Stage 3 환헤지 비율을 직접 변경하지 않는다 |
+| Financial response mapping | 확인된 수입 선지급 또는 수출채권 회수 위험 | 상담자료를 생성 | 거래방향에 맞는 보호기능·질문·준비서류가 생성되고 특정 상품 승인 결과는 만들지 않는다 |
+| Official candidate shortlist | 보호기능 상담 범주와 공식 Stage 4 검색 결과 | 공식 정보 연결 | 공식 출처·거래방향·범주가 모두 맞는 후보만 최대 3개 표시하고 자격·승인을 확정하지 않는다 |
+| No grounded official candidate | 상담 범주와 직접 맞는 공식 record 없음 | 공식 정보 연결 | 빈 후보와 미매칭 사유를 표시하고 상품을 생성하지 않는다 |
+| Integrated final report | 거래·결제 위험과 공식 shortlist가 포함된 상담 패킷 | 확장 보고서를 생성 | 위험·대응·공식 후보가 `consultation.*` 근거로 표시되고 원시 Stage 4 후보는 사용자 보고서에서 제외된다 |
+| Deterministic consultation priority | 같은 risk topic을 다른 insertion order로 제공 | 상담 packet을 생성 | 회수 보호·환율·유동성의 순서와 fingerprint가 동일하다 |
+| Golden handoff | Golden 확인 입력과 입금이력 미확인 | 상담자료를 연다 | USD 100,000/80,000, 7,000,000원, 2,000,000원과 deficit 0원이 Top 3에 결속되고 USD 20,000 입금상태가 `UNKNOWN`이다 |
+| Payment-status confirmation | Golden 선지급 실제 입금일을 사용자가 확인 | 상담 packet을 다시 생성 | 해당 missing item만 제거되고 Stage 2 숫자는 바뀌지 않으며 packet fingerprint는 변경된다 |
+| Consultation policy violation | 순위를 승인등급, buffer 부족을 지급불능, 다운로드를 RM 전송 완료로 쓴 초안 | critic 실행 | 초안을 거부하고 결정론 fallback을 유지한다 |
+| Final report policy violation | 공식 후보명·URL·자격 또는 위험 책임 경계를 변조한 초안 | critic 실행 | 초안을 거부하고 최대 1회 수정 후 결정론 fallback한다 |
+| Packet binding | 거래·보호조건 confirmation이 변경됨 | 상담자료를 다시 생성 | trade-risk fingerprint가 packet hash에 반영되고 이전 자료와 구분된다 |
+| Plain-language validation | 원문 근거 불일치 | 문서 검토 화면을 본다 | 내부 code 대신 필드명과 확인 행동이 표시된다 |
 | Validation failure | 필수 필드 또는 사용자 확인 누락 | downstream 실행 요청 | `WAITING_FOR_USER`이며 Cashflow가 실행되지 않는다 |
 | External Stage 1 failure | 외부 adapter 오류 | 워크플로 실행 | ±3/5/10 수동 stress로 `FALLBACK`하고 경고를 남긴다 |
+| Stage 1 web success | 제공 web JSON과 확인된 spot | 21일 이내 수입/수출 거래 분석 | 수입은 v36 up, 수출은 v34 down 분위수를 사용한다 |
+| Horizon mismatch | 결제일이 21거래일 이후 | 모델 JSON을 연결 | 모델 값은 문맥으로만 보존하고 금액은 고정 stress로만 계산한다 |
+| Uncalibrated direction | `probability_calibrated=false` | 보고서·Stage 2 생성 | 기대손실 확률가중치와 실제확률 문구가 생성되지 않는다 |
 | Unsafe Stage 1 endpoint | 사설·loopback·metadata IP | REST 실행 요청 | network 호출 없이 차단하고 수동 stress로 전환한다 |
 | Stale official cache | TTL을 넘긴 cache | 공식 web 검색 | cache를 사용하지 않고 live 검색을 시도한다 |
 | Empty product state | 공식 근거 후보 없음 | 보고서 생성 | 임의 상품을 만들지 않고 빈 후보 상태를 명시한다 |
@@ -76,9 +119,9 @@ The team can verify:
 ## Demo flow
 
 1. `python -m streamlit run app.py`를 실행한다.
-2. 사이드바의 `전체 오프라인 데모 실행`을 누른다.
-3. Stage 2 시나리오, Stage 3 후보, Stage 4 공식 출처, Stage 5 보고서를 확인한다.
-4. 실행 trace expander에서 case ID, Stage 순서, fallback 및 critic 상태를 확인한다.
+2. 첫 화면 또는 사이드바 설정에서 `수입기업 대표 데모`를 불러온다.
+3. 문서 확인 → 위험 진단 → 대응안 비교 → 상담자료 네 화면을 순서대로 확인한다.
+4. 필요할 때만 개발·감사용 실행 기록에서 provider, fallback과 critic을 확인한다.
 
 ## Assumptions to record
 
@@ -86,3 +129,57 @@ The team can verify:
 - Stage 3 비용률·위험계수와 offline KB는 데모 가정/snapshot이며 실제 견적이 아니다.
 - 계산 검증과 Git commit/push는 분리하며, 원격 반영은 명시적으로 요청된 범위에서만
   수행한다.
+
+## P1-A evidence slice
+
+Problem: country-validation fixture의 필드 일치율은 evaluator 회귀만 검증하므로
+실제 OpenAI 추출 성능이나 OCR 정확도로 제시할 수 없습니다.
+
+Primary journey:
+
+1. API 없는 전체 회귀와 8건 fixture pipeline을 검증합니다.
+2. key 존재·model·manifest·최대 사례 수·고유 출력 경로를 원문 없이 확인합니다.
+3. 사용자 승인 뒤 합성문서 최대 2건을 immutable Live run으로 실행합니다.
+4. 성공·실패·timeout, 필드·abstention·evidence·latency·token과 한계를 제출
+   근거로 정리합니다.
+
+Definition of done:
+
+- 기본 실행은 API를 호출하지 않고 Live는 명시적 확인·양수 제한·run ID가 필요합니다.
+- Fixture와 Live의 metadata·디렉터리·주장 범위가 분리됩니다.
+- API key, 실제 문서, 전체 raw prompt·payload·response가 저장되지 않습니다.
+- 일부 사례 실패가 성공으로 집계되지 않고 baseline run을 덮어쓰지 않습니다.
+- 8건 test split은 파인튜닝 후보에서 계속 제외됩니다.
+- Runbook, 제출 준비표, 데모와 심사 Q&A가 실제 실행 상태와 일치합니다.
+
+Non-goals: 추출 prompt 튜닝, model 교체, OCR 엔진 도입, T1~T7/T4 재구현,
+실제 고객문서 평가, regression baseline 갱신, 전체 8건의 무승인 호출.
+
+## Golden 단일 USD 수입 지급 외부 헤지 slice
+
+Problem: 기존 Golden은 수출·분할결제 성공 흐름이고 `kb_macro_ai`는 단일 USD
+수입 지급만 지원하므로, 같은 문서로 직접 업로드부터 외부 헤지까지 증명할 수
+없었습니다.
+
+Primary journey:
+
+1. 텍스트 레이어 합성 수입계약을 업로드하고 `BUYER / KR`로 확인합니다.
+2. `IMPORT / USD 100,000 / 2026-08-27 / 단일 지급`을 원문과 대조합니다.
+3. 결제용 보유 USD 10,000을 반영해 Stage 2 순노출 USD 90,000을 계산합니다.
+4. 기존 Stage 3의 세 계산상 비교안을 유지합니다.
+5. 같은 확정 거래를 고정 fixture 또는 pinned `local_cli` 외부 어댑터에 결속해
+   별도 `REFERENCE_ONLY / MOCK` 후보 세 개를 검증합니다.
+
+Definition of done:
+
+- PDF와 expected JSON 생성이 결정론적이고 모든 evidence가 지정 페이지에
+  실제 존재합니다.
+- 확인된 지급일 `2026-08-27`이 Stage 1, Stage 2와 외부 request에서 같습니다.
+- 기존 Stage 3와 외부 후보는 서로 다른 Domain/UI이며 통합 순위를 만들지 않습니다.
+- 외부 후보는 Stage 4, ConsultationPacket과 Stage 5에 전달되지 않습니다.
+- API-free 검증은 실제 PDF bytes를 검사하되 expected extraction을 모델 정확도로
+  주장하지 않습니다.
+- feature flag 기본 off, mock 가격은 최대 `REFERENCE_ONLY`를 유지합니다.
+
+Non-goals: extraction prompt/schema 변경, Live OpenAI 호출, 기존 금융 공식 변경,
+Golden 수출 fixture 변경, 실제 은행 가격·추천·주문, 외부 후보의 상담 리포트 연결.

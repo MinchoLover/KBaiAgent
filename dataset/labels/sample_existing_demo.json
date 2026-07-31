@@ -67,6 +67,20 @@
       "source_text": "Payment Terms: Net 90 Days",
       "extraction_type": "EXPLICIT",
       "confidence_reason": "Net term is explicit."
+    },
+    {
+      "field": "seller_country",
+      "page": 1,
+      "source_text": "Seller: Northstar Demo Components Inc. (US)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "seller_name evidence의 실제 원문에서 추출값과 일치하는 문구를 결정론적으로 대조해 evidence를 연결했습니다."
+    },
+    {
+      "field": "buyer_country",
+      "page": 1,
+      "source_text": "Buyer: Han River Demo Imports Ltd. (KR)",
+      "extraction_type": "EXPLICIT",
+      "confidence_reason": "buyer_name evidence의 실제 원문에서 추출값과 일치하는 문구를 결정론적으로 대조해 evidence를 연결했습니다."
     }
   ],
   "warnings": [],

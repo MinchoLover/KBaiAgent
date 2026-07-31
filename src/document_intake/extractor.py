@@ -9,6 +9,8 @@ from src.document_intake.openai_adapter import (
     OpenAIAdapterError,
     OpenAIDocumentAdapter,
 )
+from src.document_intake.normalization import normalize_country_name
+from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.security.upload_guard import (
     UploadMetadata,
     UploadValidationError,
@@ -42,10 +44,14 @@ def extract_trade_document_with_metadata(
 ) -> ExtractionRun:
     if company_role not in {"BUYER", "SELLER"}:
         raise ExtractionError("회사 역할은 BUYER 또는 SELLER여야 합니다.")
+    normalized_company_country, _ = normalize_country_name(
+        company_country,
+        "company_country",
+    )
     if (
-        not company_country
-        or len(company_country.strip()) != 2
-        or not company_country.strip().isalpha()
+        normalized_company_country is None
+        or len(normalized_company_country) != 2
+        or not normalized_company_country.isalpha()
     ):
         raise ExtractionError("회사 국가는 ISO alpha-2 형태여야 합니다.")
 
@@ -64,12 +70,22 @@ def extract_trade_document_with_metadata(
             file_bytes=file_bytes,
             metadata=upload,
             company_role=company_role,
-            company_country=company_country.strip().upper(),
+            company_country=normalized_company_country,
+        )
+        source_page_texts = (
+            extract_pdf_page_texts(file_bytes)
+            if upload.mime_type == "application/pdf"
+            # An explicit empty sequence tells the deterministic validator
+            # that a live image has no independent text layer. It must then
+            # require field-level human attestation instead of trusting a
+            # vision model's quote as self-verifying evidence.
+            else []
         )
         extraction, validation = apply_deterministic_review_state(
             adapter_result.extraction,
             company_role=company_role,
-            company_country=company_country.strip().upper(),
+            company_country=company_country,
+            source_page_texts=source_page_texts,
         )
         return ExtractionRun(
             raw_extraction=adapter_result.extraction,

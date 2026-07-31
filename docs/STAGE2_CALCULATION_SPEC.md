@@ -19,11 +19,55 @@
 Stage 2 결과까지 추적할 수 있게 합니다. 직접 `run_stage2`를 호출하는 독립 계산
 테스트에서는 fingerprint를 생략할 수 있지만 사용자 워크플로에서는 필수입니다.
 
+사용자 확인 뒤 문서 기반 워크플로의 날짜 source of truth는
+`ConfirmationRecord.confirmed_values.settlement_date` 하나입니다.
+`contract_date`는 계약 체결일, `shipment_date`는 선적일로만 보존하며
+Stage 1 target date, Stage 2 결제·수취일, UI 확정 요약, 상담 패킷과 Stage 5가
+모두 확정 결제일과 일치해야 합니다. 값이 없거나 서로 다르면 계약일·첫 분할회차일로
+fallback하지 않고 `STALE_CONFIRMED_STATE` 또는 `MISSING_REQUIRED_DATE`로
+차단합니다.
+
+Golden SALES_CONTRACT처럼 지급 완료 여부를 알 수 없는 20/80 분할결제 계약은
+회차 원문을 `trade.installment_schedule`에 그대로 보존합니다. 금융분석용
+`trade.cashflow_events`는 확정 `amount_due=100000.00`과
+`settlement_date=2026-08-20`인 예정 노출 한 건입니다. 이는 20,000 선지급의 실제
+입금 완료를 뜻하지 않으며, 회차 합계가 `amount_due`와 다르면 입력을 만들지
+않습니다. 저수준 Stage 2 엔진의 명시적 복수 exposure 지원과 문서에서 회차를
+임의로 금융 이벤트로 승격하는 것은 별개입니다.
+
 엔진에 들어가는 숫자는 기호·쉼표·공백·지수 표기 없는 decimal 문자열이어야 합니다.
 UI의 천 단위 쉼표는 application service에서 먼저 제거합니다. 날짜는 정확한
 `YYYY-MM-DD`, 거래 회차는 1부터 연속, 한 실행의 거래 방향과 통화는 각각 하나여야
 합니다. 결제일·원화 현금흐름·동일통화 흐름은 `as_of_date`보다 빠를 수 없고 은행
 spread는 `10000` bps 미만이어야 합니다.
+
+UI 사전검증과 오케스트레이터는 cashflow 실패를 다음 구조화 코드로 보존합니다.
+
+- `INVALID_DATE_ORDER`
+- `MISSING_REQUIRED_DATE`
+- `INVALID_AMOUNT`
+- `UNSUPPORTED_DIRECTION`
+- `STALE_CONFIRMED_STATE`
+- `INTERNAL_CALCULATION_ERROR`
+
+사용자 화면에는 행동 가능한 설명을 표시하고 기술정보에는 원문이나 traceback 대신
+오류 코드, 입력 fingerprint, 사용 due date, cashflow 기준일과 field path만
+표시합니다.
+
+### amount_due 입력 의미
+
+내부 `amount_due`는 계산식을 바꾸지 않고 Stage 2의 `trade_amount`와 결제 이벤트로
+전달됩니다. 의미는 실제 현재 잔액이 아니라 계약상 미결제 예정 노출액입니다.
+SALES_CONTRACT에 지급 완료 정보가 없으면 완료 여부가 확인되지 않은 예정
+installment 합계를 사용합니다. 따라서 Golden은 USD 20,000 + USD 80,000 =
+USD 100,000을 수출 `분석 대상 예정 수취액`으로 전달합니다.
+
+실제 입금·지급 이력을 반영한 현재 미수·미지급 잔액은 개념적으로
+`actual_outstanding_balance`이며 계약서만으로 알 수 없으면 `UNKNOWN`입니다.
+이번 단계에는 해당 신규 필드를 추가하지 않습니다.
+
+> 계약서에 명시된 예정 결제액을 기준으로 분석합니다.
+> 실제 입금·지급 이력이 확인되면 이미 이행된 금액을 제외해야 합니다.
 
 ## Exposure
 
@@ -70,9 +114,11 @@ export outflow = hedge fee + bank fee
 
 `bank_fee`는 UI 표기와 같이 결제 이벤트별 고정 수수료입니다.
 
-기준 손실은 수입이면 `scenario total outflow - BASE outflow`, 수출이면
-`BASE inflow - scenario total inflow`입니다. 따라서 수입은 환율 상승, 수출은 환율
-하락이 불리합니다. 비교 기준 이름을 결과에 저장합니다.
+방향을 보존하는 값은 수입이면 `scenario total outflow - BASE outflow`, 수출이면
+`BASE inflow - scenario total inflow`이며 `signed_impact_vs_base`에 저장합니다.
+금융 위험 지표 `loss_vs_base`는 `max(0, signed impact)`입니다. 따라서 유리한
+시나리오를 음수 손실로 표시하지 않습니다. 수입은 환율 상승, 수출은 환율 하락이
+불리합니다.
 
 ## 날짜별 ledger
 
@@ -84,7 +130,8 @@ post_credit_shortfall = max(-(balance + credit_limit), 0)
 ```
 
 세 부족 개념을 혼용하지 않습니다. 각 scenario에 전체 날짜 ledger, 종료·최저 잔고,
-최초 buffer 부족일, 최대 buffer 부족, 현금 적자, 신용 후 부족을 저장합니다.
+최초 buffer 부족일, 최초 실제 현금 적자일, 최대 buffer 부족, 현금 적자, 신용 후
+부족을 저장합니다.
 시작 시점에 이미 최소 운영자금보다 낮으면 최초 buffer 부족일은 `as_of`입니다.
 모든 ledger entry와 Stage 2 결과는 `CALCULATION` 상태로 표시하고, 적용 환율의 성격은
 별도 `scenario_kind`의 `STRESS` 또는 `FORECAST`로 보존합니다.
@@ -98,5 +145,12 @@ post_credit_shortfall = max(-(balance + credit_limit), 0)
 확률이 완전하고 합이 유효할 때만 expected adverse loss와 shortage probability를
 계산합니다. 그렇지 않으면 해당 필드는 `null`입니다.
 
-Stage 1 계약은 target date 하나를 제공하므로 분할결제일이 여러 개면 같은 scenario
-set을 각 결제일에 대체 적용하고 결제일별 warning을 남깁니다.
+저수준 Stage 2 계약에 명시적 복수 exposure가 들어온 경우 Stage 1 target date
+하나를 각 결제일에 대체 적용하고 warning을 남길 수 있습니다. Streamlit 문서
+확정 경로에서는 위 canonical snapshot 계약에 따라 모든 금융 단계가 사용자가
+확정한 단일 due date를 사용하므로 계약일이나 회차 첫 날짜로 대체하지 않습니다.
+
+새 Stage 1 web forecast는 21거래일 안의 결제에만 모델 분위수 시나리오를 Stage 2에
+전달합니다. 결제일이 범위 밖이면 `HORIZON_MISMATCH`를 남기고 ±3/5/10% 고정
+스트레스만 계산합니다. 각 `ScenarioResult`에는 source kind, horizon, warning과
+숫자 source path가 포함됩니다.

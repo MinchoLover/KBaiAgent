@@ -1,177 +1,696 @@
 # Validation Report
 
-검증일: 2026-07-24  
-환경: macOS, Python 3.9.6, Streamlit 1.50.0, streamlit-pdf 1.0.8,
-pandas 2.3.3, OpenAI SDK 2.47.0, Pydantic 2.13.4.
+검증일: 2026-07-31 KST
+환경: macOS, Python 3.9.6, Streamlit 1.50.0, Pydantic 2.13.4
 
-## 결과 요약
+## 최종 결과
 
-- Python 3.9 compile: PASS
-- dependency check: PASS
-- offline unit/integration tests: 174/174 PASS
-- offline end-to-end Stage 0~5: PASS
-- standalone WorkflowOrchestrator, confirmation gate, fallback, safe trace: PASS
-- Streamlit AppTest: PASS
-- 실제 Streamlit 서버와 `/_stcore/health`: PASS — HTTP 200, 응답 `ok`
-- extraction fixture evaluation: 17건 실행
-- prompt regression: PASS
-- fine-tuning export gate: 후보 0, 제외 17 — 의도한 안전 결과
-- official offline KB: 8개 공식 자료, 요청한 6개 상품군 포함
-- Stage 1 outbound HTTPS/public IP/host allowlist tests: PASS
-- official search fresh/stale cache TTL tests: PASS
-- app import: PASS
-- live OpenAI call: NOT RUN — API key 없음
-- official web search live: NOT RUN — API key 없음, 기본 OFF
+| 검증 | 명령 | 결과 |
+| --- | --- | --- |
+| 한 명령 release gate | `python scripts/verify.py` | PASS |
+| compile | `PYTHONPYCACHEPREFIX=/tmp/invoice_intake_pycache python -m compileall -q .` | PASS |
+| 전체 unit/integration/E2E | `python -m unittest discover -s tests -v` | 529/529 PASS |
+| Golden 확정거래 사용자 흐름 | `python scripts/verify_golden_user_flow.py` | API-free Stage 0~5 PASS/FALLBACK, 모든 downstream due date `2026-08-20` |
+| Golden 날짜·상태·음성·AppTest | `python -m unittest tests.test_golden_transaction_e2e -v` | 17/17 PASS |
+| Golden text-layer 계약서 | `python -m unittest tests.test_golden_trade_demo -v` | 14/14 PASS |
+| Text-PDF amount/date evidence recovery | `python -m unittest tests.test_source_evidence_recovery -v` | 18/18 PASS |
+| T4 snapshot·engine·workflow·T7·UI P0 | `.venv/bin/python -m unittest tests.test_country_environment tests.test_country_environment_integration tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | PASS |
+| 상담 priority·Stage 5·UI 집중 | `python -m unittest tests.test_consultation tests.test_consultation_priority tests.test_stage5_decision_report tests.test_ui_evidence_state -v` | 67/67 PASS |
+| T7 통합 보고서·critic | 전체 unittest와 `tests.test_stage5_decision_report` | PASS |
+| Stage 0 source-grounded evidence | 금액·결제일 불일치, 원문 부재·반대 당사자, quantity 오인, textless live image, page recovery, confirmation recheck, override 회귀 | 9/9 PASS |
+| dependency | `python -m pip check` | PASS |
+| extraction fixture 평가 | `python scripts/evaluate_extraction.py --mode offline` | 17건, pass 82.35%, hallucination 0% |
+| 미국·브라질 별도 fixture 평가 | `python scripts/evaluate_extraction.py --mode offline --manifest dataset/country_validation/manifest.jsonl ...` | 8건, fixture field match 100%, 안전 누락 포함 document pass 50%, hallucination 0% |
+| 미국·브라질 guarded Live smoke | `python scripts/evaluate_extraction.py --mode live ... --max-cases 2 --confirm-live --run-id ...` | API 성공 2, 실패·timeout 0, 자동 document pass 0/2 |
+| country validation 전용 | `python -m unittest tests.test_country_validation_dataset -v` | 12/12 PASS |
+| Stage 0 live 합성 PDF | `scripts/live_smoke_test.py samples/demo_net90_contract.pdf --company-role SELLER` | PASS, `SALES_CONTRACT`, 10.14초 |
+| regression | `python scripts/run_regression.py` | PASS |
+| Streamlit amount_due 방향별 라벨·경고 | `python -m unittest tests.test_ui_evidence_state -v` | 11/11 PASS |
+| Streamlit 현재 headless health | `ENABLE_LIVE_DOCUMENT_EXTRACTION=false ENABLE_LLM_REPORT=false python -m streamlit run app.py --server.headless true --server.port 8517 ...` | 미완료: sandbox port bind `PermissionError`, 권한 상승 요청도 실행 환경에서 거부됨. 대신 같은 코드의 AppTest 17/17 PASS |
+| Import fixture E2E | `scripts/run_decision_demo.py --company-role BUYER` | PASS |
+| Export fixture E2E | `scripts/run_decision_demo.py --company-role SELLER` | PASS |
+| sibling Stage 1 actual HTTP | `127.0.0.1:8765` health/forecast + main adapter | `HTTP OK`, fallback 없음 |
+| Integration Readiness 집중 회귀 | `python -m unittest tests.test_integration_readiness tests.test_kb_macro_hedge_reference tests.test_stage1_web_integration -v` | 54/54 PASS |
+| 실제 pinned `local_cli` 합성 수입 E2E | `python scripts/check_integration_readiness.py --run-local-cli-e2e` + runbook 고정 환경 | PASS, `REFERENCE_ONLY / MOCK`, validation PASS, 후보 3개 |
+| Golden 수입 지급·헤지 집중 회귀 | `python -m unittest tests.test_golden_import_hedge_demo -v` | 14/14 PASS |
+| Golden 수입 지급 API-free E2E | `python scripts/verify_golden_import_hedge_flow.py` | PDF upload/text/evidence → confirmation → Stage 2/3 → 외부 fixture PASS |
+| Golden 수입 지급 실제 pinned local CLI | `python scripts/verify_golden_import_hedge_flow.py --run-local-cli` + 고정 환경 | PASS, current trade `REFERENCE_ONLY / MOCK`, validation PASS, 후보 3개 |
 
-## 평가 결과
+## Integration Readiness 실제 점검
 
-`dataset/predictions/fixture`는 label과 일치하는 evaluator 검증 fixture입니다.
+2026-07-31 KST에 `scripts/check_integration_readiness.py`로
+Stage 1과 고정 `kb_macro_ai` 로컬 실행을 함께 점검했습니다. 환율 API, OpenAI와
+외부 유료 API는 호출하지 않았습니다.
 
-- field exact/normalized: 100%
-- currency: 100%
-- amount exact/tolerance: 100%
-- date: 100%
-- required completion: 100%
-- hallucination: 0%
-- evidence coverage: 100%
-- human review recall: 100%
-- document PASS: 82.35% (14/17)
+```text
+Stage 1 configured provider: http
+Stage 1 endpoint: LOCAL_HTTP
+health: OK
+active source: HTTP
+prediction date / market-data date: 2026-07-29 / 2026-07-29
+forecast freshness: PASS
+provider fallback: false
+upstream partial fallback: true
+research only: true
 
-PASS하지 않은 3건은 의도한 안전 차단입니다.
+Spot configured provider/source: koreaexim / KOREAEXIM_DEAL_BASE_RATE
+credential configured: true
+spot call performed by readiness check: false
 
-- `invoice_missing_due_008`: 문서에 결제일/조건 없음
-- `invoice_multi_currency_010`: 여러 통화 CRITICAL
-- `invoice_due_conflict_016`: explicit due와 Net 30 계산 충돌 CRITICAL
+kb_macro_ai feature/mode: true / local_cli
+producer commit:
+  expected=7d3efa41cdc8bbb8da61b6b0c6108bdf55713e3e
+  actual=7d3efa41cdc8bbb8da61b6b0c6108bdf55713e3e
+tracked worktree: clean
+CLI: available
+forecast SHA:
+  b565cfa283ba93541541bce0ef88e8f9e4e5bb2b5557fefdc8429638c678318c
+model config SHA:
+  56904f5fe31312bca5cdf4f8910870c7d02b93faf3c60eade6731d224126e1a3
+market history SHA:
+  78feb433e43f51ba556b39f737db2616cbe3c3bd34d6cd02b68372e473b51c39
+quote template SHA:
+  c537c65b1d33398bd5de7007c56c8189833c04ebfaf46ab04a0b8e1e3213168f
 
-이 수치는 실제 모델 품질이 아닙니다. 실제 baseline은 live mode로 생성해야 합니다.
-
-## 실행한 명령
-
-```bash
-python scripts/generate_synthetic_dataset.py
-python scripts/generate_demo_outputs.py
-PYTHONPYCACHEPREFIX=/tmp/invoice_intake_compile_pycache \
-  python -m compileall -q app.py src tests
-python -m pip check
-python -m unittest discover -s tests -v
-python scripts/evaluate_extraction.py --mode offline
-python scripts/run_regression.py
-python scripts/export_finetuning_candidates.py
-python scripts/verify.py
+synthetic fixture: IMPORT / USD 100000 / 2026-08-27 / single payable
+local_cli result: REFERENCE_ONLY / MOCK
+validation: PASS
+candidates/ranks: 3 / 1,2,3
+temporary raw output: deleted
+overall readiness: DEGRADED
 ```
 
-## 테스트가 고정한 핵심 위험
+`DEGRADED`는 연결 또는 E2E 실패가 아니라 Stage 1 원본에 기록된
+`partial_fallback_used=true`, `research_only=true`를 반영한 결과입니다. Spot
+credential은 설정 여부만 확인했고 값은 출력·상태 JSON에 포함하지 않았습니다.
+외부 헤지 결과는 기존 Stage 3, Stage 4, ConsultationPacket과 Stage 5에 전달되지
+않았습니다.
 
-업로드 MIME/magic/page/size, schema serialization, amount/date/Net N, balance due,
-installment 합, due 충돌, 다중통화, prompt injection, missing evidence, 역할 매핑,
-confirmation gate, Stage 1 fallback/JPY/probability, 수입·수출 손실 방향, natural hedge
-날짜, 기존 hedge cashflow, buffer/cash/credit 부족, Stage 3 비율, 비공식 URL 차단,
-보고서 숫자와 JSON path의 실제 연관성, secret redaction, 상태 무효화, PDF 미리보기,
-offline end-to-end를 포함합니다. 추가로 UI 없는 orchestrator, 확인 전 Cashflow
-미호출, Stage 1·상품 검색 fallback, RAG empty 상품 생성 차단, critic 정확히 1회
-재작성, report API fallback, trace payload 비포함을 고정합니다. 분할결제에서는
-동일 통화 자연상계 잔여량과 기존
-헤지 수수료가 여러 회차에 중복 적용되지 않고 작은 수수료의 반올림 잔여도 음수가
-되지 않는 것을 고정합니다. 문서 SHA·회사 국가·거래 방향·통화·회차별 금액·결제일
-fingerprint를 재검증해 확인 뒤 바뀐 Stage 2 입력이 계산 runner에 도달하지 않는
-경계도 포함합니다. Stage 1 REST의
-private/loopback/metadata IP 차단, exact host allowlist, 명시적 로컬 opt-in과 공식
-검색 cache의 fresh hit·stale refresh도 포함합니다.
+## Golden 단일 USD 수입 지급 외부 헤지 E2E
 
-공식 KB는 선물환, 환변동보험, 외화예금, 수출입대출, 정책자금, 보증상품을 모두
-포함합니다. 거래방향과 맞지 않는 상품은 ranking 단계에서 제외하고, 자격·한도·승인은
-항상 `unknown` 또는 상담 필요 상태로 유지합니다.
+기존 수출 Golden을 변경하지 않고 별도 텍스트 레이어 합성계약을 추가했습니다.
 
-## Live 실행
-
-API 키 설정 후 비용이 발생하는 호출을 한 건으로 제한해 실행합니다.
-
-```bash
-python scripts/live_smoke_test.py samples/sample_invoice.png
-python scripts/evaluate_extraction.py --mode live --max-cases 2
+```text
+document:
+  dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf
+SHA-256:
+  fbd4c4dbdf0f92d459e19acf2af4a1e2ee3cd0916f43576290d54b040662550b
+pages/text layer: 2/2
+company: BUYER / KR
+seller/buyer country: US / KR
+trade: IMPORT / USD / single payable
+amount/payment date: 100000.00 / 2026-08-27
 ```
 
-현재 계정에서 기본 모델을 사용할 수 없으면 `.env`의 모델 ID를 접근 가능한
-vision/Structured Outputs 모델로 바꿉니다.
+실제 PDF bytes는 upload guard와 page text extractor를 통과했고 expected evidence
+14개가 모두 지정 페이지 원문에 존재했습니다. Raw 국가 표현
+`United States (US)`와 `Republic of Korea (KR)`은 각각 `US`, `KR`로
+정규화되고 `IMPORT`가 결정론적으로 판정됐습니다. 사용자 핵심값 확인 뒤
+`validation_pass=true`, `stage2_allowed=true`입니다.
 
-## 최종 인계
+API-free Stage 2/3:
 
-### 1. 감사에서 확인한 핵심 문제
-
-- CRITICAL: 추출값이 통화·금액·결제일 확인 없이 계산으로 전달될 수 있었고, 문서·역할
-  변경 뒤 session 결과가 섞일 수 있었습니다.
-- HIGH: evidence·다중통화·날짜충돌 검증, 업로드 magic/parse 검사, Decimal 계산,
-  기존 hedge와 자연상계의 분할결제 배분이 부족했습니다.
-- MEDIUM: prompt version/few-shot, 정답셋·평가·회귀, 공식 출처 정책, 보고서 숫자
-  추적성이 없거나 약했습니다.
-- LOW: README와 지원 형식·제한이 달랐고 의존성 재현성이 부족했습니다.
-
-### 2. 실제 구현 범위
-
-Stage 0 strict extraction/검증/사람 확인, typed workflow orchestrator와 trace,
-Stage 1 manual·JSON·REST adapter, Stage 2
-확정 거래 binding·Decimal exposure·ledger·복합 stress, Stage 3 top-3 후보,
-Stage 4 official KB와 선택적
-allowlist web search, Stage 5 critic·fallback, 단일 Streamlit UI, 다운로드, dataset,
-offline/live evaluator, regression과 fine-tuning export gate를 구현했습니다.
-
-### 3. 핵심 파일
-
-- 앱: `app.py`
-- 스키마·검증: `schemas.py`, `validators.py`, `src/domain/`,
-  `src/document_intake/`
-- 계산·후속 단계: `src/stage1/`~`src/stage5/`
-- 평가: `scripts/evaluate_extraction.py`, `scripts/run_regression.py`,
-  `scripts/export_finetuning_candidates.py`, `scripts/verify.py`
-- 문서: `README.md`, `START_HERE.md`, `docs/`
-
-### 4. 실행 명령
-
-```bash
-cp .env.example .env
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
+```text
+계약상 예정 지급액: USD 100,000.00
+결제용 보유 USD: USD 10,000.00
+기존 선물환: USD 0
+열린 노출: USD 90,000.00
+BASE 1,400원 지급액: 126,000,000원
++5% 손실/기말현금/buffer 부족: 6,300,000 / 7,700,000 / 2,300,000원
++10% 손실: 12,600,000원
+기존 Stage 3: CANDIDATES_NOT_ADVICE / 후보 rank 1,2,3
 ```
 
-API 키가 없으면 앱의 데모 모드와 전체 오프라인 데모를 사용합니다.
+같은 confirmed transaction으로 fixture validator와 실제 pinned local CLI를 각각
+실행했습니다. 실제 local CLI preflight에서 producer
+`7d3efa41cdc8bbb8da61b6b0c6108bdf55713e3e`, clean tracked worktree와 다음
+입력 SHA를 재확인했습니다.
 
-### 5. 테스트
+```text
+forecast:
+  b565cfa283ba93541541bce0ef88e8f9e4e5bb2b5557fefdc8429638c678318c
+model config:
+  56904f5fe31312bca5cdf4f8910870c7d02b93faf3c60eade6731d224126e1a3
+market history:
+  78feb433e43f51ba556b39f737db2616cbe3c3bd34d6cd02b68372e473b51c39
+quote template:
+  c537c65b1d33398bd5de7007c56c8189833c04ebfaf46ab04a0b8e1e3213168f
+```
 
-Python 3.9 compile, dependency check, 174/174 API-free unit/integration tests,
-`scripts/verify.py`, Streamlit AppTest가 모두 PASS했습니다. 또한
-`127.0.0.1:8765`에서 headless Streamlit 서버를 기동해 `/_stcore/health`의 HTTP 200과
-`ok` 응답을 확인한 뒤 정상 종료했습니다.
+Local CLI는 예정 지급액/지급일/보유 USD/기존 선물환/순노출을 각각
+`100000.00 / 2026-08-27 / 10000.00 / 0 / 90000.00`으로 echo했고,
+strict validation PASS, `REFERENCE_ONLY / MOCK`, 후보 3개와 rank `1,2,3`을
+반환했습니다. 임시 company request와 raw 결과는 기존 서비스 경계 안에서
+삭제됐고 외부 네트워크, OpenAI와 환율 API는 호출하지 않았습니다.
 
-### 6. Offline 평가
+Streamlit AppTest는 실제 확정 수입 거래 상태에서 `현재 확정 거래와 금액·지급일
+대조`를 선택해 같은 별도 참고 영역이 렌더링되는지 검증했습니다. AppTest가
+file uploader를 조작하지 못하므로 실제 PDF bytes upload/text 검증과
+post-extraction UI 검증은 분리했습니다. Expected extraction은 명시적인 test
+double이므로 이 결과를 Live 추출 정확도나 실제 은행 가격·상품 추천으로
+표현하지 않습니다. 외부 후보는 기존 Stage 3와 통합 순위를 만들지 않고
+`published_to_stage4=false`를 유지합니다.
 
-17건에서 exact/normalized/currency/amount/date/evidence/review 지표 100%,
-hallucination 0%, document PASS 82.35%입니다. 실패 3건은 누락 due·다중통화·due 충돌을
-의도적으로 자동 차단한 사례입니다. fixture 점수는 live 모델 품질 점수가 아닙니다.
+## Golden 확정 거래 사용자 흐름 회귀
 
-### 7. Live API
+### 수정 전 재현
 
-API 키가 없어 실행하지 않았습니다. adapter의 이미지 `input_image`, PDF `input_file`,
-Structured Output parse, retry/fallback 경로는 mock과 설치 SDK signature로
+Golden 확인 화면의 값은 맞았지만 `build_stage2_input`이 분할회차를 금융 event로
+직접 만들고 Stage 1 UI가 첫 event를 fallback으로 선택했습니다.
+
+```text
+confirmed_due_date=2026-08-20
+contract_date=2026-07-29
+document_trade_settlement_date=None
+document_cashflow_events=[
+  (20000.00, 2026-07-29),
+  (80000.00, 2026-08-20)
+]
+stage1_target_date=2026-07-29
+stage2_as_of_date=2026-07-30
+
+Traceback:
+  src/stage2/engine.py, run_stage2
+  src/stage2/engine.py, _validate_stage2_contract
+ValueError: settlement_date는 as_of_date보다 빠를 수 없습니다.
+```
+
+### 수정 후 canonical source path
+
+| 소비 단계 | 값 | source path |
+| --- | --- | --- |
+| 사용자 확인 | `2026-08-20` | `stage0.confirmation.checks.confirmed_due_date` |
+| 확정 거래 JSON | `2026-08-20` | `trade.settlement_date` |
+| Stage 1 | `2026-08-20` | `stage1.scenario_set.target_date` |
+| Stage 2 | `2026-08-20` | `stage0.confirmation.confirmed_values.settlement_date` |
+| 상담 패킷 | `2026-08-20` | `consultation.company_summary.settlement_date` |
+| Stage 5 | `2026-08-20` | `stage0.confirmation.confirmed_values.settlement_date` |
+
+`trade.installment_schedule`에는 USD 20,000 / 2026-07-29와
+USD 80,000 / 2026-08-20을 보존하지만, 금융 cashflow event는 확인된 예정 노출
+USD 100,000 / 2026-08-20 한 건입니다. 선지급 실제 입금 여부는 `UNKNOWN`입니다.
+
+`scripts/verify_golden_user_flow.py`의 API-free 결과:
+
+```text
+Stage 0 text/evidence + confirmation: SUCCEEDED
+Stage 1: SUCCEEDED
+Stage 2: SUCCEEDED
+Stage 3 orchestration: SUCCEEDED (NO_FEASIBLE_CANDIDATE 공개)
+Stage 4: SUCCEEDED
+ConsultationPacket: SUCCEEDED
+Stage 5: DETERMINISTIC_FALLBACK
+
+-5% 원화 수취 감소: 7,000,000원
+스트레스 후 예상 현금: 8,000,000원
+목표 버퍼: 10,000,000원
+버퍼 부족: 2,000,000원
+현금 적자: 0원
+신용한도 반영 후 부족: 0원
+공식 후보 고유 개수: 3
+```
+
+음성 테스트는 cashflow 기준일보다 due date가 이른 입력을
+`INVALID_DATE_ORDER`로 차단하고, `contract_date != due_date`인 경우에도 모든
+금융 단계가 due date만 쓰는지 검증합니다. AppTest는 새 분석, 수입→수출 전환,
+안전한 구조화 오류, Golden UI/Stage 날짜와 모바일 CSS를 검증했습니다. 이 환경에는
+Playwright/Selenium/Chromium이 없어 1440px·390px 실제 브라우저 육안 검수는
+실행하지 않았으며, 이를 AppTest/DOM·CSS PASS와 혼동하지 않습니다.
+
+## T4 국가·무역환경 검증
+
+`2026.07.29-v1` offline snapshot
+(`country-environment-2026-07-29`, hash
+`095c5e38a88403449214ba899e05d07831f1b2a44932f2ebe2beaa65045fb757`)
+을 외부 네트워크 없이 strict 역직렬화했습니다. schema·version·hash 변조,
+누락 provenance, 비공식 URL과 lookalike host, 중복 source ID, 국가 불일치,
+float·과학표기 소수를 모두 fail closed하는 테스트가 통과했습니다.
+
+동일한 `SELLER / EXPORT / USD / EXISTING / Open Account 90일 /
+NONE_CONFIRMED` 입력에서 국가만 변경했습니다.
+
+```text
+US: OECD HIGH_INCOME_OECD_UNCLASSIFIED / raw null
+    review priority ELEVATED_REVIEW
+BR: OECD CLASSIFIED / raw 4
+    action PAYMENT_TRANSFER_PROTECTION_REVIEW_REQUIRED
+    review priority HIGH_REVIEW
+```
+
+우선순위는 국가 신용등급이 아닌 보험·보증·신용장·결제조건 상담 순서입니다.
+World Bank는 US 물가의 최신 비결측 관측연도 `2024`와 GDP·경상수지 `2025`를
+같은 시점으로 표현하지 않았고, WTO 회원·MFN·TPR 원값도 지급불능 위험으로
+변환하지 않았습니다.
+
+`CountryEnvironmentIntegrationTests`는 국가 변경 전후 Stage 1, Stage 2,
+Stage 3, runtime Stage 4와 상품 eligibility·approval이 완전히 동일함을
+검증했습니다. T4 auxiliary step은 국가 assessment와 안전한 source ID trace만
+갱신하고 packet·report를 무효화합니다. legacy packet에서는 T4 필드가
+직렬화되지 않고, T4가 있으면 assessment fingerprint가 packet hash에
+결속됩니다.
+
+T7 결정론 fallback은 세 축, 공식 URL, 자료기간, 원값 해석과 한계를 분리해
+출력합니다. critic 테스트는 브라질 원값 `4`의 자체등급화, 미국 미분류의
+`LOW·0·안전` 변환, 0~100 합산, source URL·원값 변조, 국가 신호에 따른
+환헤지·Stage 2 현금흐름 변경, 상품 승인 주장을 거부했습니다. Streamlit
+AppTest는 정상 US 상태와 지원하지 않는 국가의 `정보 부족` 상태를 모두
+렌더링했습니다.
+
+공식 source 확인에만 공개 1차 자료를 사용했고 runtime·테스트에서는 OECD,
+World Bank, WTO API나 OpenAI API를 호출하지 않았습니다.
+
+## 미국·브라질 합성 문서 검증
+
+기존 17건 manifest와 regression baseline을 변경하지 않고
+`dataset/country_validation`에 미국 4건·브라질 4건을 별도로 생성했습니다.
+수입·수출은 각각 4건이며 PDF 4건은 텍스트 레이어가 없는 이미지형, JPG 4건은
+사진형입니다.
+
+```text
+fixture cases: 8
+currency accuracy: 100%
+amount exact accuracy: 100%
+date exact accuracy: 100%
+evidence claim coverage: 100%
+hallucination rate: 0%
+document pass: 4/8
+```
+
+fixture는 label 복사로 evaluator 동작만 검증하므로 위 일치율은 실제 OCR·모델
+정확도 주장이 아닙니다. 자동 문서 PASS에서 제외된 4건은 B/L 사건 기준일 부재,
+두 번째 분할결제일 부재, 통화 누락, 가려진 결제일 사례입니다. 4번 B/L 사례는
+사람이 기준일을 보완할 수 있는 조건부 검토이고, 6·7·8번은 manifest상 의도적
+차단 사례입니다.
+
+시각 검수에서 8건의 경고문, 당사자, 국가, 금액·통화와 의도한 가림 범위를 직접
+확인했습니다. 최초 생성 사진의 원근 좌표 순서 오류로 90도 회전하던 결함은
+수정 후 전건 재생성·재검수했습니다. 반복 생성 byte hash, upload guard, 이미지형
+PDF 무텍스트, 정답 schema/evidence, 분할합계, fine-tuning 영구 제외도 자동
+테스트로 확인했습니다. 데이터셋 생성 당시에는 OpenAI Live 평가를 실행하지
+않았고, 이후 승인된 P1-A Baseline v1/v2에서 별도 immutable run으로 8건씩
+실행했습니다.
+
+## P1-A guarded Live Baseline v1/v2
+
+사용자가 승인한 합성 country validation test split 8건을 Baseline v1과 v2로 각각
+실행했습니다. 두 run 모두 `gpt-4o-mini` API/structured output 8건 성공,
+실패·timeout 0건이었습니다.
+
+| 검증 | Baseline v1 | Baseline v2 |
+| --- | ---: | ---: |
+| run ID | `baseline-v1-full-20260729-0404-kst` | `baseline-v2-full-20260729-0443-kst` |
+| seller_country | 4/8 | 8/8 |
+| buyer_country | 3/8 | 8/8 |
+| trade_type | 2/8 | 8/8 |
+| currency·amount_due·explicit/derived due date | 각 8/8 | 각 8/8 |
+| installment 금액·합계 | 6/6·3/3 | 6/6·3/3 |
+| event condition·unknown due abstention | 2/2·3/3 | 2/2·3/3 |
+| 전체 abstention·hallucination | 30/30·0 | 30/30·0 |
+| validation PASS·Stage 2 allowed | 0/8·0/8 | 0/8·0/8 |
+| accepted evidence coverage | 0% | 0% |
+
+Model, evaluator, prompt, manifest, extraction schema, evidence·confirmation
+policy와 timeout 정책은 동결했습니다. V1/V2의 의도된 차이는 국가 canonicalization
+commit `9bdffd9`뿐입니다. seller/buyer 국가와 그 결과인 trade type 개선만 직접
+효과로 기록합니다. `document_type` 7/8 → 8/8, 전체 document match 1/8 → 3/8,
+token·latency와 법인명 표현 변화는 LLM 재호출 변동 가능성이 있어 인과 효과로
+주장하지 않습니다.
+
+8건 모두 이미지형 PDF 또는 JPG이고 독립적으로 검증 가능한 텍스트 레이어가
+없습니다. 모델 인용을 자동 수용하지 않아 `OCR_REQUIRED`,
+`EVIDENCE_UNVERIFIABLE`, `MISSING_CORE_EVIDENCE`와 사용자 확인 gate로 전부
+Stage 2 전달을 차단했습니다. Evidence coverage 0%는 OCR 정확도 0%가 아니라
+“독립 검증되어 자동 수용된 evidence 없음”입니다.
+
+금액·통화·모든 날짜·payment terms·installments는 국가 정규화 전후 사례별로
+동일했습니다. 통화 누락과 사건 기준일은 추측하지 않았습니다. 남은 명확한 오류는
+`us_import_split_scan_001` contract date가 label보다 하루 늦은 1건입니다.
+
+V2 input/output token은 310,495/4,660이고 평균 latency는 8.836초입니다. cached
+input token을 수집하지 않아 실제 비용은 `UNKNOWN`이며, 비캐시 가정 사후 상한
+USD 0.04937025를 실제 청구액으로 표현하지 않습니다.
+
+원본 Run ID, 전체 hash, 직접 비교, 보안 경계와 주장 한계는
+`docs/LIVE_BENCHMARK_RESULTS.md`와 sanitized
+`docs/evidence/country_benchmark_v1_v2_summary.json`에 기록했습니다. Raw response,
+전체 prompt·payload·문서와 API key는 제출 문서에 저장하지 않았습니다.
+
+## Golden text-layer 무역계약 데모
+
+`scripts/generate_golden_trade_demo.py`가 2페이지 영문 합성 수출계약 PDF,
+`TradeDocumentExtraction` expected data와 계약 밖 사용자 입력을 결정론적으로
+생성합니다.
+
+```text
+document: dataset/golden_demo/golden_export_contract.pdf
+seller/buyer: Republic of Korea (KR) / Brazil (BR)
+normalized countries: KR / BR
+trade type: EXPORT
+currency/amount: USD / 100000.00
+installments: 20000.00 + 80000.00 = 100000.00
+contract/shipment/balance due: 2026-07-29 / 2026-08-05 / 2026-08-20
+text layer: 2/2 pages
+expected evidence: 16 exact quotes on declared pages
+```
+
+모든 페이지에 `SYNTHETIC SAMPLE - NOT LEGALLY BINDING`을 넣고 실제 주소·계좌·
+등록번호·로고·서명·도장을 넣지 않았습니다. 신용장·보증은 현재 extraction schema에
+임의 필드를 추가하지 않고 별도 document fact에 보존했습니다. 거래처 관계,
+신용보험, 헤지, 현금과 신용한도는 계약서 사실이 아니라 사용자 입력으로 분리했습니다.
+
+Golden 전용 14개 API-free 테스트는 다음을 검증했습니다.
+
+- 반복 생성 PDF/JSON byte hash 동일
+- pypdf strict parsing과 비어 있지 않은 텍스트 레이어
+- 모든 evidence quote의 실제 페이지 존재
+- raw 국가 표현·normalized 값·normalization method 보존
+- KR/BR에서 EXPORT 결정론 판정
+- 통화·금액·날짜·분할합계 불변
+- 사용자 확인 후 `validation_pass=true`, `stage2_allowed=true`
+- 기존 trade-risk domain에서 `ELEVATED_REVIEW`
+- 현재 Stage 1 fixture의 21거래일 종료일 2026-08-25 안에 잔금일 존재
+- 기존 Stage 2 계산으로 기준 수취 140,000,000원, -5% 수취 133,000,000원,
+  수취 감소 7,000,000원, buffer shortfall 2,000,000원
+
+Golden 자료 생성 시점의 Expected data와 14/14 결과는 모델 정확도가 아니라
+API-free 성공 경로 검증입니다.
+
+### Golden 1건 Live evidence 실패와 API-free 복구 검증
+
+이후 별도 승인된 `gpt-4o-mini` 단일 Live 호출에서 핵심 값과 installment 합계는
+정답과 일치했지만 다음 evidence 오류로 안전하게 차단됐습니다.
+
+```text
+EVIDENCE_VALUE_MISMATCH: amount_due
+EVIDENCE_NOT_IN_SOURCE: explicit_due_date
+validation_pass: false
+stage2_allowed: false
+```
+
+`amount_due`는 분할결제 합계 USD 100,000과 같은 계약상 미결제 예정 노출액인데
+모델 evidence가 canonical 금액을 뒷받침하지 못했습니다. 결제일 값
+`2026-08-20`은 맞지만 모델
+quote가 PDF의 실제 `20 August 2026` 표현과 일치하지 않았습니다. 단순 사용자
+확인으로 두 오류를 제거하지 않았고, USD 80,000 잔금 조항을 계약상 미결제 예정
+노출액 USD 100,000의 evidence로 사용하지 않습니다.
+
+수정된 API-free 경로는 먼저 잘못된 모델 evidence를 같은 사유로 폐기한 뒤 실제
+텍스트 레이어에서 다음 원문을 복구합니다.
+
+```text
+page 1: The total Contract Price is one hundred thousand United States dollars (USD 100,000).
+page 2: The remaining eighty percent (80%), equal to USD 80,000, shall be paid by T/T remittance on or before 20 August 2026 (Payment Due Date).
+```
+
+금액은 `Decimal("100000.00")`, 날짜는 `date(2026, 8, 20)`과 대조하며 canonical
+값을 source quote로 만들지 않습니다. 다른 의미의 동일 금액, 복수의 강한 지급일,
+통화 충돌, 값 불일치와 textless 문서는 계속 차단합니다. 신규
+`tests.test_source_evidence_recovery` 18개가 이 정책과 Golden Live-like 실패
+재현 후 사용자 확인 경로를 API 없이 검증합니다.
+
+위 기록은 source-grounded recovery 전 실패를 재현한 역사적 baseline입니다.
+이후 recovery가 적용된 승인된 Golden Live 1건에서
+`validation_pass=true`, 사용자 확인 후 `stage2_allowed=true`를 확인했습니다.
+이번 상담 작업에서는 Live API를 다시 호출하지 않았고 단일 합성문서 성공을
+전체 문서 정확도로 일반화하지 않습니다.
+
+## Stage 0 매매계약 회귀
+
+`tests/fixtures/kbfx_sales_contract_extraction.json`을 외부 API 없이 실행했습니다.
+
+```text
+seller_country: United States -> US
+buyer_country: Republic of Korea -> KR
+company_role: BUYER
+trade_type: UNKNOWN -> IMPORT
+issue_date: YYYY-MM-DD -> null
+contract_date + Net 90 calendar days: 2026-10-25
+currency evidence: amount_due 실제 원문 "USD 100,000.00"에서 연결
+확인 전 Stage 2: 차단
+5필드 확인 후 Stage 2: IMPORT / USD / 100000.00 / 2026-10-25
+```
+
+기존 `COMPANY_COUNTRY_ROLE_MISMATCH`, `INVALID_PARTY_COUNTRY`,
+`MISSING_REQUIRED_FIELD trade_type`, `MISSING_CORE_EVIDENCE currency`는 이
+fixture에서 재현되지 않습니다.
+
+저장소의 이미지형 합성 `samples/demo_net90_contract.pdf`를 실제 문서 추출 API로
+검증했습니다. 첫 재현에서 모델은 `buyer_country=CA`와 `(CA)` 원문을 반환했지만
+validator의 국가 evidence 별칭표에 캐나다가 없어
+`MISSING_CORE_EVIDENCE:buyer_country`로 오판했습니다. 지원 국가 별칭과 대문자 ISO
+독립 토큰 판정을 보강한 뒤 같은 문서가 다음처럼 통과했습니다.
+
+```text
+PASS document_type=SALES_CONTRACT validation_pass=True
+latency_seconds=10.1423285
+```
+
+이는 합성 문서 한 건의 smoke test이며 실제 고객 문서군의 OCR·추출 정확도
+benchmark를 뜻하지 않습니다.
+
+## Stage 1 검증
+
+저장소 fixture:
+
+```text
+direction: USD_KRW_DOWN
+up/down score: 0.288 / 0.712
+calibrated probability: false
+maximum rise q50/q75/q90: 0.015 / 0.026 / 0.035
+maximum fall q50/q75/q90: 0.010 / 0.021 / 0.036
+```
+
+실행 중이던 sibling HTTP 서버의 2026-07-27 출력도 메인 Python adapter로 직접
+파싱했습니다.
+
+```text
+provider health: HTTP OK
+direction: USD_KRW_DOWN
+up/down score: 0.041 / 0.959
+calibrated probability: false
+maximum rise q50/q75/q90: 0.014 / 0.022 / 0.035
+maximum fall q50/q75/q90: 0.011 / 0.025 / 0.041
+```
+
+실제 출력은 새로 생성되면 fixture와 달라질 수 있습니다. 두 결과 모두 방향 점수를
+발생확률로 사용하지 않았고, 뉴스는 숫자 계산에 미반영했습니다.
+
+자동 테스트 범위:
+
+- raw schema mismatch, q 순서, path return 상한, score 합
+- stale market data, partial fallback, failed series, news query degraded
+- HTTP success/timeout/invalid JSON, response/fallback provenance
+- file/mock mode, remote URL/host 제한
+- 수동 spot 확인 gate, KoreaExim parsing, JPY(100) 정규화
+- 정확한 model/fixed rate, horizon mismatch
+- 수입 v36 상승·수출 v34 하락 방향
+
+## 대표 수입 결과
+
+```text
+수입대금: USD 100,000
+결제용 보유외화: USD 20,000
+열린 노출: USD 80,000
+기준환율: 1,400
+기준 필요액: 112,000,000원
++5% 환율: 1,470
++5% 필요액: 117,600,000원
+추가비용: 5,600,000원
+현재현금/유입/비용: 130,000,000 / 40,000,000 / 45,000,000원
+결제 후 현금: 7,400,000원
+운영자금 부족: 2,600,000원
+대출한도 후 지급부족: 0원
+```
+
+`LIQUIDITY_BUFFER_RISK`이며 `PAYMENT_CAPACITY_RISK`가 아님을 검증했습니다.
+
+## 대표 수출 결과
+
+USD 100,000 수취 거래에서 기준 수취액 140,000,000원, -5% 스트레스 수취액
+133,000,000원, 원화 수취 감소 7,000,000원을 검증했습니다.
+`FX_RECEIPT_RISK`가 발생하고 수입 `FX_COST_RISK`와 구분됩니다.
+
+두 대표 사례는 90일 결제이므로 Stage 1 모델 분위수가 계산에서 제외되고
+`HORIZON_MISMATCH`가 보고서까지 전달됩니다.
+
+## 거래·결제 위험 검증
+
+수입 선지급·계약이행 위험과 수출대금 회수 위험을 기존 환율·유동성 계산과 분리해
 검증했습니다.
 
-### 8. 남은 한계
+```text
+수입 데모: 신규 거래처 + 30% 선지급 + 보호수단 없음
+결과: IMPORT_PREPAYMENT_PERFORMANCE_RISK / HIGH_REVIEW
 
-실문서 OCR baseline, 실제 공식 web search, Windows launcher, production 인증·malware
-scan과 egress proxy 수준 DNS rebinding 방어는 현재 환경에서 검증하지 못했습니다.
-Stage 3 비용·위험계수와 Stage 4 자격 조건은 상담 전제의 데모 가정입니다.
+수출 데모: 신규 거래처 + Open Account 90일 + 보호수단 없음
+결과: EXPORT_RECEIVABLE_COLLECTION_RISK / HIGH_REVIEW
+```
 
-### 9. Stage 1 연결 계약
+자동 테스트 범위:
 
-`schema_version=1.0`, 거래 통화, `KRW_PER_1_FC`, 환율 표시 단위, as-of, target date,
-`FORECAST` 또는 `STRESS`, scenario 이름·환율·base 여부·선택적 probability를 JSON
-파일이나 REST 응답으로 전달합니다. 전체 예시는 `docs/STAGE1_CONTRACT.md`와
-`samples/stage1_scenarios.json`에 있습니다.
+- 선지급 비율 0~1 Decimal 문자열 계약과 화면 % 단위 분리
+- 미확인 선지급과 확인된 0% 구분, 범위·과학표기·float 거부
+- 전액 선지급과 잔여대금 결제방식·기간의 교차 검증
+- `UNKNOWN`, `NONE_CONFIRMED`, 보호수단 상세 상태 구분
+- 수입용 보증과 수출보험·지급보증의 거래방향별 적용 제한
+- 적용범위 미확인 보호수단의 감경 금지와 확인된 보호수단의 제한적 감경
+- Open Account, D/P, D/A, 종류 미확인 추심, 신용장 조건의 구분
+- 사건 기준 결제조건을 임의의 일수로 변환하지 않음
+- 89일과 공개된 MVP 90일 장기조건 검토 경계
+- confirmation fingerprint 결정성 및 변조 거부
+- 문서 변경 시 위험 snapshot 폐기, 위험조건 변경 시 Stage 1~3 결과 보존
+- 수입·수출 대표 데모와 Streamlit 렌더링
+- 수입 선지급 위험 → 선지급 보호수단 상담·질문·준비서류 매핑
+- 수출 회수 위험 → 수출채권 보호 상담·질문·준비서류 매핑
+- 신용장 존재를 위험 제거로 처리하지 않고 상세조건 검토로 연결
+- `UNKNOWN`을 별도 정보 확인 topic과 packet 미확인 정보로 연결
+- 거래위험 fingerprint 변경 시 상담 packet input hash 변경
+- 상담자료에 한국어 위험 유형·우선도·근거와 공식등급이 아니라는 고지 포함
+- 거래위험이 없는 기존 packet·topic 직렬화에는 신규 optional 필드를 출력하지 않음
 
-### 10. 다음 우선 작업
+이 결과는 숫자 신용점수, 부도확률, 공식 심사등급이 아닙니다. 국가위험, 거래처
+재무정보, 신용장 발행은행·확인 여부·서류불일치, 보험 약관·보증 범위는 이번 P0에서
+평가하지 않았습니다.
 
-1. 고정 test split 1~2건으로 비용 제한 live baseline을 생성하고 raw/validated 실패를
-   분리 분석합니다.
-2. 실제 은행 quote·기업 cashflow 계약으로 Stage 2/3 가정과 비용계수를 보정합니다.
-3. 공개 배포 전에 인증, malware scan, egress allowlist와 CI를 추가합니다.
+## 위험 기반 상담 Top 3와 handoff 검증
+
+Golden fixture의 기존 risk finding과 trade review를 입력으로 사용해 다음 순서를
+검증했습니다.
+
+```text
+1. EXPORT_RECEIVABLE_PROTECTION
+2. FX_RISK_MANAGEMENT
+3. EXPORT_LIQUIDITY_REVIEW
+```
+
+자동 테스트 범위:
+
+- 수출 `LIQUIDITY_BUFFER_RISK` → 운영자금 버퍼·회수시점 상담 연결
+- 기존 수입 `IMPORT_SETTLEMENT_FINANCE` mapping 불변
+- 동일 topic의 insertion order가 달라도 같은 rank와 priority fingerprint
+- 국가 `STANDARD_REVIEW` topic이 핵심 결제·환율·유동성 action보다 앞서지 않음
+- Top 3 밖 topic의 `other_consultation_topics` 보존
+- 회수 보호 카드에 USD 100,000 예정 노출, USD 80,000 잔금, Open Account/T/T,
+  보호수단 없음, USD 20,000 실제 입금 `UNKNOWN`, `ELEVATED_REVIEW` 결속
+- 환율 카드에 기준 140,000,000원, -5% 133,000,000원, 감소 7,000,000원,
+  허용손실 5,000,000원, 기존 헤지·보유 USD 0 결속
+- 유동성 카드에 ending cash 8,000,000원, target 10,000,000원,
+  buffer shortfall 2,000,000원, cash/payment deficit 0원 동시 표시
+- 사용자 입금 확인 시 해당 missing item만 제거하고 Stage 2 값은 불변
+- 준비서류·질문 중복 제거, expected decision·next action 존재
+- JSON과 Markdown rank·내용·fingerprint 결속
+- official shortlist 최대 3, eligibility `UNKNOWN`, approval
+  `CONSULTATION_REQUIRED`, 빈 후보에서 상품 생성 금지
+- Streamlit Top 3·부족정보·CTA·disclaimer 렌더링
+- Stage 5에서 같은 순서와 숫자 유지, LLM/critic 실패 시 deterministic fallback
+- 상담 순위의 승인등급화, 2,000,000원 버퍼 부족의 지급불능·대출 필요화,
+  예정 노출의 실제 미수화, Stage 3 최적추천, 후보 가입·승인 단정,
+  Markdown의 RM 전송 완료 표현을 critic이 거부
+
+상담 순위는 LLM 또는 새로운 종합점수로 결정하지 않습니다. `ConsultationPacket`
+JSON이 UI, Markdown과 Stage 5의 authoritative source이며 실제 예약·RM 전송·
+신청·심사 연동은 검증 대상이나 구현 완료로 표시하지 않습니다.
+
+## 공식 출처 후보 연결 검증
+
+기존 Stage 4 검색 결과와 별도로 사용자용 공식 후보 shortlist를 최대 3개로
+제한했습니다.
+
+```text
+수입 데모 첫 후보:
+K-SURE 수입보험(수입자용)
+연결 범주: IMPORT_ADVANCE_PAYMENT_PROTECTION
+공식 자료 확인일: 2026-07-29
+
+수출 데모 첫 후보:
+K-SURE 단기수출보험
+연결 범주: EXPORT_RECEIVABLE_PROTECTION
+공식 자료 확인일: 2026-07-29
+```
+
+자동 테스트 범위:
+
+- 상담 범주 기반 검색어와 후보 순서의 결정성
+- 공식 HTTPS allowlist, 거래방향과 검증상태 재확인
+- 수입 선지급 보호와 수출채권 보호의 방향별 공식 제도 연결
+- shortlist 모델과 서비스 모두 최대 3개 제한
+- 직접 매칭이 없을 때 빈 결과·미매칭 범주 반환, 상품 생성 금지
+- 비공식 URL 후보 제거
+- 모든 후보의 자격 `unknown`, 승인 `consultation_required` 유지
+- 후보 product ID·공식 URL·자료 확인일·매칭 범주의 상담 packet hash 반영
+- Streamlit 기본 화면과 상담 패킷에는 shortlist만 표시
+
+K-SURE 공식 페이지는 제도의 위험보호 구조를 확인하는 근거이며, 현재 거래의
+대상 여부·인수·책임금액·보험료를 확정하는 근거로 사용하지 않았습니다.
+
+## Stage 3·보고서 검증
+
+- 5%p grid와 비율 합 1
+- 안정성·균형·비용 우선 후보
+- q90와 고정 ±10% 손실, 최저 현금, 대출 후 부족
+- 비용·위험계수·최대 forward 가정 공개
+- 제약 해가 없으면 `NO_FEASIBLE_CANDIDATE`
+- 보고서 JSON에서 문서 `source_text`와 confirmation 원본값 제외
+- 보고서 숫자·JSON path 일치
+- q90 확률 오용, 미보정 방향 점수 확률 오용, horizon 외삽, 뉴스 숫자 반영,
+  비공식 상품 근거를 critic이 차단
+- 상담 패킷이 있으면 거래·결제 위험·금융 대응·공식 후보를
+  `consultation.*` 근거로만 인용
+- Stage 4 원시 후보명·기관·URL은 최종 보고서 LLM bundle에서 제외
+- 수입 선지급·계약이행 위험과 수출대금 회수 위험을 방향별로 최종 보고서에 표시
+- shortlist 최대 3개만 표시하고 빈 shortlist에서는 LLM 상품 생성 호출을 차단
+- shortlist 밖 Stage 4 인용, 상품명·기관명·URL 변조, 자격·승인 확정을 critic이 차단
+- 거래위험 우선도와 금융 대응 제목을 인용한 구조화 값과 다르게 쓰는 경우 차단
+- 공식 심사등급·부도확률·보험 인수판단 주장과 결제위험→환헤지 비율 변경을 차단
+- LLM API 없음/실패/critic 재실패 시 결정론 template
+
+## 실패와 해결 기록
+
+### macOS compile cache
+
+```text
+실행 명령: python -m compileall .
+결과: 실패
+오류 메시지: sandbox 밖 Python cache 경로 PermissionError
+직접 원인: 기본 pycache가 허용되지 않은 macOS cache 경로를 사용
+근본 원인: 실행 sandbox 파일쓰기 제한
+수정 필요 여부: 코드 수정 불필요
+해결: PYTHONPYCACHEPREFIX=/tmp/kbaiagent_compile_cache로 재실행 PASS
+```
+
+### Streamlit port bind
+
+```text
+실행 명령: python -m streamlit run app.py --server.port 8502
+결과: sandbox 안에서 PermissionError
+직접 원인: local port bind 권한 제한
+해결: 승인된 로컬 실행으로 재시도, health `ok`
+```
+
+### Stage 1 server start
+
+```text
+실행 명령: zsh scripts/serve_web_forecast.sh
+결과: Address already in use
+직접 원인: 127.0.0.1:8765에 팀 서버가 이미 실행 중
+해결: 기존 사용자 프로세스를 종료하지 않고 health와 forecast를 읽어 통합 검증
+```
+
+### 최초 최종 gate
+
+```text
+실행 명령: python scripts/verify.py
+결과: unit test는 PASS, README 문서 링크 2개 누락으로 gate 실패
+해결: STAGE1_INTEGRATION·SPOT_PROVIDER_SETUP 링크 추가 후 재실행 PASS
+```
+
+## 미실행
+
+- 미국·브라질 합성 세트 전체 8건 Live baseline: 두 번째 승인 필요
+- 허가된 실제 고객 문서군 OpenAI 추출 benchmark
+- 실제 OpenAI LLM 보고서 생성
+- 한국수출입은행 live 호출: 자격증명 없음
+- 공식 web 상품 검색 live: 기본 비활성, 자격증명 없음
+- Windows launcher: 현재 macOS 환경에서 미검증
+
+위 항목은 구현 완료나 live 품질 검증으로 표시하지 않습니다.

@@ -11,6 +11,8 @@ from openai import OpenAI
 from sample_data import sample_extraction
 from src.config import Settings
 from src.document_intake.openai_adapter import (
+    AdapterExtractionResult,
+    ExtractionUsage,
     OpenAIAdapterError,
     OpenAIDocumentAdapter,
     build_document_input_item,
@@ -147,6 +149,24 @@ class _FakeParse:
         )
 
 
+class _FixedExtractionAdapter:
+    def extract(self, **kwargs):
+        del kwargs
+        return AdapterExtractionResult(
+            extraction=sample_extraction(),
+            usage=ExtractionUsage(
+                model="test-model",
+                prompt_version="test",
+                request_id="test-request",
+                latency_seconds=0.0,
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+                attempts=1,
+            ),
+        )
+
+
 class AdapterTests(unittest.TestCase):
     def test_installed_sdk_supports_responses_parse_contract(self):
         client = OpenAI(
@@ -275,6 +295,29 @@ class AdapterTests(unittest.TestCase):
         )
         self.assertEqual(result.usage.model, "fallback")
         self.assertEqual(result.usage.attempts, 3)
+
+    def test_live_image_requires_independent_evidence_override(self):
+        run = extract_trade_document_with_metadata(
+            file_bytes=png_bytes(),
+            filename="invoice.png",
+            mime_type="image/png",
+            company_role="BUYER",
+            company_country="KR",
+            settings=Settings(),
+            adapter=_FixedExtractionAdapter(),
+        )
+
+        self.assertFalse(run.validation.stage2_allowed)
+        self.assertTrue(
+            any(
+                item.code == "EVIDENCE_UNVERIFIABLE"
+                for item in run.validation.issues
+            )
+        )
+        self.assertIn(
+            "OCR_REQUIRED",
+            {item.code for item in run.validation.issues},
+        )
 
 
 if __name__ == "__main__":

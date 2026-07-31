@@ -9,18 +9,36 @@ PIPELINE_KEYS = (
     "upload_metadata",
     "confirmation",
     "confirmation_validation",
+    "confirmed_transaction",
     "stage0_output",
     "stage2_document_input",
     "stage1_load",
+    "market_integration",
     "stage2_input",
     "stage2_result",
+    "cashflow_error",
+    "trade_risk_confirmation",
+    "trade_risk_assessment",
+    "country_environment_input",
+    "country_environment_assessment",
+    "country_environment_trace",
+    "risk_assessment",
+    "consultation_topics",
+    "installment_payment_statuses",
+    "consultation_packet",
     "stage3_result",
+    "kb_macro_hedge_reference",
+    "integration_readiness",
     "stage4_result",
+    "official_candidate_shortlist",
     "report_result",
     "workflow_state",
+    "review_audit_trail",
 )
 
 REVIEW_WIDGET_KEYS = (
+    "review_company_role_widget",
+    "review_company_country_widget",
     "review_document_type_widget",
     "review_document_number_widget",
     "review_currency_widget",
@@ -33,6 +51,7 @@ REVIEW_WIDGET_KEYS = (
     "review_payment_terms_widget",
     "review_incoterm_widget",
     "review_trade_type_widget",
+    "review_trade_type_choice_widget",
     "review_seller_name_widget",
     "review_seller_country_widget",
     "review_buyer_name_widget",
@@ -42,9 +61,12 @@ REVIEW_WIDGET_KEYS = (
 
 CONFIRMATION_WIDGET_KEYS = (
     "confirmed_due_widget",
+    "confirm_company_role_widget",
+    "confirm_trade_type_widget",
     "confirm_currency_widget",
     "confirm_amount_widget",
     "confirm_due_widget",
+    "confirm_evidence_override_widget",
 )
 
 STAGE1_WIDGET_KEYS = (
@@ -53,6 +75,9 @@ STAGE1_WIDGET_KEYS = (
     "stage1_source_type_widget",
     "stage1_json_upload",
     "stage1_endpoint_widget",
+    "stage1_provider_widget",
+    "spot_provider_widget",
+    "spot_confirmed_widget",
 )
 
 STAGE2_WIDGET_KEYS = (
@@ -76,9 +101,40 @@ STAGE2_WIDGET_KEYS = (
     "stage2_cost_increase_widget",
 )
 
+TRADE_RISK_WIDGET_KEYS = (
+    "trade_risk_relationship_widget",
+    "trade_risk_advance_status_widget",
+    "trade_risk_advance_percent_widget",
+    "trade_risk_balance_method_widget",
+    "trade_risk_term_basis_widget",
+    "trade_risk_term_days_widget",
+    "trade_risk_protection_status_widget",
+    "trade_risk_protection_types_widget",
+    "trade_risk_protection_applicability_widget",
+    "trade_risk_confirm_widget",
+)
+
 STAGE3_WIDGET_KEYS = (
     "stage3_grid_widget",
     "stage3_stability_widget",
+    "stage3_forward_fee_widget",
+    "stage3_staged_fee_widget",
+    "stage3_max_forward_widget",
+    "stage3_staged_risk_widget",
+    "stage3_forward_rate_widget",
+)
+
+KB_MACRO_HEDGE_WIDGET_KEYS = (
+    "kb_macro_hedge_binding_widget",
+    "kb_macro_hedge_constraints_confirmed_widget",
+    "kb_macro_payment_certainty_widget",
+    "kb_macro_maximum_cost_widget",
+    "kb_macro_maximum_probability_widget",
+    "kb_macro_risk_tolerance_widget",
+    "kb_macro_maximum_ratio_widget",
+    "kb_macro_option_budget_widget",
+    "kb_macro_allowed_instruments_widget",
+    "kb_macro_cli_constraints_confirmed_widget",
 )
 
 STAGE4_WIDGET_KEYS = (
@@ -86,12 +142,19 @@ STAGE4_WIDGET_KEYS = (
     "stage4_search_mode_widget",
 )
 
+CONSULTATION_WIDGET_KEYS = (
+    "consultation_payment_status_editor",
+)
+
 DOWNSTREAM_WIDGET_KEYS = (
     CONFIRMATION_WIDGET_KEYS
+    + TRADE_RISK_WIDGET_KEYS
     + STAGE1_WIDGET_KEYS
     + STAGE2_WIDGET_KEYS
     + STAGE3_WIDGET_KEYS
+    + KB_MACRO_HEDGE_WIDGET_KEYS
     + STAGE4_WIDGET_KEYS
+    + CONSULTATION_WIDGET_KEYS
 )
 
 TRANSACTION_WIDGET_KEYS = REVIEW_WIDGET_KEYS + DOWNSTREAM_WIDGET_KEYS
@@ -134,26 +197,60 @@ def sync_input_signature(state: object, signature: str) -> bool:
     return changed
 
 
-def clear_downstream(state: object, from_stage: int) -> None:
+def clear_downstream(
+    state: object,
+    from_stage: int,
+    *,
+    clear_widgets: bool = True,
+) -> None:
     stage_keys = {
         0: PIPELINE_KEYS,
         1: (
             "stage1_load",
+            "market_integration",
             "stage2_input",
             "stage2_result",
+            "cashflow_error",
+            "risk_assessment",
+            "consultation_topics",
+            "installment_payment_statuses",
+            "consultation_packet",
             "stage3_result",
+            "kb_macro_hedge_reference",
+            "integration_readiness",
             "stage4_result",
+            "official_candidate_shortlist",
             "report_result",
         ),
         2: (
             "stage2_input",
             "stage2_result",
+            "cashflow_error",
+            "risk_assessment",
+            "consultation_topics",
+            "consultation_packet",
             "stage3_result",
+            "kb_macro_hedge_reference",
+            "integration_readiness",
             "stage4_result",
+            "official_candidate_shortlist",
             "report_result",
         ),
-        3: ("stage3_result", "stage4_result", "report_result"),
-        4: ("stage4_result", "report_result"),
+        3: (
+            "risk_assessment",
+            "consultation_topics",
+            "consultation_packet",
+            "stage3_result",
+            "kb_macro_hedge_reference",
+            "stage4_result",
+            "official_candidate_shortlist",
+            "report_result",
+        ),
+        4: (
+            "stage4_result",
+            "official_candidate_shortlist",
+            "report_result",
+        ),
         5: ("report_result",),
     }
     stage_widget_keys = {
@@ -162,17 +259,32 @@ def clear_downstream(state: object, from_stage: int) -> None:
             STAGE1_WIDGET_KEYS
             + STAGE2_WIDGET_KEYS
             + STAGE3_WIDGET_KEYS
+            + KB_MACRO_HEDGE_WIDGET_KEYS
+            + STAGE4_WIDGET_KEYS
+            + CONSULTATION_WIDGET_KEYS
+        ),
+        2: (
+            STAGE2_WIDGET_KEYS
+            + STAGE3_WIDGET_KEYS
+            + KB_MACRO_HEDGE_WIDGET_KEYS
             + STAGE4_WIDGET_KEYS
         ),
-        2: STAGE2_WIDGET_KEYS + STAGE3_WIDGET_KEYS + STAGE4_WIDGET_KEYS,
-        3: STAGE3_WIDGET_KEYS + STAGE4_WIDGET_KEYS,
+        3: (
+            STAGE3_WIDGET_KEYS
+            + KB_MACRO_HEDGE_WIDGET_KEYS
+            + STAGE4_WIDGET_KEYS
+        ),
         4: STAGE4_WIDGET_KEYS,
         5: (),
     }
     clear_keys(
         state,
         stage_keys.get(from_stage, ())
-        + stage_widget_keys.get(from_stage, ()),
+        + (
+            stage_widget_keys.get(from_stage, ())
+            if clear_widgets
+            else ()
+        ),
     )
 
 
@@ -182,16 +294,62 @@ def clear_confirmation_and_later(state: object) -> None:
         (
             "confirmation",
             "confirmation_validation",
+            "confirmed_transaction",
             "stage0_output",
             "stage2_document_input",
             "stage1_load",
+            "market_integration",
             "stage2_input",
             "stage2_result",
+            "cashflow_error",
+            "trade_risk_confirmation",
+            "trade_risk_assessment",
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
+            "risk_assessment",
+            "consultation_topics",
+            "installment_payment_statuses",
+            "consultation_packet",
             "stage3_result",
+            "kb_macro_hedge_reference",
             "stage4_result",
+            "official_candidate_shortlist",
             "report_result",
+            "workflow_state",
         )
         + DOWNSTREAM_WIDGET_KEYS,
+    )
+
+
+def clear_trade_risk_and_related(state: object) -> None:
+    clear_keys(
+        state,
+        (
+            "trade_risk_confirmation",
+            "trade_risk_assessment",
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
+            "consultation_topics",
+            "official_candidate_shortlist",
+            "consultation_packet",
+            "report_result",
+        ),
+    )
+
+
+def clear_country_environment_and_related(state: object) -> None:
+    clear_keys(
+        state,
+        (
+            "country_environment_input",
+            "country_environment_assessment",
+            "country_environment_trace",
+            "consultation_topics",
+            "consultation_packet",
+            "report_result",
+        ),
     )
 
 

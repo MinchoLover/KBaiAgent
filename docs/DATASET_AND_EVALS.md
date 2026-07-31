@@ -13,15 +13,48 @@ dataset/
     payment_terms/
     installment_contract/
     adversarial/
+  country_validation/        # 기존 회귀 기준과 격리한 미국·브라질 8건
+    documents/
+    labels/
+    predictions/fixture/
+    manifest.jsonl
+    README.md
 ```
 
 16건의 가상 합성 문서와 기존 샘플 원본 참조 1건이 있습니다. 회사명은 모두 가상이고
 합성 문서 상단에 `TEST DOCUMENT - NO LEGAL EFFECT`가 있습니다. balance due,
 Net 30/60/90, 명시 due, 분할결제, due 누락, 혼합 날짜, 다중통화, 수입·수출,
 JPY 100단위, 흐린 이미지, prompt injection, due 충돌을 포함합니다.
+당사자 이름과 국가는 같은 실제 원문을 재사용할 수 있지만
+`seller_name`/`seller_country`/`buyer_name`/`buyer_country` 각각의 정확한 evidence
+항목으로 정답에 기록합니다.
 
 manifest의 `split=test`는 평가 전용이고 fine-tuning에서 영구 제외됩니다.
 `human_approved=false`인 가상 생성 정답도 승인 전에는 학습 후보가 아닙니다.
+
+별도 `country_validation` 세트에는 미국 4건·브라질 4건, 수입 4건·수출 4건이
+있습니다. 이미지형 PDF 4건과 사진형 JPG 4건으로 분할결제, 선지급, Net 60,
+B/L 사건 기준 조건, Balance Due 선택, 혼합 분할조건, 통화 누락, 결제일 가림을
+검증합니다. 이 8건은 기존 17건 manifest와 regression baseline에 합치지 않으며
+모두 test split이라 파인튜닝 후보에서 영구 제외됩니다.
+
+```bash
+python scripts/generate_country_validation_dataset.py
+python scripts/evaluate_extraction.py \
+  --mode offline \
+  --manifest dataset/country_validation/manifest.jsonl \
+  --predictions-dir dataset/country_validation/predictions/fixture \
+  --reports-dir reports/country_validation
+```
+
+자세한 사례와 fixture/live 해석 경계는
+`dataset/country_validation/README.md`에 있습니다.
+
+문서 이미지를 바꾸지 않고 정답 JSON 계약만 재생성할 때는 다음을 사용합니다.
+
+```bash
+python scripts/generate_synthetic_dataset.py --json-only
+```
 
 ## 평가
 

@@ -37,6 +37,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def confirmed_state(due_date: str = "2026-10-18") -> ConfirmationState:
     return ConfirmationState(
+        company_role_confirmed=True,
+        trade_type_confirmed=True,
         currency_confirmed=True,
         amount_due_confirmed=True,
         due_date_confirmed=True,
@@ -212,8 +214,23 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(validation.stage2_allowed)
         self.assertTrue(validation.needs_human_review)
 
+    def test_confirmation_gate_requires_trade_type_confirmation(self):
+        checks = confirmed_state().model_copy(
+            update={"trade_type_confirmed": False}
+        )
+        validation = validate_extraction(
+            sample_extraction(),
+            company_role="BUYER",
+            company_country="KR",
+            confirmations=checks,
+        )
+        self.assertTrue(validation.validation_pass)
+        self.assertFalse(validation.stage2_allowed)
+
     def test_confirmation_gate_requires_single_settlement_date_value(self):
         checks = ConfirmationState(
+            company_role_confirmed=True,
+            trade_type_confirmed=True,
             currency_confirmed=True,
             amount_due_confirmed=True,
             due_date_confirmed=True,
@@ -236,9 +253,12 @@ class ValidationTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
         checks = ConfirmationState(
+            company_role_confirmed=True,
+            trade_type_confirmed=True,
             currency_confirmed=True,
             amount_due_confirmed=True,
             due_date_confirmed=True,
+            confirmed_due_date=extraction.installments[-1].due_date,
         )
         extraction, validation = apply_deterministic_review_state(
             extraction,
@@ -253,7 +273,12 @@ class ValidationTests(unittest.TestCase):
             confirmations=checks,
             source_filename="installments.pdf",
         )
-        self.assertEqual(len(payload["trade"]["cashflow_events"]), 2)
+        self.assertEqual(len(payload["trade"]["cashflow_events"]), 1)
+        self.assertEqual(
+            payload["trade"]["cashflow_events"][0]["foreign_amount"],
+            extraction.amount_due,
+        )
+        self.assertEqual(len(payload["trade"]["installment_schedule"]), 2)
 
     def test_confirmation_record_rejects_blank_single_due_date(self):
         with self.assertRaises(ValueError):
@@ -267,6 +292,8 @@ class ValidationTests(unittest.TestCase):
                 source_filename="invoice.png",
                 source_sha256="a" * 64,
                 company_country="KR",
+                company_role_confirmed=True,
+                trade_type_confirmed=True,
             )
 
     def test_confirmation_record_validates_audit_metadata(self):
@@ -281,6 +308,8 @@ class ValidationTests(unittest.TestCase):
                 source_filename="../invoice.png",
                 source_sha256="not-a-fingerprint",
                 company_country="KR",
+                company_role_confirmed=True,
+                trade_type_confirmed=True,
             )
         with self.assertRaises(ValidationError):
             create_confirmation_record(
@@ -293,6 +322,8 @@ class ValidationTests(unittest.TestCase):
                 source_filename="../invoice.png",
                 source_sha256="a" * 64,
                 company_country="KR",
+                company_role_confirmed=True,
+                trade_type_confirmed=True,
                 confirmed_at="2026-07-23T09:00:00",
             )
 
@@ -307,6 +338,8 @@ class ValidationTests(unittest.TestCase):
             source_filename="invoice.png",
             source_sha256="a" * 64,
             company_country="KR",
+            company_role_confirmed=True,
+            trade_type_confirmed=True,
         )
 
         with self.assertRaises(ValueError):
@@ -318,7 +351,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_invalid_currency_is_critical(self):
         extraction = sample_extraction().model_copy(
-            update={"currency": "usd"}
+            update={"currency": "US1"}
         )
         validation = validate_extraction(extraction)
         self.assertIn(
@@ -413,7 +446,7 @@ class ValidationTests(unittest.TestCase):
         )
         validation = validate_extraction(extraction)
         self.assertIn(
-            "EXPLICIT_DERIVED_DUE_DATE_CONFLICT",
+            "DUE_DATE_CONFLICT",
             [item.code for item in validation.issues],
         )
 
@@ -497,6 +530,82 @@ class ValidationTests(unittest.TestCase):
             {"seller_country", "buyer_country"}.issubset(missing_fields)
         )
 
+    def test_party_name_evidence_must_contain_current_name(self):
+        extraction = sample_extraction().model_copy(
+            update={"seller_name": "Replacement Seller Ltd."}
+        )
+        validation = validate_extraction(
+            extraction,
+            company_role="BUYER",
+            company_country="KR",
+        )
+        self.assertTrue(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field == "seller_name"
+                for item in validation.issues
+            )
+        )
+
+    def test_country_evidence_cannot_use_opposite_party_block(self):
+        extraction = sample_extraction()
+        evidence = []
+        for item in extraction.evidence:
+            if item.field == "seller_name":
+                evidence.append(
+                    item.model_copy(
+                        update={
+                            "source_text": (
+                                "Seller: Northstar Demo Components Inc."
+                            )
+                        }
+                    )
+                )
+            elif item.field == "seller_country":
+                evidence.append(
+                    item.model_copy(
+                        update={
+                            "source_text": "Buyer Country: United States"
+                        }
+                    )
+                )
+            else:
+                evidence.append(item)
+        validation = validate_extraction(
+            extraction.model_copy(update={"evidence": evidence}),
+            company_role="BUYER",
+            company_country="KR",
+        )
+        self.assertTrue(
+            any(
+                item.code == "MISSING_CORE_EVIDENCE"
+                and item.field == "seller_country"
+                for item in validation.issues
+            )
+        )
+
+    def test_country_name_quote_cannot_replace_exact_country_evidence(self):
+        extraction = sample_extraction()
+        evidence = [
+            item
+            for item in extraction.evidence
+            if item.field not in {"seller_country", "buyer_country"}
+        ]
+        validation = validate_extraction(
+            extraction.model_copy(update={"evidence": evidence}),
+            company_role="BUYER",
+            company_country="KR",
+            source_page_texts=[""],
+        )
+        missing_fields = {
+            item.field
+            for item in validation.issues
+            if item.code == "MISSING_CORE_EVIDENCE"
+        }
+        self.assertTrue(
+            {"seller_country", "buyer_country"}.issubset(missing_fields)
+        )
+
     def test_advance_installment_may_precede_shipment(self):
         extraction = TradeDocumentExtraction.model_validate_json(
             (
@@ -538,6 +647,8 @@ class ValidationTests(unittest.TestCase):
             source_filename="invoice.pdf",
             source_sha256="a" * 64,
             company_country="KR",
+            company_role_confirmed=True,
+            trade_type_confirmed=True,
             confirmed_at="2026-07-23T09:00:00+09:00",
         )
         extraction, validation = apply_deterministic_review_state(

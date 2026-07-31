@@ -24,7 +24,17 @@
     바꾸지 않는다.
 11. invoice date, contract date, shipment date, due date를 서로 바꾸지 않는다.
 12. 분할결제는 각 installment에 sequence, amount, currency, due_date, condition을 넣는다.
-13. 핵심 필드마다 짧고 국소적인 원문을 evidence에 남긴다.
+13. 핵심 필드마다 짧고 국소적인 원문을 evidence에 남긴다. 특히
+    `seller_name`, `seller_country`, `buyer_name`, `buyer_country`, `currency`,
+    `amount_due`, `issue_date`, `explicit_due_date`, `contract_date`,
+    `payment_terms`, `installments` 값이 존재하면 각각의 **정확히 같은 field
+    이름**으로 evidence를 반드시 반환한다. 반환 직전에 위 비어 있지 않은 핵심
+    필드마다 `INFERRED`가 아닌 evidence 항목이 하나 이상 있는지 체크한다.
+    판매자·구매자 이름에는 `Legal Name`, `Seller`, `Buyer` 등이 포함된 실제 원문,
+    국가에는 해당 당사자의 `Country` 실제 원문을 사용한다. 통화와 금액이 같은
+    문구에 있으면 동일한 실제 원문을 각 field의 evidence로 사용할 수 있다.
+    여러 필드를 하나의 `party` 같은 임의 field로 합치지 않는다. 문서에 없는
+    문구를 evidence로 만들지 않는다.
 14. `extraction_type`은 문서 직접 표기 EXPLICIT, 코드로 계산할 값 DERIVED,
     문맥 추론 INFERRED 중 하나다. 핵심 금액·통화·날짜에 INFERRED를 남발하지 않는다.
 15. `confidence_reason`은 숫자 확률이 아니라 어떤 라벨/문구가 근거인지 설명한다.

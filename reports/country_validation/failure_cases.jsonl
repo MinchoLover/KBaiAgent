@@ -1,0 +1,4 @@
+{"case_id": "br_export_bl_event_photo_004", "field": "__document_pass__", "expected": true, "actual": false, "cause": "source_missing_required_data", "suggestion": "정확한 abstention으로 기록하고 사용자 보완 입력을 요구한다.", "validation_critical_codes": []}
+{"case_id": "br_export_mixed_split_scan_006", "field": "__document_pass__", "expected": true, "actual": false, "cause": "source_missing_required_data", "suggestion": "정확한 abstention으로 기록하고 사용자 보완 입력을 요구한다.", "validation_critical_codes": []}
+{"case_id": "us_import_missing_currency_photo_007", "field": "__document_pass__", "expected": true, "actual": false, "cause": "source_missing_required_data", "suggestion": "정확한 abstention으로 기록하고 사용자 보완 입력을 요구한다.", "validation_critical_codes": []}
+{"case_id": "br_export_occluded_due_photo_008", "field": "__document_pass__", "expected": true, "actual": false, "cause": "source_missing_required_data", "suggestion": "정확한 abstention으로 기록하고 사용자 보완 입력을 요구한다.", "validation_critical_codes": []}

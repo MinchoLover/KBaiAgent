@@ -1,10 +1,14 @@
 import copy
 import unittest
+from datetime import date
 from decimal import Decimal
 
 from src.application.stage2_input_service import (
+    CashflowValidationError,
     Stage2FormInput,
     build_stage2_input_from_form,
+    recommended_stage2_as_of_date,
+    validate_stage2_as_of_date,
 )
 
 
@@ -15,6 +19,8 @@ class Stage2InputServiceTests(unittest.TestCase):
                 "sha256": "a" * 64,
                 "user_confirmed": True,
                 "confirmed_fields": [
+                    "company_role",
+                    "trade_type",
                     "currency",
                     "amount_due",
                     "due_date",
@@ -125,6 +131,51 @@ class Stage2InputServiceTests(unittest.TestCase):
                 document_input=self.document_input,
                 form=self._form(existing_hedge_amount="100001"),
             )
+
+    def test_recommended_as_of_never_follows_earliest_settlement(self):
+        recommended = recommended_stage2_as_of_date(
+            self.document_input,
+            current_date=date(2026, 12, 1),
+        )
+
+        self.assertEqual(recommended, date(2026, 10, 18))
+
+    def test_recommended_as_of_uses_current_date_for_future_trade(self):
+        recommended = recommended_stage2_as_of_date(
+            self.document_input,
+            current_date=date(2026, 7, 31),
+        )
+
+        self.assertEqual(recommended, date(2026, 7, 31))
+
+    def test_rejects_as_of_after_earliest_installment_with_clear_error(self):
+        stage2_input = build_stage2_input_from_form(
+            document_input=self.document_input,
+            form=self._form(as_of_date="2026-10-19"),
+        )
+
+        with self.assertRaises(CashflowValidationError) as raised:
+            validate_stage2_as_of_date(stage2_input)
+        self.assertEqual(
+            raised.exception.detail.code,
+            "INVALID_DATE_ORDER",
+        )
+        self.assertEqual(
+            raised.exception.detail.due_date,
+            "2026-10-18",
+        )
+        self.assertEqual(
+            raised.exception.detail.cashflow_base_date,
+            "2026-10-19",
+        )
+
+    def test_accepts_as_of_on_earliest_installment(self):
+        stage2_input = build_stage2_input_from_form(
+            document_input=self.document_input,
+            form=self._form(as_of_date="2026-10-18"),
+        )
+
+        validate_stage2_as_of_date(stage2_input)
 
     def test_rejects_document_input_without_confirmation_binding(self):
         document_input = copy.deepcopy(self.document_input)

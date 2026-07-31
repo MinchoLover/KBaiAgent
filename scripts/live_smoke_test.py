@@ -56,13 +56,22 @@ def main() -> int:
     except ExtractionError as exc:
         print("FAILED: {}".format(exc))
         return 1
+    status = "PASS" if result.validation.validation_pass else "BLOCKED"
     print(
-        "PASS document_type={} validation_pass={} latency_seconds={}".format(
+        "{} document_type={} validation_pass={} latency_seconds={}".format(
+            status,
             result.extraction.document_type,
             result.validation.validation_pass,
             result.usage.latency_seconds,
         )
     )
+    if not result.validation.validation_pass:
+        safe_issues = [
+            "{}:{}".format(item.code, item.field or "-")
+            for item in result.validation.issues
+        ]
+        print("issues={}".format(",".join(safe_issues)))
+        return 1
     return 0
 
 

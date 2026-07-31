@@ -1,36 +1,24 @@
 import hashlib
 import json
 import re
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Sequence
 
-from pydantic import Field
-
-from schemas import StrictModel, TradeDocumentExtraction, ValidationResult
+from schemas import TradeDocumentExtraction, ValidationResult
 from src.document_intake.confirmation import (
     ConfirmationRecord,
     validate_confirmation,
+)
+from src.domain.confirmed_transaction_models import (
+    ConfirmedInstallment,
+    ConfirmedTradeBinding,
+    ConfirmedTradeEvent,
+    ConfirmedTransactionSnapshot,
 )
 from src.domain.stage2_models import Stage2Input
 from src.stage2.metrics import date_value, decimal_string, decimal_value
 
 
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
-
-
-class ConfirmedTradeEvent(StrictModel):
-    sequence: int = Field(ge=1)
-    trade_type: Literal["IMPORT", "EXPORT"]
-    currency: str
-    foreign_amount: str
-    settlement_date: str
-
-
-class ConfirmedTradeBinding(StrictModel):
-    source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    trade_type: Literal["IMPORT", "EXPORT"]
-    currency: str
-    events: List[ConfirmedTradeEvent] = Field(min_length=1)
-    trade_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 def _normalized_currency(value: Any, field: str) -> str:
@@ -164,21 +152,92 @@ def _confirmed_values_match_extraction(
     extraction_payload = extraction.model_dump()
     confirmed_payload = confirmation.confirmed_values
     fields = (
+        "document_type",
+        "document_number",
+        "seller_name",
+        "seller_country",
+        "buyer_name",
+        "buyer_country",
         "company_role",
         "trade_type",
         "currency",
+        "grand_total",
         "amount_due",
         "issue_date",
         "contract_date",
+        "shipment_date",
         "explicit_due_date",
         "derived_due_date",
         "payment_terms",
+        "incoterm",
         "installments",
     )
     return all(
         confirmed_payload.get(field) == extraction_payload.get(field)
         for field in fields
     )
+
+
+def confirmed_due_date_from_confirmation(
+    confirmation: ConfirmationRecord,
+) -> str:
+    """Return the one canonical downstream date without a date fallback."""
+
+    checks_value = confirmation.checks.confirmed_due_date
+    snapshot_value = confirmation.confirmed_values.get(
+        "settlement_date"
+    )
+    if not checks_value or not snapshot_value:
+        raise ValueError(
+            "확정 결제일이 없습니다. 계약일이나 분할결제 첫 회차일을 "
+            "대신 사용할 수 없습니다."
+        )
+    checks_date = date_value(
+        str(checks_value),
+        "confirmation.checks.confirmed_due_date",
+    ).isoformat()
+    snapshot_date = date_value(
+        str(snapshot_value),
+        "confirmation.confirmed_values.settlement_date",
+    ).isoformat()
+    if checks_date != snapshot_date:
+        raise ValueError(
+            "확인 기록의 결제일 snapshot이 현재 확인값과 다릅니다."
+        )
+    return checks_date
+
+
+def validate_downstream_due_date(
+    *,
+    confirmation: ConfirmationRecord,
+    stage1_target_date: str,
+    stage2_dates: Sequence[str],
+) -> str:
+    """Fail closed when any downstream stage diverges from confirmation."""
+
+    confirmed_due_date = confirmed_due_date_from_confirmation(
+        confirmation
+    )
+    normalized_stage1 = date_value(
+        stage1_target_date,
+        "stage1.scenario_set.target_date",
+    ).isoformat()
+    if normalized_stage1 != confirmed_due_date:
+        raise ValueError(
+            "Stage 1 target_date가 확정 결제일과 일치하지 않습니다."
+        )
+    if not stage2_dates:
+        raise ValueError("Stage 2 결제·수취일이 없습니다.")
+    for index, value in enumerate(stage2_dates):
+        normalized = date_value(
+            value,
+            "stage2.exposures[{}].settlement_date".format(index),
+        ).isoformat()
+        if normalized != confirmed_due_date:
+            raise ValueError(
+                "Stage 2 결제·수취일이 확정 결제일과 일치하지 않습니다."
+            )
+    return confirmed_due_date
 
 
 def confirmed_trade_from_confirmation(
@@ -207,32 +266,18 @@ def confirmed_trade_from_confirmation(
     if trade_type not in {"IMPORT", "EXPORT"} or currency is None:
         raise ValueError("확인된 거래 방향과 통화를 결정할 수 없습니다.")
 
-    events: List[ConfirmedTradeEvent] = []
-    if extraction.installments:
-        for installment in extraction.installments:
-            events.append(
-                _normalized_event(
-                    sequence=installment.sequence,
-                    trade_type=trade_type,
-                    currency=installment.currency or currency,
-                    foreign_amount=installment.amount,
-                    settlement_date=installment.due_date,
-                )
-            )
-    else:
-        settlement_date = (
-            confirmation.checks.confirmed_due_date
-            or recomputed.resolved_due_date
+    settlement_date = confirmed_due_date_from_confirmation(
+        confirmation
+    )
+    events = [
+        _normalized_event(
+            sequence=1,
+            trade_type=trade_type,
+            currency=currency,
+            foreign_amount=extraction.amount_due,
+            settlement_date=settlement_date,
         )
-        events.append(
-            _normalized_event(
-                sequence=1,
-                trade_type=trade_type,
-                currency=currency,
-                foreign_amount=extraction.amount_due,
-                settlement_date=settlement_date,
-            )
-        )
+    ]
 
     return _build_binding(
         source_sha256=confirmation.source_sha256,
@@ -240,6 +285,281 @@ def confirmed_trade_from_confirmation(
         currency=currency,
         events=events,
     )
+
+
+def confirmed_transaction_from_confirmation(
+    *,
+    extraction: TradeDocumentExtraction,
+    validation: ValidationResult,
+    confirmation: ConfirmationRecord,
+) -> ConfirmedTransactionSnapshot:
+    """Materialize the only transaction object allowed after confirmation."""
+
+    binding = confirmed_trade_from_confirmation(
+        extraction=extraction,
+        validation=validation,
+        confirmation=confirmation,
+    )
+    due_date = confirmed_due_date_from_confirmation(confirmation)
+    amount_due = _normalized_amount(
+        extraction.amount_due,
+        "confirmed transaction amount_due",
+    )
+    if len(binding.events) != 1:
+        raise ValueError(
+            "확정 거래 snapshot에는 하나의 분석 대상 예정 노출이 필요합니다."
+        )
+    event = binding.events[0]
+    if event.settlement_date != due_date:
+        raise ValueError("확정 거래 snapshot의 결제일이 거래 binding과 다릅니다.")
+    if _canonical_amount(event.foreign_amount) != _canonical_amount(
+        amount_due
+    ):
+        raise ValueError("확정 거래 snapshot의 금액이 거래 binding과 다릅니다.")
+
+    installments: List[ConfirmedInstallment] = []
+    for index, item in enumerate(extraction.installments):
+        sequence = item.sequence or index + 1
+        if item.amount is None or item.due_date is None:
+            raise ValueError("확정 분할결제 금액과 날짜가 필요합니다.")
+        installments.append(
+            ConfirmedInstallment(
+                sequence=sequence,
+                amount=_normalized_amount(
+                    item.amount,
+                    "confirmed installment amount",
+                ),
+                currency=_normalized_currency(
+                    item.currency or binding.currency,
+                    "confirmed installment currency",
+                ),
+                due_date=date_value(
+                    item.due_date,
+                    "confirmed installment due_date",
+                ).isoformat(),
+                condition=item.condition,
+            )
+        )
+
+    canonical: Dict[str, Any] = {
+        "source_sha256": binding.source_sha256,
+        "company_role": confirmation.company_role,
+        "company_country": confirmation.company_country,
+        "trade_type": binding.trade_type,
+        "currency": binding.currency,
+        "amount_due": _canonical_amount(amount_due),
+        "due_date": due_date,
+        "contract_date": (
+            date_value(
+                extraction.contract_date,
+                "confirmed transaction contract_date",
+            ).isoformat()
+            if extraction.contract_date
+            else None
+        ),
+        "shipment_date": (
+            date_value(
+                extraction.shipment_date,
+                "confirmed transaction shipment_date",
+            ).isoformat()
+            if extraction.shipment_date
+            else None
+        ),
+        "document_type": extraction.document_type,
+        "document_number": extraction.document_number,
+        "grand_total": extraction.grand_total,
+        "issue_date": (
+            date_value(
+                extraction.issue_date,
+                "confirmed transaction issue_date",
+            ).isoformat()
+            if extraction.issue_date
+            else None
+        ),
+        "seller_name": extraction.seller_name,
+        "seller_country": extraction.seller_country,
+        "buyer_name": extraction.buyer_name,
+        "buyer_country": extraction.buyer_country,
+        "payment_terms": extraction.payment_terms,
+        "incoterm": extraction.incoterm,
+        "installments": [
+            item.model_dump() for item in installments
+        ],
+        "trade_sha256": binding.trade_sha256,
+    }
+    serialized = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    input_fingerprint = hashlib.sha256(
+        serialized.encode("utf-8")
+    ).hexdigest()
+    return ConfirmedTransactionSnapshot(
+        source_filename=confirmation.source_filename,
+        source_sha256=binding.source_sha256,
+        confirmed_at=confirmation.confirmed_at,
+        company_role=confirmation.company_role,
+        company_country=confirmation.company_country,
+        trade_type=binding.trade_type,
+        currency=binding.currency,
+        amount_due=amount_due,
+        due_date=due_date,
+        contract_date=canonical["contract_date"],
+        shipment_date=canonical["shipment_date"],
+        document_type=extraction.document_type,
+        document_number=extraction.document_number,
+        grand_total=extraction.grand_total,
+        issue_date=canonical["issue_date"],
+        seller_name=extraction.seller_name,
+        seller_country=extraction.seller_country,
+        buyer_name=extraction.buyer_name,
+        buyer_country=extraction.buyer_country,
+        payment_terms=extraction.payment_terms,
+        incoterm=extraction.incoterm,
+        installments=installments,
+        trade_binding=binding,
+        input_fingerprint=input_fingerprint,
+    )
+
+
+def validate_confirmed_transaction_snapshot(
+    *,
+    snapshot: ConfirmedTransactionSnapshot,
+    extraction: TradeDocumentExtraction,
+    validation: ValidationResult,
+    confirmation: ConfirmationRecord,
+) -> None:
+    current = confirmed_transaction_from_confirmation(
+        extraction=extraction,
+        validation=validation,
+        confirmation=confirmation,
+    )
+    if current.input_fingerprint != snapshot.input_fingerprint:
+        raise ValueError(
+            "확인 기록의 거래값이 canonical confirmed transaction "
+            "snapshot과 다릅니다."
+        )
+    if (
+        current.trade_binding.trade_sha256
+        != snapshot.trade_binding.trade_sha256
+    ):
+        raise ValueError(
+            "확인 기록의 거래 binding이 canonical snapshot과 다릅니다."
+        )
+
+
+def validate_snapshot_downstream_due_date(
+    *,
+    snapshot: ConfirmedTransactionSnapshot,
+    stage1_target_date: str,
+    stage2_dates: Sequence[str],
+    consultation_date: Any = None,
+    stage5_date: Any = None,
+) -> str:
+    """Fail closed if any downstream consumer leaves the snapshot date."""
+
+    expected = date_value(
+        snapshot.due_date,
+        "confirmed_transaction.due_date",
+    ).isoformat()
+    values = [
+        ("stage1.scenario_set.target_date", stage1_target_date),
+    ]
+    values.extend(
+        (
+            "stage2.exposures[{}].settlement_date".format(index),
+            value,
+        )
+        for index, value in enumerate(stage2_dates)
+    )
+    if consultation_date is not None:
+        values.append(
+            (
+                "consultation.company_summary.settlement_date",
+                consultation_date,
+            )
+        )
+    if stage5_date is not None:
+        values.append(("stage5.report.settlement_date", stage5_date))
+    if not stage2_dates:
+        raise ValueError("Stage 2 결제·수취일이 없습니다.")
+    for field, value in values:
+        normalized = date_value(str(value), field).isoformat()
+        if normalized != expected:
+            raise ValueError(
+                "{}가 canonical confirmed due_date와 다릅니다.".format(
+                    field
+                )
+            )
+    return expected
+
+
+def document_input_from_confirmed_transaction(
+    snapshot: ConfirmedTransactionSnapshot,
+) -> Dict[str, Any]:
+    """Project the canonical snapshot into the stable Stage 2 REST contract."""
+
+    event = snapshot.trade_binding.events[0]
+    return {
+        "schema_version": "1.0.0",
+        "source": {
+            "type": "DOCUMENT_EXTRACTION",
+            "filename": snapshot.source_filename,
+            "sha256": snapshot.source_sha256,
+            "user_confirmed": True,
+            "confirmed_fields": [
+                "company_role",
+                "trade_type",
+                "currency",
+                "amount_due",
+                "due_date",
+            ],
+            "confirmed_at": snapshot.confirmed_at,
+            "confirmed_transaction_fingerprint": (
+                snapshot.input_fingerprint
+            ),
+        },
+        "trade": {
+            "trade_type": snapshot.trade_type,
+            "currency": snapshot.currency,
+            "foreign_amount": snapshot.amount_due,
+            "contract_date": snapshot.contract_date,
+            "shipment_date": snapshot.shipment_date,
+            "settlement_date": snapshot.due_date,
+            "settlement_date_source": (
+                "workflow.confirmed_transaction.due_date"
+            ),
+            "cashflow_events": [
+                {
+                    "sequence": event.sequence,
+                    "currency": event.currency,
+                    "foreign_amount": event.foreign_amount,
+                    "settlement_date": event.settlement_date,
+                    "condition": snapshot.payment_terms,
+                }
+            ],
+            "installment_schedule": [
+                {
+                    "sequence": item.sequence,
+                    "currency": item.currency,
+                    "foreign_amount": item.amount,
+                    "settlement_date": item.due_date,
+                    "condition": item.condition,
+                }
+                for item in snapshot.installments
+            ],
+            "available_foreign_currency": "0",
+        },
+        "company_cash": {
+            "current_krw_cash": None,
+            "minimum_cash_buffer": None,
+            "acceptable_loss": None,
+        },
+        "krw_cashflows": [],
+        "status": "NEEDS_COMPANY_CASH_INPUT",
+    }
 
 
 def confirmed_trade_from_document_input(
@@ -253,11 +573,15 @@ def confirmed_trade_from_document_input(
         raise ValueError("사용자 확인된 Stage 0 문서 입력이 필요합니다.")
     confirmed_fields = source.get("confirmed_fields")
     if not isinstance(confirmed_fields, list) or not {
+        "company_role",
+        "trade_type",
         "currency",
         "amount_due",
         "due_date",
     }.issubset(set(confirmed_fields)):
-        raise ValueError("통화·금액·결제일 확인 기록이 필요합니다.")
+        raise ValueError(
+            "회사 역할·거래 방향·통화·금액·결제일 확인 기록이 필요합니다."
+        )
 
     trade_type = trade.get("trade_type")
     currency = trade.get("currency")
@@ -299,6 +623,36 @@ def confirmed_trade_from_document_input(
         currency=currency,
         events=events,
     )
+
+
+def confirmed_analysis_due_date_from_document_input(
+    document_input: Dict[str, Any],
+) -> str:
+    """Read the canonical UI/Stage 1 date and reject schedule fallbacks."""
+
+    trade = document_input.get("trade")
+    if not isinstance(trade, dict):
+        raise ValueError("확정 거래 snapshot이 필요합니다.")
+    raw_due_date = trade.get("settlement_date")
+    if not raw_due_date:
+        raise ValueError(
+            "확정 거래 snapshot에 결제일이 없습니다. 계약일이나 첫 "
+            "분할결제일을 대신 사용하지 않습니다."
+        )
+    due_date = date_value(
+        str(raw_due_date),
+        "trade.settlement_date",
+    ).isoformat()
+    binding = confirmed_trade_from_document_input(document_input)
+    if len(binding.events) != 1:
+        raise ValueError(
+            "금융분석용 확정 거래는 하나의 예정 노출 이벤트여야 합니다."
+        )
+    if binding.events[0].settlement_date != due_date:
+        raise ValueError(
+            "금융분석용 거래 이벤트의 날짜가 확정 결제일과 다릅니다."
+        )
+    return due_date
 
 
 def validate_stage2_trade_binding(

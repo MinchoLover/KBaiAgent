@@ -17,9 +17,109 @@ STATUS_HELP = {
     "CALCULATION": "결정론적 계산",
 }
 
+USER_FIELD_LABELS = {
+    "seller_name": "판매자",
+    "seller_country": "판매자 국가",
+    "buyer_name": "구매자",
+    "buyer_country": "구매자 국가",
+    "currency": "거래 통화",
+    "grand_total": "문서 총액",
+    "amount_due": "분석 대상 예정 결제액",
+    "issue_date": "발행일",
+    "contract_date": "계약일",
+    "shipment_date": "선적일",
+    "explicit_due_date": "결제일",
+    "payment_terms": "결제조건",
+    "installments": "분할결제 일정",
+}
+
+SCHEDULED_EXPOSURE_WARNING = (
+    "현재 분석은 계약서에 명시된 예정 결제액을 기준으로 합니다. "
+    "실제 입금·지급 이력을 반영한 현재 미수·미지급 잔액은 "
+    "별도 확인이 필요합니다."
+)
+
+CONSULTATION_RATIONALE_LABELS = {
+    "-5% ending cash": "-5% 스트레스 후 예상 현금",
+    "buffer shortfall": "목표 현금 버퍼 부족",
+    "cash deficit": "현금 적자",
+    "payment/post-credit deficit": "지급·신용한도 반영 후 부족",
+    "trade review": "거래 검토 우선도",
+    "목표 buffer": "목표 현금 버퍼",
+}
+
+CONSULTATION_STATUS_LABELS = {
+    "ELEVATED_REVIEW": "추가 검토 우선도",
+    "HIGH_REVIEW": "높은 검토 우선도",
+    "STANDARD_REVIEW": "정기 확인",
+    "UNKNOWN": "확인 필요",
+}
+
+USER_ISSUE_MESSAGES = {
+    "MISSING_CORE_EVIDENCE": "원문 근거를 확인해 주세요.",
+    "INFERRED_CRITICAL_FIELD": "AI가 추론한 값이므로 원문 대조가 필요합니다.",
+    "EVIDENCE_NOT_IN_SOURCE": "제시된 근거 문구를 원문에서 찾지 못했습니다.",
+    "EVIDENCE_VALUE_MISMATCH": "원문 근거와 현재 입력값이 서로 다릅니다.",
+    "EVIDENCE_UNVERIFIABLE": "독립된 원문 텍스트로 자동 대조할 수 없습니다.",
+    "MISSING_REQUIRED_FIELD": "계산에 필요한 값이 비어 있습니다.",
+    "AMBIGUOUS_DUE_DATE": "결제일 또는 결제조건을 하나로 확정해 주세요.",
+    "DUE_DATE_CONFLICT": "문서에 표시된 결제일과 계산된 결제일이 다릅니다.",
+    "AMOUNT_CONFLICT": "문서의 금액 정보가 서로 다릅니다.",
+}
+
 
 def status_badge(status: str) -> str:
     return "`{}` · {}".format(status, STATUS_HELP.get(status, "상태"))
+
+
+def amount_due_user_label(trade_type: Optional[str]) -> str:
+    if trade_type == "EXPORT":
+        return "분석 대상 예정 수취액"
+    if trade_type == "IMPORT":
+        return "분석 대상 예정 지급액"
+    return "분석 대상 예정 결제액"
+
+
+def consultation_priority_reason_copy(value: str) -> str:
+    replacements = [
+        (
+            "Open Account 등 회수 보호 검토 finding과",
+            "Open Account 등 결제·회수 보호 필요와",
+        ),
+        (
+            "기존 LOSS_LIMIT_EXCEEDED finding과",
+            "기존 허용손실 초과 신호와",
+        ),
+        (
+            "기존 LIQUIDITY_BUFFER_RISK finding에 따라",
+            "목표 현금 버퍼 부족 신호에 따라",
+        ),
+        (
+            "기존 PAYMENT_CAPACITY_RISK finding의",
+            "지급능력 확인 신호의",
+        ),
+        (
+            "기존 구조화 risk finding 또는 review need가 생성한 "
+            "상담 항목을 명시적 category tie-break에 따라",
+            "기존 구조화 위험 신호 또는 검토 필요가 생성한 "
+            "상담 항목을 정해진 상담 순서에 따라",
+        ),
+        ("HIGH_REVIEW", "높은 검토 우선도"),
+        ("ELEVATED_REVIEW", "추가 검토 우선도"),
+        ("STANDARD_REVIEW", "정기 확인"),
+    ]
+    result = value
+    for source, target in replacements:
+        result = result.replace(source, target)
+    return result
+
+
+def consultation_rationale_label(value: str) -> str:
+    return CONSULTATION_RATIONALE_LABELS.get(value, value)
+
+
+def consultation_status_label(value: str) -> str:
+    return CONSULTATION_STATUS_LABELS.get(value, value)
 
 
 def format_decimal_display(
@@ -62,17 +162,20 @@ def format_ratio(value: Any) -> str:
 def render_stepper(completed_stage: int) -> None:
     labels = [
         "거래 확인",
-        "값 확정",
-        "환율 가정",
-        "현금 영향",
-        "대응 전략",
-        "상담 상품",
-        "상담 리포트",
+        "금융 리스크 분석",
+        "상담 준비",
+        "결과 및 전달",
     ]
+    completion_thresholds = [1, 3, 4, 6]
     cells = st.columns(len(labels))
     for index, (cell, label) in enumerate(zip(cells, labels)):
-        state_class = "done" if index <= completed_stage else "todo"
-        icon = "✓" if index <= completed_stage else str(index + 1)
+        is_done = completed_stage >= completion_thresholds[index]
+        previous_threshold = (
+            -1 if index == 0 else completion_thresholds[index - 1]
+        )
+        is_current = not is_done and completed_stage >= previous_threshold
+        state_class = "done" if is_done else "current" if is_current else "todo"
+        icon = "✓" if is_done else str(index + 1)
         cell.markdown(
             "<div class='journey-step {}'>"
             "<span class='journey-dot'>{}</span>"
@@ -85,7 +188,41 @@ def render_stepper(completed_stage: int) -> None:
         )
 
 
+def validation_issue_copy(field: Optional[str], code: str) -> str:
+    label = USER_FIELD_LABELS.get(field or "", field or "거래정보")
+    guidance = USER_ISSUE_MESSAGES.get(
+        code,
+        "값과 원문 근거를 다시 확인해 주세요.",
+    )
+    return "{}: {}".format(label, guidance)
+
+
+def render_validation_summary(validation: ValidationResult) -> None:
+    actionable = [
+        item
+        for item in validation.issues
+        if item.severity in {"CRITICAL", "HIGH", "MEDIUM"}
+    ]
+    if not actionable:
+        st.success("자동 검증을 통과했습니다. 핵심 거래정보를 원문과 대조해 주세요.")
+        return
+    st.markdown("**확인이 필요한 항목 {}건**".format(len(actionable)))
+    for item in actionable:
+        st.markdown("- {}".format(validation_issue_copy(item.field, item.code)))
+
+
 def render_validation(validation: ValidationResult) -> None:
+    for item in validation.normalization_audit:
+        if item.status in {
+            "NORMALIZED",
+            "AUTO",
+            "USER_OVERRIDE",
+            "USER_CONTEXT_APPLIED",
+            "EVIDENCE_LINKED",
+            "VERIFIED",
+            "USER_CONFIRMED_OVERRIDE",
+        }:
+            st.info(item.message)
     if not validation.issues:
         st.success("결정론적 검증 PASS")
         return
@@ -212,7 +349,7 @@ def json_download(
 
 
 def render_workflow_trace(state: WorkflowState) -> None:
-    with st.expander("고급 · 실행 기록 및 감사 추적", expanded=False):
+    with st.expander("분석 근거 및 기술 정보 보기", expanded=False):
         st.caption(
             "case_id={} · mode={} · final={} · user_confirmed={}".format(
                 state.case_id,

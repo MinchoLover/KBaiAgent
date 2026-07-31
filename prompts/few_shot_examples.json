@@ -25,8 +25,13 @@
       "incoterm": null,
       "installments": [],
       "evidence": [
+        {"field": "seller_name", "page": 1, "source_text": "Seller: Northstar Parts Ltd. (US)", "extraction_type": "EXPLICIT", "confidence_reason": "Seller label identifies the legal counterparty."},
+        {"field": "seller_country", "page": 1, "source_text": "Seller: Northstar Parts Ltd. (US)", "extraction_type": "EXPLICIT", "confidence_reason": "Seller country is printed with the seller."},
+        {"field": "buyer_name", "page": 1, "source_text": "Buyer: Han River Imports Ltd. (KR)", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer label identifies the legal counterparty."},
+        {"field": "buyer_country", "page": 1, "source_text": "Buyer: Han River Imports Ltd. (KR)", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer country is printed with the buyer."},
         {"field": "currency", "page": 1, "source_text": "Currency: USD", "extraction_type": "EXPLICIT", "confidence_reason": "Currency label is explicit."},
         {"field": "amount_due", "page": 1, "source_text": "AMOUNT DUE: USD 12000.00", "extraction_type": "EXPLICIT", "confidence_reason": "Amount Due label identifies the unpaid amount."},
+        {"field": "issue_date", "page": 1, "source_text": "Invoice Date: 2026-01-05", "extraction_type": "EXPLICIT", "confidence_reason": "Invoice Date is explicit."},
         {"field": "explicit_due_date", "page": 1, "source_text": "Due Date: 2026-02-04", "extraction_type": "EXPLICIT", "confidence_reason": "The due date is printed as a calendar date."}
       ],
       "warnings": [],
@@ -61,6 +66,7 @@
       "installments": [],
       "evidence": [
         {"field": "grand_total", "page": 1, "source_text": "Grand Total USD 50000.00", "extraction_type": "EXPLICIT", "confidence_reason": "Grand Total is explicitly labeled."},
+        {"field": "currency", "page": 1, "source_text": "Balance Due USD 35000.00", "extraction_type": "EXPLICIT", "confidence_reason": "The payable balance states USD explicitly."},
         {"field": "amount_due", "page": 1, "source_text": "Balance Due USD 35000.00", "extraction_type": "EXPLICIT", "confidence_reason": "Balance Due is the remaining payable amount."}
       ],
       "warnings": ["거래 당사자와 날짜를 확인하지 못했습니다."],
@@ -95,7 +101,9 @@
       "installments": [],
       "evidence": [
         {"field": "issue_date", "page": 1, "source_text": "Invoice Date: 2026-03-01", "extraction_type": "EXPLICIT", "confidence_reason": "Invoice Date is explicit."},
-        {"field": "payment_terms", "page": 1, "source_text": "Payment Terms: Net 30 Days", "extraction_type": "EXPLICIT", "confidence_reason": "Net term is explicit; no date is calculated by the model."}
+        {"field": "payment_terms", "page": 1, "source_text": "Payment Terms: Net 30 Days", "extraction_type": "EXPLICIT", "confidence_reason": "Net term is explicit; no date is calculated by the model."},
+        {"field": "currency", "page": 1, "source_text": "Amount Due: EUR 9800.00", "extraction_type": "EXPLICIT", "confidence_reason": "The payable amount states EUR explicitly."},
+        {"field": "amount_due", "page": 1, "source_text": "Amount Due: EUR 9800.00", "extraction_type": "EXPLICIT", "confidence_reason": "Amount Due is explicitly labeled."}
       ],
       "warnings": [],
       "missing_required_fields": ["trade_type"],
@@ -128,6 +136,9 @@
       "incoterm": null,
       "installments": [],
       "evidence": [
+        {"field": "currency", "page": 1, "source_text": "Total JPY 4500000", "extraction_type": "EXPLICIT", "confidence_reason": "The total states JPY explicitly."},
+        {"field": "amount_due", "page": 1, "source_text": "Total JPY 4500000", "extraction_type": "EXPLICIT", "confidence_reason": "The document states the full total payable."},
+        {"field": "issue_date", "page": 1, "source_text": "Invoice Date 2026-04-10", "extraction_type": "EXPLICIT", "confidence_reason": "Invoice Date is explicit."},
         {"field": "explicit_due_date", "page": 1, "source_text": "PAY BY 2026-04-25", "extraction_type": "EXPLICIT", "confidence_reason": "PAY BY directly identifies the due date."}
       ],
       "warnings": [],
@@ -164,7 +175,11 @@
         {"sequence": 2, "amount": "70000.00", "currency": "USD", "due_date": "2026-07-31", "condition": "after acceptance"}
       ],
       "evidence": [
-        {"field": "installments", "page": 1, "source_text": "1) USD 30000.00 due 2026-05-10 ... 2) USD 70000.00 due 2026-07-31", "extraction_type": "EXPLICIT", "confidence_reason": "Both installment amounts and dates are explicit."}
+        {"field": "currency", "page": 1, "source_text": "Price USD 100000.00", "extraction_type": "EXPLICIT", "confidence_reason": "Contract price states USD explicitly."},
+        {"field": "amount_due", "page": 1, "source_text": "Price USD 100000.00", "extraction_type": "EXPLICIT", "confidence_reason": "The contract price is the unpaid contractual amount."},
+        {"field": "contract_date", "page": 1, "source_text": "SALES CONTRACT SC-FS-005 dated 2026-05-02", "extraction_type": "EXPLICIT", "confidence_reason": "The sales contract date is explicit."},
+        {"field": "payment_terms", "page": 1, "source_text": "1) USD 30000.00 due 2026-05-10 as advance | 2) USD 70000.00 due 2026-07-31 after acceptance", "extraction_type": "EXPLICIT", "confidence_reason": "The advance and acceptance payment conditions are explicit."},
+        {"field": "installments", "page": 1, "source_text": "1) USD 30000.00 due 2026-05-10 as advance | 2) USD 70000.00 due 2026-07-31 after acceptance", "extraction_type": "EXPLICIT", "confidence_reason": "Both installment amounts and dates are explicit."}
       ],
       "warnings": [],
       "missing_required_fields": ["trade_type"],
@@ -197,7 +212,9 @@
       "incoterm": null,
       "installments": [],
       "evidence": [
-        {"field": "issue_date", "page": 1, "source_text": "Invoice Date 2026-06-01", "extraction_type": "EXPLICIT", "confidence_reason": "Invoice date is explicit."}
+        {"field": "issue_date", "page": 1, "source_text": "Invoice Date 2026-06-01", "extraction_type": "EXPLICIT", "confidence_reason": "Invoice date is explicit."},
+        {"field": "currency", "page": 1, "source_text": "Total USD 7200.00", "extraction_type": "EXPLICIT", "confidence_reason": "The total states USD explicitly."},
+        {"field": "amount_due", "page": 1, "source_text": "Total USD 7200.00", "extraction_type": "EXPLICIT", "confidence_reason": "The document states the full total payable."}
       ],
       "warnings": ["결제일과 지급조건이 문서에 없습니다."],
       "missing_required_fields": ["due_date", "trade_type"],
@@ -232,7 +249,8 @@
       "evidence": [
         {"field": "contract_date", "page": 1, "source_text": "Contract Date 2026-01-15", "extraction_type": "EXPLICIT", "confidence_reason": "The label distinguishes contract date."},
         {"field": "issue_date", "page": 1, "source_text": "Invoice Date 2026-02-01", "extraction_type": "EXPLICIT", "confidence_reason": "The label distinguishes invoice date."},
-        {"field": "shipment_date", "page": 1, "source_text": "Shipment Date 2026-02-10", "extraction_type": "EXPLICIT", "confidence_reason": "The label distinguishes shipment date."}
+        {"field": "shipment_date", "page": 1, "source_text": "Shipment Date 2026-02-10", "extraction_type": "EXPLICIT", "confidence_reason": "The label distinguishes shipment date."},
+        {"field": "explicit_due_date", "page": 1, "source_text": "Due Date 2026-03-03", "extraction_type": "EXPLICIT", "confidence_reason": "The due date is explicitly labeled."}
       ],
       "warnings": ["금액과 통화를 확인하지 못했습니다."],
       "missing_required_fields": ["currency", "amount_due", "trade_type"],
@@ -299,7 +317,11 @@
       "installments": [],
       "evidence": [
         {"field": "seller_name", "page": 1, "source_text": "Seller: Alpine Synthetic GmbH, DE", "extraction_type": "EXPLICIT", "confidence_reason": "Seller label and country are explicit."},
-        {"field": "buyer_name", "page": 1, "source_text": "Buyer: Mirae Test Trading Ltd., KR", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer label and country are explicit."}
+        {"field": "seller_country", "page": 1, "source_text": "Seller: Alpine Synthetic GmbH, DE", "extraction_type": "EXPLICIT", "confidence_reason": "Seller country is printed with the seller."},
+        {"field": "buyer_name", "page": 1, "source_text": "Buyer: Mirae Test Trading Ltd., KR", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer label and country are explicit."},
+        {"field": "buyer_country", "page": 1, "source_text": "Buyer: Mirae Test Trading Ltd., KR", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer country is printed with the buyer."},
+        {"field": "currency", "page": 1, "source_text": "Amount Due EUR 44000.00", "extraction_type": "EXPLICIT", "confidence_reason": "The payable amount states EUR explicitly."},
+        {"field": "amount_due", "page": 1, "source_text": "Amount Due EUR 44000.00", "extraction_type": "EXPLICIT", "confidence_reason": "Amount Due is explicitly labeled."}
       ],
       "warnings": [],
       "missing_required_fields": ["issue_date_or_contract_date", "due_date"],
@@ -333,7 +355,11 @@
       "installments": [],
       "evidence": [
         {"field": "seller_name", "page": 1, "source_text": "Seller: Busan Test Machines Ltd., KR", "extraction_type": "EXPLICIT", "confidence_reason": "Seller label identifies the Korean company."},
-        {"field": "buyer_name", "page": 1, "source_text": "Buyer: Pacific Mock Industries Inc., US", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer label identifies the foreign counterparty."}
+        {"field": "seller_country", "page": 1, "source_text": "Seller: Busan Test Machines Ltd., KR", "extraction_type": "EXPLICIT", "confidence_reason": "Seller country is printed with the seller."},
+        {"field": "buyer_name", "page": 1, "source_text": "Buyer: Pacific Mock Industries Inc., US", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer label identifies the foreign counterparty."},
+        {"field": "buyer_country", "page": 1, "source_text": "Buyer: Pacific Mock Industries Inc., US", "extraction_type": "EXPLICIT", "confidence_reason": "Buyer country is printed with the buyer."},
+        {"field": "currency", "page": 1, "source_text": "Amount Due USD 67000.00", "extraction_type": "EXPLICIT", "confidence_reason": "The payable amount states USD explicitly."},
+        {"field": "amount_due", "page": 1, "source_text": "Amount Due USD 67000.00", "extraction_type": "EXPLICIT", "confidence_reason": "Amount Due is explicitly labeled."}
       ],
       "warnings": [],
       "missing_required_fields": ["issue_date_or_contract_date", "due_date"],

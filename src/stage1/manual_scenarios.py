@@ -66,6 +66,11 @@ def build_manual_stress_scenarios(
                 rate=format(scenario_rate, "f"),
                 is_base=change == 0,
                 probability=None,
+                source_kind=(
+                    "SPOT_BASE"
+                    if change == 0
+                    else "MANUAL_STRESS"
+                ),
             )
         )
 

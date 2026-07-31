@@ -55,6 +55,7 @@ def _env_csv(name: str, default: Tuple[str, ...]) -> Tuple[str, ...]:
 
 @dataclass(frozen=True)
 class Settings:
+    app_env: str = "development"
     openai_api_key: Optional[str] = field(default=None, repr=False)
     openai_model: str = "gpt-4o-mini"
     openai_fallback_model: str = "gpt-4o"
@@ -63,21 +64,66 @@ class Settings:
     demo_mode: bool = True
     enable_live_document_extraction: bool = True
     enable_official_web_search: bool = False
+    enable_stage3_optimizer: bool = True
+    enable_kb_macro_hedge_reference: bool = False
+    enable_product_rag: bool = True
+    enable_llm_report: bool = True
     stage1_mode: str = "manual"
-    stage1_base_url: str = ""
+    stage1_provider: str = "http"
+    stage1_base_url: str = "http://127.0.0.1:8765"
+    stage1_forecast_file: str = (
+        "src/integration_assets/stage1/latest_forecast.json"
+    )
     stage1_allow_private_endpoints: bool = False
     stage1_allowed_hosts: Tuple[str, ...] = ()
     max_upload_mb: int = 15
     max_pdf_pages: int = 20
     openai_timeout_seconds: float = 60.0
     stage1_timeout_seconds: float = 10.0
+    stage1_http_timeout_seconds: float = 10.0
+    stage1_http_retries: int = 1
+    stage1_max_response_bytes: int = 1024 * 1024
+    stage1_max_staleness_market_days: int = 3
+    stage1_max_path_return: str = "0.50"
+    kb_macro_hedge_mode: str = "off"
+    kb_macro_hedge_allowed_root: str = ""
+    kb_macro_forecast_file: str = ""
+    kb_macro_hedge_file: str = ""
+    kb_macro_model_config_file: str = (
+        "configs/hedge_recommendation_v1.json"
+    )
+    kb_macro_market_history_file: str = (
+        "web_runtime/bundle_v1/market_history.csv"
+    )
+    kb_macro_quote_template_file: str = (
+        "examples/mock_company_exposure.json"
+    )
+    kb_macro_expected_provider_commit_sha: str = ""
+    kb_macro_expected_forecast_sha256: str = ""
+    kb_macro_expected_hedge_sha256: str = ""
+    kb_macro_expected_model_config_sha256: str = ""
+    kb_macro_expected_market_history_sha256: str = ""
+    kb_macro_expected_quote_template_sha256: str = ""
+    kb_macro_max_file_bytes: int = 1024 * 1024
+    kb_macro_cli_timeout_seconds: float = 30.0
+    kb_macro_cli_max_output_bytes: int = 64 * 1024
+    spot_rate_provider: str = "manual"
+    manual_usdkrw_rate: Optional[str] = None
+    koreaexim_key: Optional[str] = field(default=None, repr=False)
+    ecos_key: Optional[str] = field(default=None, repr=False)
+    credit_key: Optional[str] = field(default=None, repr=False)
     official_search_cache_ttl_hours: int = 24
     official_domains: Tuple[str, ...] = DEFAULT_OFFICIAL_DOMAINS
 
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
-            openai_api_key=os.getenv("OPENAI_API_KEY") or None,
+            app_env=os.getenv("APP_ENV", "development").strip().lower(),
+            openai_api_key=(
+                os.getenv("OPENAI_API_KEY")
+                or os.getenv("OPEN_AI_API_KEY")
+                or None
+            ),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             openai_fallback_model=os.getenv(
                 "OPENAI_FALLBACK_MODEL",
@@ -94,14 +140,41 @@ class Settings:
             demo_mode=_env_bool("DEMO_MODE", True),
             enable_live_document_extraction=_env_bool(
                 "ENABLE_LIVE_DOCUMENT_EXTRACTION",
-                True,
+                _env_bool("ENABLE_DOCUMENT_AI", True),
             ),
             enable_official_web_search=_env_bool(
                 "ENABLE_OFFICIAL_WEB_SEARCH",
                 False,
             ),
+            enable_stage3_optimizer=_env_bool(
+                "ENABLE_STAGE3_OPTIMIZER",
+                True,
+            ),
+            enable_kb_macro_hedge_reference=_env_bool(
+                "ENABLE_KB_MACRO_HEDGE_REFERENCE",
+                False,
+            ),
+            enable_product_rag=_env_bool(
+                "ENABLE_PRODUCT_RAG",
+                True,
+            ),
+            enable_llm_report=_env_bool(
+                "ENABLE_LLM_REPORT",
+                True,
+            ),
             stage1_mode=os.getenv("STAGE1_MODE", "manual").strip().lower(),
-            stage1_base_url=os.getenv("STAGE1_BASE_URL", "").strip(),
+            stage1_provider=os.getenv(
+                "STAGE1_PROVIDER",
+                "http",
+            ).strip().lower(),
+            stage1_base_url=os.getenv(
+                "STAGE1_BASE_URL",
+                "http://127.0.0.1:8765",
+            ).strip(),
+            stage1_forecast_file=os.getenv(
+                "STAGE1_FORECAST_FILE",
+                "src/integration_assets/stage1/latest_forecast.json",
+            ).strip(),
             stage1_allow_private_endpoints=_env_bool(
                 "STAGE1_ALLOW_PRIVATE_ENDPOINTS",
                 False,
@@ -120,6 +193,100 @@ class Settings:
                 "STAGE1_TIMEOUT_SECONDS",
                 10.0,
             ),
+            stage1_http_timeout_seconds=_env_float(
+                "STAGE1_HTTP_TIMEOUT_SECONDS",
+                _env_float("STAGE1_TIMEOUT_SECONDS", 10.0),
+            ),
+            stage1_http_retries=_env_int(
+                "STAGE1_HTTP_RETRIES",
+                1,
+            ),
+            stage1_max_response_bytes=_env_int(
+                "STAGE1_MAX_RESPONSE_BYTES",
+                1024 * 1024,
+            ),
+            stage1_max_staleness_market_days=_env_int(
+                "STAGE1_MAX_STALENESS_MARKET_DAYS",
+                3,
+            ),
+            stage1_max_path_return=os.getenv(
+                "STAGE1_MAX_PATH_RETURN",
+                "0.50",
+            ).strip(),
+            kb_macro_hedge_mode=os.getenv(
+                "KB_MACRO_HEDGE_MODE",
+                "off",
+            ).strip().lower(),
+            kb_macro_hedge_allowed_root=os.getenv(
+                "KB_MACRO_HEDGE_ALLOWED_ROOT",
+                "",
+            ).strip(),
+            kb_macro_forecast_file=os.getenv(
+                "KB_MACRO_FORECAST_FILE",
+                "",
+            ).strip(),
+            kb_macro_hedge_file=os.getenv(
+                "KB_MACRO_HEDGE_FILE",
+                "",
+            ).strip(),
+            kb_macro_model_config_file=os.getenv(
+                "KB_MACRO_MODEL_CONFIG_FILE",
+                "configs/hedge_recommendation_v1.json",
+            ).strip(),
+            kb_macro_market_history_file=os.getenv(
+                "KB_MACRO_MARKET_HISTORY_FILE",
+                "web_runtime/bundle_v1/market_history.csv",
+            ).strip(),
+            kb_macro_quote_template_file=os.getenv(
+                "KB_MACRO_QUOTE_TEMPLATE_FILE",
+                "examples/mock_company_exposure.json",
+            ).strip(),
+            kb_macro_expected_provider_commit_sha=os.getenv(
+                "KB_MACRO_EXPECTED_PROVIDER_COMMIT_SHA",
+                "",
+            ).strip().lower(),
+            kb_macro_expected_forecast_sha256=os.getenv(
+                "KB_MACRO_EXPECTED_FORECAST_SHA256",
+                "",
+            ).strip().lower(),
+            kb_macro_expected_hedge_sha256=os.getenv(
+                "KB_MACRO_EXPECTED_HEDGE_SHA256",
+                "",
+            ).strip().lower(),
+            kb_macro_expected_model_config_sha256=os.getenv(
+                "KB_MACRO_EXPECTED_MODEL_CONFIG_SHA256",
+                "",
+            ).strip().lower(),
+            kb_macro_expected_market_history_sha256=os.getenv(
+                "KB_MACRO_EXPECTED_MARKET_HISTORY_SHA256",
+                "",
+            ).strip().lower(),
+            kb_macro_expected_quote_template_sha256=os.getenv(
+                "KB_MACRO_EXPECTED_QUOTE_TEMPLATE_SHA256",
+                "",
+            ).strip().lower(),
+            kb_macro_max_file_bytes=_env_int(
+                "KB_MACRO_MAX_FILE_BYTES",
+                1024 * 1024,
+            ),
+            kb_macro_cli_timeout_seconds=_env_float(
+                "KB_MACRO_CLI_TIMEOUT_SECONDS",
+                30.0,
+            ),
+            kb_macro_cli_max_output_bytes=_env_int(
+                "KB_MACRO_CLI_MAX_OUTPUT_BYTES",
+                64 * 1024,
+            ),
+            spot_rate_provider=os.getenv(
+                "SPOT_RATE_PROVIDER",
+                "manual",
+            ).strip().lower(),
+            manual_usdkrw_rate=(
+                os.getenv("MANUAL_USDKRW_RATE") or None
+            ),
+            koreaexim_key=os.getenv("KOREAEXIM_KEY") or None,
+            ecos_key=os.getenv("ECOS_KEY") or None,
+            credit_key=os.getenv("CREDIT_KEY") or None,
             official_search_cache_ttl_hours=_env_int(
                 "OFFICIAL_SEARCH_CACHE_TTL_HOURS",
                 24,
