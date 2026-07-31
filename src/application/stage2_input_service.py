@@ -224,6 +224,7 @@ def classify_cashflow_error(
             )
         else:
             field_path = "stage2.exposures[].settlement_date"
+            offending_value = offending_value or due_date
             user_message = (
                 "확정 결제일({})이 현금 계산 기준일({})보다 이전입니다. "
                 "거래 확인 단계의 결제일과 계산 기준일을 다시 확인하세요."
@@ -435,6 +436,7 @@ def validate_stage2_as_of_date(stage2_input: Stage2Input) -> None:
             due_date=earliest_settlement.isoformat(),
             cashflow_base_date=as_of.isoformat(),
             field_path="stage2.exposures[].settlement_date",
+            offending_value=earliest_settlement.isoformat(),
         )
         raise CashflowValidationError(detail)
 

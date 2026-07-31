@@ -141,6 +141,7 @@ class GoldenConfirmedTransactionE2ETests(unittest.TestCase):
             detail.field_path,
             "stage2.exposures[].settlement_date",
         )
+        self.assertEqual(detail.offending_value, "2026-08-20")
         self.assertIsNotNone(detail.input_fingerprint)
 
     def test_cashflow_engine_failure_retains_structured_inputs(self):
