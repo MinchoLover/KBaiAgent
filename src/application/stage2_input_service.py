@@ -2,7 +2,7 @@ import hashlib
 import json
 from datetime import date
 from decimal import Decimal
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import Field
 
@@ -24,6 +24,7 @@ from src.stage2.allocation import (
 )
 from src.stage2.binding import confirmed_trade_from_document_input
 from src.stage2.metrics import decimal_value
+from src.security.redaction import redact_text
 
 
 class Stage2FormInput(StrictModel):
@@ -67,6 +68,85 @@ def stage2_input_fingerprint(
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def stage2_form_fingerprint(
+    *,
+    document_input: Dict[str, Any],
+    form: Stage2FormInput,
+) -> str:
+    """Fingerprint even invalid form values without logging their contents."""
+
+    source = document_input.get("source", {})
+    trade = document_input.get("trade", {})
+    canonical = {
+        "source_sha256": (
+            source.get("sha256") if isinstance(source, dict) else None
+        ),
+        "trade": trade if isinstance(trade, dict) else None,
+        "form": form.model_dump(),
+    }
+    serialized = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def stage2_form_error_context(
+    exc: Exception,
+    form: Stage2FormInput,
+) -> Tuple[Optional[str], Optional[str]]:
+    message = str(exc).lower()
+    fields = (
+        (
+            ("current_krw_cash", "현재 원화 현금"),
+            "stage2.current_krw_cash",
+            form.current_krw_cash,
+        ),
+        (
+            ("minimum_cash_buffer", "최소 운영자금"),
+            "stage2.minimum_cash_buffer",
+            form.minimum_cash_buffer,
+        ),
+        (
+            ("credit_limit", "대출한도"),
+            "stage2.credit_limit",
+            form.credit_limit,
+        ),
+        (
+            ("acceptable_fx_loss", "손실한도", "환율 추가부담"),
+            "stage2.acceptable_fx_loss",
+            form.acceptable_fx_loss,
+        ),
+        (
+            ("사용 가능한 보유외화", "usable_fx"),
+            "stage2.usable_fx_balance",
+            form.usable_fx_balance,
+        ),
+        (
+            ("기존 헤지", "existing_hedge"),
+            "stage2.existing_hedge",
+            form.existing_hedge_amount,
+        ),
+        (
+            ("bank_spread_bps", "은행 spread"),
+            "stage2.bank_spread_bps",
+            form.bank_spread_bps,
+        ),
+        (
+            ("bank_fee", "은행 수수료"),
+            "stage2.bank_fee",
+            form.bank_fee,
+        ),
+    )
+    for tokens, field_path, value in fields:
+        if any(token.lower() in message for token in tokens):
+            return field_path, value
+    return None, None
+
+
 def cashflow_error_detail(
     *,
     code: str,
@@ -76,11 +156,24 @@ def cashflow_error_detail(
     cashflow_base_date: Optional[str] = None,
     field_path: Optional[str] = None,
     exception_type: Optional[str] = None,
+    technical_message: Optional[str] = None,
+    offending_value: Optional[Any] = None,
+    input_fingerprint: Optional[str] = None,
 ) -> CashflowErrorDetail:
     return CashflowErrorDetail(
         code=code,
         user_message=user_message,
-        input_fingerprint=stage2_input_fingerprint(stage2_input),
+        technical_message=redact_text(
+            technical_message or "{} validation failed".format(code)
+        )[:500],
+        offending_value=(
+            redact_text(str(offending_value))[:200]
+            if offending_value is not None
+            else None
+        ),
+        input_fingerprint=(
+            input_fingerprint or stage2_input_fingerprint(stage2_input)
+        ),
         due_date=due_date,
         cashflow_base_date=cashflow_base_date,
         field_path=field_path,
@@ -92,6 +185,9 @@ def classify_cashflow_error(
     exc: Exception,
     *,
     stage2_input: Optional[Stage2Input] = None,
+    input_fingerprint: Optional[str] = None,
+    supplied_offending_value: Optional[Any] = None,
+    supplied_field_path: Optional[str] = None,
 ) -> CashflowErrorDetail:
     if isinstance(exc, CashflowValidationError):
         return exc.detail
@@ -100,7 +196,8 @@ def classify_cashflow_error(
     lowered = message.lower()
     due_date = None
     cashflow_base_date = None
-    field_path = None
+    field_path = supplied_field_path
+    offending_value = supplied_offending_value
     if stage2_input is not None:
         cashflow_base_date = stage2_input.as_of_date
         if stage2_input.exposures:
@@ -166,6 +263,64 @@ def classify_cashflow_error(
     elif any(
         token in lowered
         for token in (
+            "current_krw_cash",
+            "minimum_cash_buffer",
+            "credit_limit",
+            "acceptable_fx_loss",
+            "bank_spread_bps",
+            "bank_fee",
+            "krw cashflow",
+            "krw_cashflow",
+            "현재 원화 현금",
+            "최소 운영자금",
+            "대출한도",
+            "손실한도",
+            "은행 spread",
+            "은행 수수료",
+            "원화 현금흐름",
+            "사용 가능한 보유외화",
+            "동일통화 흐름",
+            "기존 헤지",
+            "헤지 수수료",
+            "약정환율",
+        )
+    ):
+        code = "INVALID_CASH_INPUT"
+        cash_fields = (
+            ("current_krw_cash", "stage2.current_krw_cash"),
+            ("minimum_cash_buffer", "stage2.minimum_cash_buffer"),
+            ("credit_limit", "stage2.credit_limit"),
+            ("acceptable_fx_loss", "stage2.acceptable_fx_loss"),
+            ("bank_spread_bps", "stage2.bank_spread_bps"),
+            ("bank_fee", "stage2.bank_fee"),
+            ("krw", "stage2.krw_cashflows[]"),
+        )
+        for token, path in cash_fields:
+            if token in lowered:
+                field_path = path
+                break
+        field_path = field_path or "stage2.company_cash"
+        user_message = (
+            "회사 현금 입력을 계산에 사용할 수 없습니다. 표시된 필드의 "
+            "금액·부호·단위를 확인하고 숫자로 다시 입력하세요."
+        )
+        if stage2_input is not None:
+            value_by_path = {
+                "stage2.current_krw_cash": stage2_input.current_krw_cash,
+                "stage2.minimum_cash_buffer": (
+                    stage2_input.minimum_cash_buffer
+                ),
+                "stage2.credit_limit": stage2_input.credit_limit,
+                "stage2.acceptable_fx_loss": (
+                    stage2_input.acceptable_fx_loss
+                ),
+                "stage2.bank_spread_bps": stage2_input.bank_spread_bps,
+                "stage2.bank_fee": stage2_input.bank_fee,
+            }
+            offending_value = value_by_path.get(field_path)
+    elif any(
+        token in lowered
+        for token in (
             "amount",
             "금액",
             "decimal",
@@ -207,6 +362,12 @@ def classify_cashflow_error(
         cashflow_base_date=cashflow_base_date,
         field_path=field_path,
         exception_type=type(exc).__name__,
+        technical_message="{}: {}".format(
+            type(exc).__name__,
+            message,
+        ),
+        offending_value=offending_value,
+        input_fingerprint=input_fingerprint,
     )
 
 
@@ -353,9 +514,14 @@ def build_stage2_input_from_form(
         ),
         Decimal("0"),
     )
-    usable_total = _decimal_text(
+    declared_usable_total = _decimal_text(
         form.usable_fx_balance,
         "사용 가능한 보유외화",
+    )
+    usable_total = (
+        declared_usable_total
+        if confirmed_trade.trade_type == "IMPORT"
+        else "0"
     )
     hedge_total = _decimal_text(
         form.existing_hedge_amount,
@@ -396,6 +562,13 @@ def build_stage2_input_from_form(
         form.same_currency_flow_date,
     )
     preprocessing_warnings: List[PreprocessingWarningCode] = []
+    non_applicable_inputs: Dict[str, str] = {}
+    if (
+        confirmed_trade.trade_type == "EXPORT"
+        and Decimal(declared_usable_total) > 0
+    ):
+        preprocessing_warnings.append("EXPORT_USABLE_FX_NOT_APPLIED")
+        non_applicable_inputs["usable_fx_balance"] = declared_usable_total
     if decimal_value(usable_total, "usable FX balance") > sum(
         (
             decimal_value(item, "usable FX allocation")
@@ -501,4 +674,33 @@ def build_stage2_input_from_form(
             ),
         ),
         preprocessing_warnings=preprocessing_warnings,
+        non_applicable_inputs=non_applicable_inputs,
     )
+
+
+def build_validated_stage2_input_from_form(
+    *,
+    document_input: Dict[str, Any],
+    form: Stage2FormInput,
+) -> Stage2Input:
+    """Build a Stage 2 input or return the public structured error contract."""
+
+    try:
+        return build_stage2_input_from_form(
+            document_input=document_input,
+            form=form,
+        )
+    except CashflowValidationError:
+        raise
+    except (TypeError, ValueError) as exc:
+        field_path, offending_value = stage2_form_error_context(exc, form)
+        detail = classify_cashflow_error(
+            exc,
+            input_fingerprint=stage2_form_fingerprint(
+                document_input=document_input,
+                form=form,
+            ),
+            supplied_offending_value=offending_value,
+            supplied_field_path=field_path,
+        )
+        raise CashflowValidationError(detail) from exc

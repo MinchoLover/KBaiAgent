@@ -294,6 +294,7 @@ def run_offline_demo(
         stage2_input=stage2_input,
         stage2_result=state.cashflow.data,
         generated_at="2026-07-23T09:00:00+09:00",
+        confirmed_transaction=state.confirmed_transaction,
     )
     official_candidate_shortlist = shortlist_official_candidates(
         stage4_result=state.product_search.data,
@@ -309,6 +310,7 @@ def run_offline_demo(
         stage2_result=state.cashflow.data,
         official_candidate_shortlist=official_candidate_shortlist,
         generated_at="2026-07-23T09:00:00+09:00",
+        confirmed_transaction=state.confirmed_transaction,
     )
     state = workflow.run_report(
         state,
@@ -461,6 +463,7 @@ def run_decision_support_demo(
         trade_settlement_risk=trade_risk_assessment,
         country_environment=country_environment_assessment,
         generated_at="2026-07-23T09:00:00+09:00",
+        confirmed_transaction=state.confirmed_transaction,
     )
     official_candidate_shortlist = shortlist_official_candidates(
         stage4_result=state.product_search.data,
@@ -478,6 +481,7 @@ def run_decision_support_demo(
         country_environment=country_environment_assessment,
         official_candidate_shortlist=official_candidate_shortlist,
         generated_at="2026-07-23T09:00:00+09:00",
+        confirmed_transaction=state.confirmed_transaction,
     )
     state = workflow.run_report(
         state,

@@ -9,6 +9,9 @@ from schemas import (
     ValidationResult,
 )
 from src.document_intake.confirmation import ConfirmationRecord
+from src.domain.confirmed_transaction_models import (
+    ConfirmedTransactionSnapshot,
+)
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
 )
@@ -46,6 +49,7 @@ class WorkflowState(StrictModel):
     extraction_evidence: List[FieldEvidence] = Field(default_factory=list)
     confirmation: Optional[ConfirmationRecord] = None
     confirmation_validation: Optional[ValidationResult] = None
+    confirmed_transaction: Optional[ConfirmedTransactionSnapshot] = None
     user_confirmed: bool = False
 
     intake: Optional[StageResult[TradeDocumentExtraction]] = None

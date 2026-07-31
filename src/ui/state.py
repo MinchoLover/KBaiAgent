@@ -9,6 +9,7 @@ PIPELINE_KEYS = (
     "upload_metadata",
     "confirmation",
     "confirmation_validation",
+    "confirmed_transaction",
     "stage0_output",
     "stage2_document_input",
     "stage1_load",
@@ -293,6 +294,7 @@ def clear_confirmation_and_later(state: object) -> None:
         (
             "confirmation",
             "confirmation_validation",
+            "confirmed_transaction",
             "stage0_output",
             "stage2_document_input",
             "stage1_load",

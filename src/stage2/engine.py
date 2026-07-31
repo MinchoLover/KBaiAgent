@@ -37,6 +37,10 @@ PREPROCESSING_WARNING_MESSAGES: Dict[str, str] = {
         "결제일과 잔여 노출 조건에 맞지 않는 동일통화 흐름은 "
         "자연상계에 사용하지 않았습니다."
     ),
+    "EXPORT_USABLE_FX_NOT_APPLIED": (
+        "수출 거래의 보유외화는 예정 수취액을 줄이지 않으므로 이번 "
+        "수취·현금흐름 계산에 적용하지 않았습니다."
+    ),
 }
 
 

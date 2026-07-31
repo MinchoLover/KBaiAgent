@@ -17,6 +17,9 @@ from src.domain.consultation_models import (
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
 )
+from src.domain.confirmed_transaction_models import (
+    ConfirmedTransactionSnapshot,
+)
 from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
@@ -101,6 +104,9 @@ def build_decision_support(
     ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
+    confirmed_transaction: Optional[
+        ConfirmedTransactionSnapshot
+    ] = None,
 ) -> DecisionSupportResult:
     assessment = classify_stage2_risks(
         stage2_result=stage2_result,
@@ -140,6 +146,7 @@ def build_decision_support(
         installment_payment_statuses=installment_payment_statuses,
         missing_information=missing_information,
         generated_at=generated_at,
+        confirmed_transaction=confirmed_transaction,
     )
     return DecisionSupportResult(
         risk_assessment=assessment,

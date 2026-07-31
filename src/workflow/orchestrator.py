@@ -28,14 +28,15 @@ from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
 from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Input, Stage2Result
+from src.domain.stage2_models import CashflowErrorDetail
 from src.domain.stage3_models import Stage3Assumptions, Stage3Result
 from src.stage1.adapter import load_stage1
 from src.stage1.manual_scenarios import build_manual_stress_scenarios
 from src.stage1.normalizer import normalize_stage1_scenarios
 from src.stage2.binding import (
-    confirmed_due_date_from_confirmation,
-    confirmed_trade_from_confirmation,
-    validate_downstream_due_date,
+    confirmed_transaction_from_confirmation,
+    validate_confirmed_transaction_snapshot,
+    validate_snapshot_downstream_due_date,
     validate_stage2_trade_binding,
 )
 from src.stage2.engine import run_stage2
@@ -184,7 +185,7 @@ class WorkflowOrchestrator:
     ) -> WorkflowState:
         measured_started_at, started_ns = self._started()
         safe_duration_ms = max(0, int(intake_duration_ms or 0))
-        confirmed = bool(
+        confirmation_ready = bool(
             confirmation is not None
             and validation.stage2_allowed
             and confirmation.checks.all_critical_fields_confirmed(
@@ -200,6 +201,23 @@ class WorkflowOrchestrator:
                     ", ".join(validation.missing_required_fields)
                 )
             )
+        confirmed_transaction = None
+        if confirmation_ready and confirmation is not None:
+            try:
+                confirmed_transaction = (
+                    confirmed_transaction_from_confirmation(
+                        extraction=extraction,
+                        validation=validation,
+                        confirmation=confirmation,
+                    )
+                )
+            except (TypeError, ValueError) as exc:
+                warnings.append(
+                    "확정 거래 snapshot을 만들 수 없습니다: {}".format(
+                        str(exc)
+                    )
+                )
+        confirmed = confirmed_transaction is not None
         if not confirmed:
             warnings.append("사용자 확인 전 downstream 계산을 차단했습니다.")
         finished_at = datetime.now(timezone.utc)
@@ -262,6 +280,7 @@ class WorkflowOrchestrator:
             extraction_evidence=extraction.evidence,
             confirmation=confirmation,
             confirmation_validation=validation,
+            confirmed_transaction=confirmed_transaction,
             user_confirmed=confirmed,
             intake=intake,
             final_status=(
@@ -311,6 +330,7 @@ class WorkflowOrchestrator:
     @staticmethod
     def _clear_after(state: WorkflowState, stage: str) -> None:
         if stage == "market_risk":
+            state.market_risk = None
             state.market_integration = None
             state.stage2_input = None
             state.cashflow = None
@@ -324,6 +344,7 @@ class WorkflowOrchestrator:
             state.final_report = None
             state.rewrite_count = 0
         elif stage == "cashflow":
+            state.cashflow = None
             state.stage2_input = None
             state.cashflow_error = None
             state.hedge = None
@@ -335,6 +356,7 @@ class WorkflowOrchestrator:
             state.final_report = None
             state.rewrite_count = 0
         elif stage == "hedge":
+            state.hedge = None
             state.selected_strategy = None
             state.product_search = None
             state.report = None
@@ -343,11 +365,37 @@ class WorkflowOrchestrator:
             state.final_report = None
             state.rewrite_count = 0
         elif stage == "product_search":
+            state.product_search = None
             state.report = None
             state.report_draft = None
             state.critic_result = None
             state.final_report = None
             state.rewrite_count = 0
+
+    def record_cashflow_failure(
+        self,
+        state: WorkflowState,
+        detail: CashflowErrorDetail,
+        *,
+        provider: str = "stage2_input_validation",
+    ) -> WorkflowState:
+        """Persist a pre-calculation failure after invalidating stale results."""
+
+        self._clear_after(state, "cashflow")
+        started_at, started_ns = self._started()
+        result = StageResult[Stage2Result](
+            status=StageStatus.FAILED,
+            errors=[detail.user_message],
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc),
+            duration_ms=self._duration_ms(started_ns),
+            provider=provider,
+        )
+        state.cashflow = result
+        state.cashflow_error = detail
+        state.final_status = StageStatus.FAILED
+        self._record(state, "cashflow", result)
+        return state
 
     def _wait_for_confirmation(
         self,
@@ -389,15 +437,13 @@ class WorkflowOrchestrator:
             return self._wait_for_confirmation(state, "market_risk")
         self._clear_after(state, "market_risk")
         started_at, started_ns = self._started()
+        snapshot = state.confirmed_transaction
+        if snapshot is None:
+            return self._wait_for_confirmation(state, "market_risk")
         if stage2_input is not None:
             try:
-                expected_trade = confirmed_trade_from_confirmation(
-                    extraction=state.extracted_trade,
-                    validation=state.confirmation_validation,
-                    confirmation=state.confirmation,
-                )
                 validate_stage2_trade_binding(
-                    expected=expected_trade,
+                    expected=snapshot.trade_binding,
                     stage2_input=stage2_input,
                 )
             except (TypeError, ValueError) as exc:
@@ -416,23 +462,16 @@ class WorkflowOrchestrator:
                 state.final_status = StageStatus.FAILED
                 self._record(state, "market_risk", result)
                 return state
-            first_exposure = stage2_input.exposures[0]
-            currency = first_exposure.currency
-            target_date = first_exposure.settlement_date
-        else:
-            currency = str(expected_currency or "").strip().upper()
-            target_date = str(expected_target_date or "").strip()
-        try:
-            confirmed_due_date = confirmed_due_date_from_confirmation(
-                state.confirmation
-            )
-        except (TypeError, ValueError) as exc:
+        currency = snapshot.currency
+        target_date = snapshot.due_date
+        supplied_currency = str(expected_currency or "").strip().upper()
+        supplied_target_date = str(expected_target_date or "").strip()
+        if supplied_currency and supplied_currency != currency:
             result = StageResult[Stage1LoadResult](
                 status=StageStatus.FAILED,
                 errors=[
-                    "확정 결제일을 Stage 1에 연결하지 못했습니다: {}".format(
-                        str(exc)
-                    )
+                    "Stage 1 통화가 canonical confirmed transaction과 "
+                    "일치하지 않습니다."
                 ],
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
@@ -443,11 +482,12 @@ class WorkflowOrchestrator:
             state.final_status = StageStatus.FAILED
             self._record(state, "market_risk", result)
             return state
-        if target_date and target_date != confirmed_due_date:
+        if supplied_target_date and supplied_target_date != target_date:
             result = StageResult[Stage1LoadResult](
                 status=StageStatus.FAILED,
                 errors=[
-                    "Stage 1 target_date가 확정 결제일과 일치하지 않습니다."
+                    "Stage 1 target_date가 확정 결제일과 일치하지 않습니다 "
+                    "(canonical confirmed due_date)."
                 ],
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
@@ -607,18 +647,62 @@ class WorkflowOrchestrator:
         state: WorkflowState,
         stage2_input: Stage2Input,
     ) -> WorkflowState:
+        if (
+            state.confirmed_transaction is not None
+            and state.extracted_trade is not None
+            and state.confirmation_validation is not None
+            and state.confirmation is not None
+        ):
+            try:
+                validate_confirmed_transaction_snapshot(
+                    snapshot=state.confirmed_transaction,
+                    extraction=state.extracted_trade,
+                    validation=state.confirmation_validation,
+                    confirmation=state.confirmation,
+                )
+            except (TypeError, ValueError) as exc:
+                detail = cashflow_error_detail(
+                    code="STALE_CONFIRMED_STATE",
+                    user_message=(
+                        "확인 기록의 거래값이 현재 canonical snapshot과 "
+                        "다릅니다. 거래정보를 다시 확인하고 확정하세요."
+                    ),
+                    stage2_input=stage2_input,
+                    field_path="workflow.confirmed_transaction",
+                    exception_type=type(exc).__name__,
+                    technical_message="{}: {}".format(
+                        type(exc).__name__,
+                        str(exc),
+                    ),
+                )
+                return self.record_cashflow_failure(
+                    state,
+                    detail,
+                    provider="confirmed_transaction_gate",
+                )
         if not confirmation_gate(state).allowed:
             return self._wait_for_confirmation(state, "cashflow")
         self._clear_after(state, "cashflow")
         started_at, started_ns = self._started()
-        try:
-            expected_trade = confirmed_trade_from_confirmation(
-                extraction=state.extracted_trade,
-                validation=state.confirmation_validation,
-                confirmation=state.confirmation,
+        snapshot = state.confirmed_transaction
+        if snapshot is None:
+            detail = cashflow_error_detail(
+                code="STALE_CONFIRMED_STATE",
+                user_message=(
+                    "확정 거래 snapshot이 없습니다. 거래정보를 다시 "
+                    "확인하고 확정하세요."
+                ),
+                stage2_input=stage2_input,
+                field_path="workflow.confirmed_transaction",
             )
+            return self.record_cashflow_failure(
+                state,
+                detail,
+                provider="confirmed_transaction_gate",
+            )
+        try:
             validate_stage2_trade_binding(
-                expected=expected_trade,
+                expected=snapshot.trade_binding,
                 stage2_input=stage2_input,
             )
         except (TypeError, ValueError) as exc:
@@ -679,8 +763,8 @@ class WorkflowOrchestrator:
             self._record(state, "cashflow", result)
             return state
         try:
-            validate_downstream_due_date(
-                confirmation=state.confirmation,
+            validate_snapshot_downstream_due_date(
+                snapshot=snapshot,
                 stage1_target_date=(
                     state.market_risk.data.scenario_set.target_date
                 ),
@@ -770,6 +854,8 @@ class WorkflowOrchestrator:
         stability_preference: str = "0.7",
         assumptions: Optional[Stage3Assumptions] = None,
     ) -> WorkflowState:
+        if not confirmation_gate(state).allowed:
+            return self._wait_for_confirmation(state, "hedge")
         self._clear_after(state, "hedge")
         started_at, started_ns = self._started()
         if state.cashflow is None or state.cashflow.data is None:
@@ -848,6 +934,8 @@ class WorkflowOrchestrator:
         query: Optional[str] = None,
         mode: str = "OFFLINE_KB",
     ) -> WorkflowState:
+        if not confirmation_gate(state).allowed:
+            return self._wait_for_confirmation(state, "product_search")
         self._clear_after(state, "product_search")
         started_at, started_ns = self._started()
         if (
@@ -977,10 +1065,18 @@ class WorkflowOrchestrator:
     ) -> WorkflowState:
         if state.trace and state.trace[-1].stage == "report":
             state.trace.pop()
+        state.report = None
+        state.report_draft = None
+        state.critic_result = None
+        state.final_report = None
+        state.rewrite_count = 0
+        if not confirmation_gate(state).allowed:
+            return self._wait_for_confirmation(state, "report")
         started_at, started_ns = self._started()
         required = (
             state.extracted_trade,
             state.confirmation,
+            state.confirmed_transaction,
             state.market_risk,
             state.cashflow,
             state.hedge,
@@ -1002,6 +1098,40 @@ class WorkflowOrchestrator:
                 finished_at=datetime.now(timezone.utc),
                 duration_ms=self._duration_ms(started_ns),
                 provider="report_generator",
+            )
+            state.report = result
+            state.final_status = StageStatus.FAILED
+            self._record(state, "report", result)
+            return state
+
+        try:
+            validate_snapshot_downstream_due_date(
+                snapshot=state.confirmed_transaction,
+                stage1_target_date=(
+                    state.market_risk.data.scenario_set.target_date
+                ),
+                stage2_dates=[
+                    item.settlement_date
+                    for item in state.cashflow.data.exposure_computations
+                ],
+                consultation_date=(
+                    consultation_packet.company_summary.settlement_date
+                    if consultation_packet is not None
+                    else state.confirmed_transaction.due_date
+                ),
+                stage5_date=state.confirmed_transaction.due_date,
+            )
+        except (TypeError, ValueError) as exc:
+            result = StageResult[ReportResult](
+                status=StageStatus.FAILED,
+                errors=[
+                    "Stage 5 날짜가 canonical confirmed due_date와 "
+                    "일치하지 않습니다: {}".format(str(exc))
+                ],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider="confirmed_transaction_gate",
             )
             state.report = result
             state.final_status = StageStatus.FAILED
@@ -1111,6 +1241,11 @@ class WorkflowOrchestrator:
         state: WorkflowState,
         value: CountryTradeEnvironmentInput,
     ) -> WorkflowState:
+        if not confirmation_gate(state).allowed:
+            return self._wait_for_confirmation(
+                state,
+                "country_environment",
+            )
         started_at, started_ns = self._started()
         state.report = None
         state.report_draft = None

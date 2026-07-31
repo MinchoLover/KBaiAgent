@@ -19,10 +19,17 @@ from schemas import (
 from src.application.stage2_input_service import (
     CashflowValidationError,
     Stage2FormInput,
-    build_stage2_input_from_form,
+    build_validated_stage2_input_from_form,
     classify_cashflow_error,
     recommended_stage2_as_of_date,
+    stage2_form_error_context,
+    stage2_form_fingerprint,
     validate_stage2_as_of_date,
+)
+from src.application.registered_document_service import (
+    PRESENTATION_FIXTURE_ID,
+    extract_registered_document,
+    presentation_document,
 )
 from src.application.consultation_service import build_decision_support
 from src.application.integration_readiness_service import (
@@ -77,6 +84,9 @@ from src.domain.consultation_models import (
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
 )
+from src.domain.confirmed_transaction_models import (
+    ConfirmedTransactionSnapshot,
+)
 from src.domain.integration_readiness_models import (
     IntegrationReadinessReport,
 )
@@ -107,6 +117,7 @@ from src.security.upload_guard import validate_upload
 from src.stage2.binding import (
     confirmed_analysis_due_date_from_document_input,
     confirmed_trade_from_document_input,
+    document_input_from_confirmed_transaction,
 )
 from src.ui.components import (
     SCHEDULED_EXPOSURE_WARNING,
@@ -142,7 +153,6 @@ from src.workflow.state import WorkflowState
 from validators import (
     apply_deterministic_review_state,
     build_stage0_output,
-    build_stage2_input,
 )
 
 
@@ -900,6 +910,13 @@ def _workflow_from_state() -> Optional[WorkflowState]:
 
 def _save_workflow(value: WorkflowState) -> None:
     _save_model("workflow_state", value)
+    if value.confirmed_transaction is not None:
+        _save_model(
+            "confirmed_transaction",
+            value.confirmed_transaction,
+        )
+    else:
+        st.session_state.pop("confirmed_transaction", None)
 
 
 def _render_cashflow_error(detail: CashflowErrorDetail) -> None:
@@ -921,6 +938,33 @@ def _render_cashflow_error(detail: CashflowErrorDetail) -> None:
         st.write(
             "field path: `{}`".format(detail.field_path or "UNKNOWN")
         )
+        st.write(
+            "offending value: `{}`".format(
+                detail.offending_value or "UNKNOWN"
+            )
+        )
+        st.write(
+            "technical message: `{}`".format(
+                detail.technical_message or "UNKNOWN"
+            )
+        )
+
+
+def _persist_cashflow_failure(detail: CashflowErrorDetail) -> None:
+    _save_model("cashflow_error", detail)
+    workflow = _workflow_from_state()
+    if workflow is None:
+        return
+    existing = workflow.cashflow_error
+    if (
+        existing is not None
+        and existing.code == detail.code
+        and existing.input_fingerprint == detail.input_fingerprint
+    ):
+        _save_workflow(workflow)
+        return
+    workflow = orchestrator.record_cashflow_failure(workflow, detail)
+    _save_workflow(workflow)
 
 
 def _rebuild_consultation_with_payment_statuses(
@@ -975,6 +1019,7 @@ def _rebuild_consultation_with_payment_statuses(
         missing_information=list(
             extraction.missing_required_fields
         ),
+        confirmed_transaction=workflow.confirmed_transaction,
     )
     _save_decision_support(decision_support)
     clear_downstream(st.session_state, 5)
@@ -1108,15 +1153,7 @@ def _stage2_form_defaults(
         "hedge_fee": "0",
         "bank_spread": "15",
         "bank_fee": "50000",
-        "cashflows": [
-            {
-                "date": str(date.today()),
-                "amount": "30000000",
-                "direction": "INFLOW",
-                "category": "REVENUE",
-                "description": "예정 매출 입금",
-            }
-        ],
+        "cashflows": [],
         "revenue_reduction": "0",
         "revenue_delay": 0,
         "cost_increase": "0",
@@ -1128,6 +1165,15 @@ def _stage2_form_defaults(
             )
             defaults["as_of"] = recommended_as_of
             defaults["same_flow_date"] = recommended_as_of
+            trade = document_input.get("trade", {})
+            trade_type = (
+                trade.get("trade_type")
+                if isinstance(trade, dict)
+                else None
+            )
+            if trade_type == "EXPORT":
+                defaults["usable_fx"] = "0"
+                defaults["same_flow_direction"] = "OUTFLOW"
         return defaults
 
     flows = [
@@ -1147,11 +1193,14 @@ def _stage2_form_defaults(
             "credit_limit": value.credit_limit,
             "acceptable_loss": value.acceptable_fx_loss,
             "as_of": date.fromisoformat(value.as_of_date),
-            "usable_fx": _decimal_total(
-                [
-                    exposure.usable_fx_balance
-                    for exposure in value.exposures
-                ]
+            "usable_fx": (
+                value.non_applicable_inputs.get("usable_fx_balance")
+                or _decimal_total(
+                    [
+                        exposure.usable_fx_balance
+                        for exposure in value.exposures
+                    ]
+                )
             ),
             "same_flow_amount": _decimal_total(
                 [flow.amount for flow in flows]
@@ -1845,6 +1894,9 @@ def _render_trade_risk_section(
                         missing_information=list(
                             extraction.missing_required_fields
                         ),
+                        confirmed_transaction=(
+                            workflow.confirmed_transaction
+                        ),
                     )
                     stage4_result = _model_from_state(
                         "stage4_result",
@@ -1873,6 +1925,9 @@ def _render_trade_risk_section(
                             ),
                             missing_information=list(
                                 extraction.missing_required_fields
+                            ),
+                            confirmed_transaction=(
+                                workflow.confirmed_transaction
                             ),
                         )
                     _save_decision_support(decision_support)
@@ -2059,13 +2114,11 @@ def _demo_all(company_role: str = "BUYER") -> None:
         prompt_version=get_prompt_version(),
         confirmation_record=result["confirmation"],
     )
-    st.session_state["stage2_document_input"] = build_stage2_input(
-        extraction=extraction,
-        validation=result["validation"],
-        confirmations=result["confirmation"].checks,
-        source_filename=source_path.name,
-        source_sha256=result["confirmation"].source_sha256,
-        confirmed_at=result["confirmation"].confirmed_at,
+    demo_snapshot = result["workflow_state"].confirmed_transaction
+    if demo_snapshot is None:
+        raise ValueError("데모 확정 거래 snapshot을 만들 수 없습니다.")
+    st.session_state["stage2_document_input"] = (
+        document_input_from_confirmed_transaction(demo_snapshot)
     )
     _save_model("stage1_load", result["stage1_load"])
     _save_model("stage2_input", result["stage2_input"])
@@ -2131,6 +2184,13 @@ def _reset_state() -> None:
 def _start_document_registration() -> None:
     _reset_state()
     st.session_state["run_mode_widget"] = "실제 문서 분석"
+
+
+def _start_golden_registration() -> None:
+    _start_document_registration()
+    st.session_state["registered_document_id"] = PRESENTATION_FIXTURE_ID
+    st.session_state["company_role_widget"] = "판매자 · SELLER"
+    st.session_state["company_country_widget"] = "KR"
 
 
 load_dotenv()
@@ -2785,7 +2845,11 @@ with st.sidebar:
                 help="API 키는 서버 환경변수에서만 읽습니다.",
             )
         run_mode = "LIVE" if mode_label == live_label else "DEMO"
-        if run_mode == "LIVE" and not settings.live_extraction_ready:
+        if (
+            run_mode == "LIVE"
+            and not settings.live_extraction_ready
+            and not presentation_mode
+        ):
             st.warning(
                 "실제 문서 분석 연결이 준비되지 않았습니다. "
                 "서버 설정을 확인하거나 데모 모드를 선택하세요."
@@ -2803,8 +2867,8 @@ with st.sidebar:
         st.caption("모델은 서버 환경변수로 관리됩니다.")
         if presentation_mode:
             st.caption(
-                "발표 모드에서는 브라질 Golden 계약을 거래문서 등록 "
-                "경로에서만 검토합니다."
+                "등록된 합성문서는 content SHA-256이 일치할 때만 "
+                "API-free 검토 adapter를 사용합니다."
             )
         else:
             st.button(
@@ -2979,7 +3043,7 @@ with st.container(
             "브라질 Golden 문서 등록하기",
             type="primary",
             width="stretch",
-            on_click=_start_document_registration,
+            on_click=_start_golden_registration,
             key="service_register_document",
         )
         st.caption(
@@ -3061,6 +3125,14 @@ with stage0_tab:
         )
         st.caption("PDF · PNG · JPG/JPEG 지원")
 
+    registered_document = None
+    if (
+        presentation_mode
+        and st.session_state.get("registered_document_id")
+        == PRESENTATION_FIXTURE_ID
+    ):
+        registered_document = presentation_document()
+
     if run_mode == "DEMO":
         demo_path, preview_mime, demo_extraction = _demo_fixture(
             company_role
@@ -3074,13 +3146,38 @@ with stage0_tab:
                 "선택하세요."
             )
     else:
-        preview_bytes = uploaded.getvalue() if uploaded is not None else b""
+        preview_bytes = (
+            uploaded.getvalue()
+            if uploaded is not None
+            else (
+                registered_document.file_bytes
+                if registered_document is not None
+                else b""
+            )
+        )
         preview_name = (
-            uploaded.name if uploaded is not None else "uploaded_document"
+            uploaded.name
+            if uploaded is not None
+            else (
+                registered_document.filename
+                if registered_document is not None
+                else "uploaded_document"
+            )
         )
         preview_mime = (
-            uploaded.type if uploaded is not None else "application/octet-stream"
+            uploaded.type
+            if uploaded is not None
+            else (
+                registered_document.mime_type
+                if registered_document is not None
+                else "application/octet-stream"
+            )
         )
+        if registered_document is not None and uploaded is None:
+            st.caption(
+                "등록된 API-free 합성 계약서가 선택되었습니다. 업로드한 "
+                "문서가 있으면 업로드 문서를 우선 분석합니다."
+            )
 
     preview_error: Optional[str] = None
     if run_mode == "LIVE" and preview_bytes:
@@ -3129,25 +3226,49 @@ with stage0_tab:
         try:
             _normalized_company_country(company_country)
             if run_mode == "LIVE":
-                if uploaded is None:
-                    raise ValueError("실제 문서 분석에서는 문서를 업로드하세요.")
-                if not settings.live_extraction_ready:
+                if not preview_bytes:
                     raise ValueError(
-                        "OPENAI_API_KEY와 "
-                        "ENABLE_LIVE_DOCUMENT_EXTRACTION=true가 필요합니다."
+                        "실제 문서 분석에서는 문서를 업로드하거나 등록된 "
+                        "합성문서를 선택하세요."
                     )
-                with st.spinner("문서를 안전 검사하고 모델로 추출 중입니다..."):
-                    extraction_run = extract_trade_document_with_metadata(
-                        file_bytes=preview_bytes,
-                        filename=preview_name,
-                        mime_type=preview_mime,
-                        company_role=company_role,
-                        company_country=company_country,
-                        settings=settings,
+                extraction_run = extract_registered_document(
+                    file_bytes=preview_bytes,
+                    filename=preview_name,
+                    mime_type=preview_mime,
+                    company_role=company_role,
+                    company_country=company_country,
+                    settings=settings,
+                )
+                if extraction_run is None:
+                    if not settings.live_extraction_ready:
+                        raise ValueError(
+                            "이 문서는 등록된 API-free fixture와 일치하지 "
+                            "않습니다. OPENAI_API_KEY와 "
+                            "ENABLE_LIVE_DOCUMENT_EXTRACTION=true를 "
+                            "설정하거나 등록된 합성문서를 선택하세요."
+                        )
+                    with st.spinner(
+                        "문서를 안전 검사하고 모델로 추출 중입니다..."
+                    ):
+                        extraction_run = (
+                            extract_trade_document_with_metadata(
+                                file_bytes=preview_bytes,
+                                filename=preview_name,
+                                mime_type=preview_mime,
+                                company_role=company_role,
+                                company_country=company_country,
+                                settings=settings,
+                            )
+                        )
+                else:
+                    st.info(
+                        "content SHA-256이 등록된 합성 계약과 일치해 "
+                        "API-free 검토 adapter를 사용했습니다."
                     )
                 extraction = extraction_run.extraction
                 validation = extraction_run.validation
                 original_extraction = extraction_run.raw_extraction
+                provider_name = extraction_run.usage.model
                 metadata_dict = {
                     "filename": extraction_run.upload.filename,
                     "mime_type": extraction_run.upload.mime_type,
@@ -3157,8 +3278,11 @@ with stage0_tab:
                     "latency_seconds": extraction_run.usage.latency_seconds,
                     "input_tokens": extraction_run.usage.input_tokens,
                     "output_tokens": extraction_run.usage.output_tokens,
-                    "provider": "openai:{}".format(
-                        extraction_run.usage.model
+                    "provider": (
+                        provider_name
+                        if provider_name
+                        == "registered_api_free_fixture"
+                        else "openai:{}".format(provider_name)
                     ),
                     "attempts": extraction_run.usage.attempts,
                 }
@@ -3633,74 +3757,101 @@ with stage0_tab:
         amount_ok = False
         due_ok = False
         evidence_override_fields: List[str] = []
-        if not is_confirmed:
-            st.markdown("#### 핵심 거래값 최종 확인")
-            st.caption(
-                "체크는 단순 동의가 아니라 문서 원문과 직접 대조했다는 기록입니다."
+        st.markdown(
+            "#### {}".format(
+                "핵심 거래값 확인 기록"
+                if is_confirmed
+                else "핵심 거래값 최종 확인"
             )
-            with st.form("critical_confirmation"):
-                confirmed_due = st.text_input(
-                    "최종 결제일",
-                    value=resolved_due,
-                    placeholder="YYYY-MM-DD",
-                    help=(
-                        "Net N 조건은 일반 코드가 계산하며, "
-                        "여기서는 사용자가 최종 결제일을 확인합니다."
-                    ),
-                    key="confirmed_due_widget",
-                )
-                company_role_ok = st.checkbox(
-                    "{} 역할을 확인했습니다".format(extraction.company_role),
-                    key="confirm_company_role_widget",
-                )
-                trade_type_ok = st.checkbox(
-                    "{} 거래 방향을 확인했습니다".format(
-                        validation.derived_trade_type
-                    ),
-                    key="confirm_trade_type_widget",
-                )
-                currency_ok = st.checkbox(
-                    "통화를 원문과 대조했습니다",
-                    key="confirm_currency_widget",
-                )
-                amount_ok = st.checkbox(
-                    "{}을 원문과 대조했습니다".format(amount_due_label),
-                    key="confirm_amount_widget",
-                )
-                due_ok = st.checkbox(
-                    "결제일과 조건을 대조했습니다",
-                    key="confirm_due_widget",
-                )
-                missing_evidence_fields = sorted(
-                    {
-                        item.field
-                        for item in validation.issues
-                        if (
-                            item.code
-                            in {
-                                "MISSING_CORE_EVIDENCE",
-                                "INFERRED_CRITICAL_FIELD",
-                            }
-                            and item.field is not None
-                        )
+        )
+        st.caption(
+            "체크는 단순 동의가 아니라 문서 원문과 직접 대조했다는 기록입니다."
+        )
+        missing_evidence_fields = sorted(
+            {
+                item.field
+                for item in validation.issues
+                if (
+                    item.code
+                    in {
+                        "MISSING_CORE_EVIDENCE",
+                        "INFERRED_CRITICAL_FIELD",
                     }
+                    and item.field is not None
                 )
-                if missing_evidence_fields:
-                    st.warning(
-                        "아래 필드는 원문 evidence가 없거나, 원문에 인용문이 "
-                        "없거나, 현재 값과 일치하지 않거나, 독립 텍스트 원문으로 "
-                        "대조할 수 없습니다. 문서 미리보기와 직접 대조한 필드만 "
-                        "선택해야 다음 단계로 전달됩니다."
-                    )
-                    evidence_override_fields = st.multiselect(
-                        "원문에서 직접 확인한 evidence 예외 필드",
-                        options=missing_evidence_fields,
-                        key="confirm_evidence_override_widget",
-                    )
-                confirmation_submit = st.form_submit_button(
-                    "거래정보를 확인하고 확정하기",
-                    type="primary",
+            }
+        )
+        with st.form("critical_confirmation"):
+            confirmed_due = st.text_input(
+                "최종 결제일",
+                value=(
+                    confirmation.checks.confirmed_due_date
+                    if is_confirmed and confirmation is not None
+                    else resolved_due
+                ),
+                placeholder="YYYY-MM-DD",
+                help=(
+                    "Net N 조건은 일반 코드가 계산하며, "
+                    "여기서는 사용자가 최종 결제일을 확인합니다."
+                ),
+                key="confirmed_due_widget",
+                disabled=is_confirmed,
+            )
+            company_role_ok = st.checkbox(
+                "{} 역할을 확인했습니다".format(extraction.company_role),
+                value=is_confirmed,
+                key="confirm_company_role_widget",
+                disabled=is_confirmed,
+            )
+            trade_type_ok = st.checkbox(
+                "{} 거래 방향을 확인했습니다".format(
+                    validation.derived_trade_type
+                ),
+                value=is_confirmed,
+                key="confirm_trade_type_widget",
+                disabled=is_confirmed,
+            )
+            currency_ok = st.checkbox(
+                "통화를 원문과 대조했습니다",
+                value=is_confirmed,
+                key="confirm_currency_widget",
+                disabled=is_confirmed,
+            )
+            amount_ok = st.checkbox(
+                "{}을 원문과 대조했습니다".format(amount_due_label),
+                value=is_confirmed,
+                key="confirm_amount_widget",
+                disabled=is_confirmed,
+            )
+            due_ok = st.checkbox(
+                "결제일과 조건을 대조했습니다",
+                value=is_confirmed,
+                key="confirm_due_widget",
+                disabled=is_confirmed,
+            )
+            if missing_evidence_fields:
+                st.warning(
+                    "아래 필드는 원문 evidence가 없거나, 원문에 인용문이 "
+                    "없거나, 현재 값과 일치하지 않거나, 독립 텍스트 원문으로 "
+                    "대조할 수 없습니다. 문서 미리보기와 직접 대조한 필드만 "
+                    "선택해야 다음 단계로 전달됩니다."
                 )
+                evidence_override_fields = st.multiselect(
+                    "원문에서 직접 확인한 evidence 예외 필드",
+                    options=missing_evidence_fields,
+                    default=(
+                        confirmation.checks.user_confirmed_override_fields
+                        if is_confirmed and confirmation is not None
+                        else []
+                    ),
+                    key="confirm_evidence_override_widget",
+                    disabled=is_confirmed,
+                )
+            confirmation_submit = st.form_submit_button(
+                "거래정보를 확인하고 확정하기",
+                type="primary",
+                disabled=is_confirmed,
+            )
         if confirmation_submit:
             metadata = st.session_state["upload_metadata"]
             original = _model_from_state(
@@ -3766,13 +3917,17 @@ with stage0_tab:
                         "중요 검증 문제를 해결하세요."
                     )
                 else:
-                    document_input = build_stage2_input(
-                        extraction=extraction,
-                        validation=confirmed_validation,
-                        confirmations=record.checks,
-                        source_filename=metadata["filename"],
-                        source_sha256=record.source_sha256,
-                        confirmed_at=record.confirmed_at,
+                    snapshot = _model_from_state(
+                        "confirmed_transaction",
+                        ConfirmedTransactionSnapshot,
+                    )
+                    if snapshot is None:
+                        raise ValueError(
+                            "확정 거래 snapshot을 만들 수 없습니다. "
+                            "핵심 거래값을 다시 확인하세요."
+                        )
+                    document_input = (
+                        document_input_from_confirmed_transaction(snapshot)
                     )
                     st.session_state[
                         "stage2_document_input"
@@ -4409,17 +4564,46 @@ with stage2_tab:
             timing_cols[0].caption(
                 "가장 이른 예정 결제일보다 늦을 수 없습니다."
             )
+            is_import_trade = trade["trade_type"] == "IMPORT"
             usable_fx = timing_cols[1].text_input(
-                "결제에 사용할 수 있는 보유외화 · {}".format(
-                    trade["currency"]
+                (
+                    "결제에 사용할 수 있는 보유외화 · {}".format(
+                        trade["currency"]
+                    )
+                    if is_import_trade
+                    else "현재 보유외화 · {} · 수취액 계산 미적용".format(
+                        trade["currency"]
+                    )
                 ),
                 value=form_defaults["usable_fx"],
+                help=(
+                    "수입 결제에 직접 사용할 잔액만 입력합니다."
+                    if is_import_trade
+                    else (
+                        "수출 예정 수취액은 보유외화로 줄지 않습니다. "
+                        "입력값은 참고용으로 보존하고 계산에는 적용하지 "
+                        "않습니다."
+                    )
+                ),
                 key="stage2_usable_fx_widget",
             )
+            if not is_import_trade:
+                timing_cols[1].caption(
+                    "미적용 · 기존 보유외화는 이번 수출대금 수취액과 "
+                    "현금흐름을 상계하지 않습니다."
+                )
 
             additional_funds.markdown("#### 같은 통화의 예정 자금")
             additional_funds.caption(
-                "결제 전에 같은 외화가 들어오면 수입 결제 부담을 일부 상계할 수 있습니다."
+                (
+                    "결제 전에 같은 외화가 들어오면 수입 결제 부담을 "
+                    "일부 상계할 수 있습니다."
+                    if is_import_trade
+                    else (
+                        "수취 전에 같은 외화로 확정된 지급이 있으면 "
+                        "수출 수취 노출의 자연상계 후보가 됩니다."
+                    )
+                )
             )
             natural_cols = additional_funds.columns(3)
             same_flow_amount = natural_cols[0].text_input(
@@ -4552,6 +4736,8 @@ with stage2_tab:
                 2,
                 clear_widgets=False,
             )
+            form_input: Optional[Stage2FormInput] = None
+            stage2_input: Optional[Stage2Input] = None
             try:
                 form_input = Stage2FormInput(
                     as_of_date=as_of.isoformat(),
@@ -4573,7 +4759,7 @@ with stage2_tab:
                     revenue_delay_days=int(revenue_delay),
                     cost_increase_percent=cost_increase,
                 )
-                stage2_input = build_stage2_input_from_form(
+                stage2_input = build_validated_stage2_input_from_form(
                     document_input=document_input,
                     form=form_input,
                 )
@@ -4644,16 +4830,38 @@ with stage2_tab:
                     missing_information=list(
                         extraction_for_decision.missing_required_fields
                     ),
+                    confirmed_transaction=workflow.confirmed_transaction,
                 )
                 _save_decision_support(decision_support)
                 st.success("환율별 현금 영향 계산을 완료했습니다.")
                 st.rerun()
             except CashflowValidationError as exc:
-                _save_model("cashflow_error", exc.detail)
+                _persist_cashflow_failure(exc.detail)
                 _render_cashflow_error(exc.detail)
             except (ValueError, TypeError) as exc:
-                detail = classify_cashflow_error(exc)
-                _save_model("cashflow_error", detail)
+                input_fingerprint = None
+                offending_value = None
+                field_path = None
+                if form_input is not None:
+                    input_fingerprint = (
+                        stage2_form_fingerprint(
+                            document_input=document_input,
+                            form=form_input,
+                        )
+                        if stage2_input is None
+                        else None
+                    )
+                    field_path, offending_value = (
+                        stage2_form_error_context(exc, form_input)
+                    )
+                detail = classify_cashflow_error(
+                    exc,
+                    stage2_input=stage2_input,
+                    input_fingerprint=input_fingerprint,
+                    supplied_offending_value=offending_value,
+                    supplied_field_path=field_path,
+                )
+                _persist_cashflow_failure(detail)
                 _render_cashflow_error(detail)
 
         stored_cashflow_error = _model_from_state(
@@ -5136,6 +5344,12 @@ with stage3_tab:
             type="primary",
             key="optimize_stage3",
         ):
+            st.session_state.pop("stage3_result", None)
+            clear_downstream(
+                st.session_state,
+                4,
+                clear_widgets=False,
+            )
             workflow = _workflow_from_state()
             if workflow is None:
                 st.error("분석 세션이 없습니다. 거래 확인부터 다시 시작하세요.")
@@ -5170,6 +5384,7 @@ with stage3_tab:
                     ),
                 ),
             )
+            _save_workflow(workflow)
             if workflow.hedge is None or workflow.hedge.data is None:
                 st.error(
                     "헤지 후보 계산에 실패했습니다: {}".format(
@@ -5183,7 +5398,6 @@ with stage3_tab:
                 st.stop()
             result = workflow.hedge.data
             _save_model("stage3_result", result)
-            _save_workflow(workflow)
             clear_downstream(st.session_state, 4)
             st.rerun()
         stage3_result = _model_from_state("stage3_result", Stage3Result)
@@ -5555,6 +5769,12 @@ with stage4_tab:
             key="search_stage4",
         ):
             try:
+                st.session_state.pop("stage4_result", None)
+                st.session_state.pop("official_candidate_shortlist", None)
+                st.session_state.pop("report_result", None)
+                _rebuild_consultation_with_payment_statuses(
+                    _installment_payment_statuses_from_state()
+                )
                 workflow = _workflow_from_state()
                 if workflow is None:
                     raise RuntimeError(
@@ -5565,6 +5785,7 @@ with stage4_tab:
                     query=query,
                     mode=search_mode,
                 )
+                _save_workflow(workflow)
                 if (
                     workflow.product_search is None
                     or workflow.product_search.data is None
@@ -5631,10 +5852,10 @@ with stage4_tab:
                     missing_information=list(
                         extraction.missing_required_fields
                     ),
+                    confirmed_transaction=workflow.confirmed_transaction,
                 )
                 _save_model("stage4_result", result)
                 _save_decision_support(decision_support)
-                _save_workflow(workflow)
                 clear_downstream(st.session_state, 5)
                 st.rerun()
             except (RuntimeError, TypeError, ValueError) as exc:
@@ -5995,6 +6216,7 @@ with stage5_tab:
             type="primary",
             key="generate_report",
         ):
+            st.session_state.pop("report_result", None)
             workflow = _workflow_from_state()
             if workflow is None:
                 st.error("분석 세션이 없습니다. 거래 확인부터 다시 시작하세요.")
@@ -6003,6 +6225,7 @@ with stage5_tab:
                 workflow,
                 consultation_packet=consultation_packet.packet,
             )
+            _save_workflow(workflow)
             if workflow.final_report is None:
                 st.error(
                     "보고서 생성에 실패했습니다: {}".format(
@@ -6016,7 +6239,6 @@ with stage5_tab:
                 st.stop()
             report = workflow.final_report
             _save_model("report_result", report)
-            _save_workflow(workflow)
             st.rerun()
 
     if report_result is not None:

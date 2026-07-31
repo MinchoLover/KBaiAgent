@@ -8,12 +8,14 @@ from schemas import StrictModel
 PreprocessingWarningCode = Literal[
     "EXCESS_USABLE_FX_IGNORED",
     "INELIGIBLE_SAME_CURRENCY_FLOW_IGNORED",
+    "EXPORT_USABLE_FX_NOT_APPLIED",
 ]
 
 CashflowErrorCode = Literal[
     "INVALID_DATE_ORDER",
     "MISSING_REQUIRED_DATE",
     "INVALID_AMOUNT",
+    "INVALID_CASH_INPUT",
     "UNSUPPORTED_DIRECTION",
     "STALE_CONFIRMED_STATE",
     "INTERNAL_CALCULATION_ERROR",
@@ -24,6 +26,8 @@ class CashflowErrorDetail(StrictModel):
     code: CashflowErrorCode
     stage: Literal["cashflow"] = "cashflow"
     user_message: str
+    technical_message: Optional[str] = None
+    offending_value: Optional[str] = None
     input_fingerprint: Optional[str] = Field(
         default=None,
         pattern=r"^[a-f0-9]{64}$",
@@ -96,6 +100,7 @@ class Stage2Input(StrictModel):
     preprocessing_warnings: List[PreprocessingWarningCode] = Field(
         default_factory=list
     )
+    non_applicable_inputs: Dict[str, str] = Field(default_factory=dict)
 
 
 class ExposureComputation(StrictModel):

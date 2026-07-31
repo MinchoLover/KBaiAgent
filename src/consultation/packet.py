@@ -9,6 +9,9 @@ from src.consultation.prioritization import (
     build_consultation_priorities,
 )
 from src.document_intake.confirmation import ConfirmationRecord
+from src.domain.confirmed_transaction_models import (
+    ConfirmedTransactionSnapshot,
+)
 from src.domain.consultation_models import (
     CompanySummary,
     ConsultationPacket,
@@ -31,7 +34,10 @@ from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
-from src.stage2.binding import validate_downstream_due_date
+from src.stage2.binding import (
+    validate_downstream_due_date,
+    validate_snapshot_downstream_due_date,
+)
 from src.stage2.metrics import money_string
 
 
@@ -831,21 +837,56 @@ def build_consultation_packet(
     ] = None,
     missing_information: Optional[List[str]] = None,
     generated_at: Optional[str] = None,
+    confirmed_transaction: Optional[
+        ConfirmedTransactionSnapshot
+    ] = None,
 ) -> ConsultationPacketResult:
-    confirmed_due_date = validate_downstream_due_date(
-        confirmation=confirmation,
-        stage1_target_date=stage1.target_date,
-        stage2_dates=[
-            item.settlement_date
-            for item in stage2_result.exposure_computations
-        ],
-    )
+    stage2_dates = [
+        item.settlement_date
+        for item in stage2_result.exposure_computations
+    ]
+    if confirmed_transaction is None:
+        confirmed_due_date = validate_downstream_due_date(
+            confirmation=confirmation,
+            stage1_target_date=stage1.target_date,
+            stage2_dates=stage2_dates,
+        )
+    else:
+        confirmed_due_date = validate_snapshot_downstream_due_date(
+            snapshot=confirmed_transaction,
+            stage1_target_date=stage1.target_date,
+            stage2_dates=stage2_dates,
+        )
+        if (
+            stage2_input.confirmed_trade_sha256
+            != confirmed_transaction.trade_binding.trade_sha256
+        ):
+            raise ValueError(
+                "상담 패킷 입력이 canonical confirmed transaction과 "
+                "일치하지 않습니다."
+            )
+        if (
+            Decimal(stage2_result.total_foreign_amount)
+            != Decimal(confirmed_transaction.amount_due)
+        ):
+            raise ValueError(
+                "상담 패킷 금액이 canonical confirmed amount_due와 "
+                "일치하지 않습니다."
+            )
     worst = _worst_scenario(stage2_result, assessment)
     loss = max(Decimal(worst.loss_vs_base), Decimal("0"))
     counterparty_country = (
-        extraction.seller_country
-        if stage2_result.trade_type == "IMPORT"
-        else extraction.buyer_country
+        (
+            confirmed_transaction.seller_country
+            if stage2_result.trade_type == "IMPORT"
+            else confirmed_transaction.buyer_country
+        )
+        if confirmed_transaction is not None
+        else (
+            extraction.seller_country
+            if stage2_result.trade_type == "IMPORT"
+            else extraction.buyer_country
+        )
     )
     (
         consultation_priorities,
@@ -926,19 +967,44 @@ def build_consultation_packet(
             counterparty_country=counterparty_country,
             settlement_date=confirmed_due_date,
             trade_amount_fx=stage2_result.total_foreign_amount,
-            company_role=extraction.company_role,
-            incoterm=extraction.incoterm,
-            payment_terms=extraction.payment_terms,
-            payment_schedule=[
-                PaymentScheduleSummary(
-                    sequence=item.sequence or index + 1,
-                    amount_fx=item.amount,
-                    currency=item.currency or extraction.currency,
-                    scheduled_date=item.due_date,
-                    condition=item.condition,
-                )
-                for index, item in enumerate(extraction.installments)
-            ],
+            company_role=(
+                confirmed_transaction.company_role
+                if confirmed_transaction is not None
+                else extraction.company_role
+            ),
+            incoterm=(
+                confirmed_transaction.incoterm
+                if confirmed_transaction is not None
+                else extraction.incoterm
+            ),
+            payment_terms=(
+                confirmed_transaction.payment_terms
+                if confirmed_transaction is not None
+                else extraction.payment_terms
+            ),
+            payment_schedule=(
+                [
+                    PaymentScheduleSummary(
+                        sequence=item.sequence,
+                        amount_fx=item.amount,
+                        currency=item.currency,
+                        scheduled_date=item.due_date,
+                        condition=item.condition,
+                    )
+                    for item in confirmed_transaction.installments
+                ]
+                if confirmed_transaction is not None
+                else [
+                    PaymentScheduleSummary(
+                        sequence=item.sequence or index + 1,
+                        amount_fx=item.amount,
+                        currency=item.currency or extraction.currency,
+                        scheduled_date=item.due_date,
+                        condition=item.condition,
+                    )
+                    for index, item in enumerate(extraction.installments)
+                ]
+            ),
         ),
         exposure_summary=ExposureSummary(
             gross_exposure_fx=stage2_result.total_foreign_amount,
@@ -982,9 +1048,21 @@ def build_consultation_packet(
         safety_boundaries=SAFETY_BOUNDARIES,
         source_documents=[
             SourceDocumentReference(
-                document_id=confirmation.source_sha256,
-                filename=confirmation.source_filename,
-                document_type=extraction.document_type,
+                document_id=(
+                    confirmed_transaction.source_sha256
+                    if confirmed_transaction is not None
+                    else confirmation.source_sha256
+                ),
+                filename=(
+                    confirmed_transaction.source_filename
+                    if confirmed_transaction is not None
+                    else confirmation.source_filename
+                ),
+                document_type=(
+                    confirmed_transaction.document_type
+                    if confirmed_transaction is not None
+                    else extraction.document_type
+                ),
             )
         ],
         user_confirmed_fields=_confirmed_fields(confirmation),
