@@ -105,6 +105,7 @@ def build_golden_user_flow_artifacts() -> Dict[str, Any]:
         country_environment=golden["country_environment"],
         official_candidate_shortlist=shortlist,
         generated_at="2026-07-29T09:00:00+09:00",
+        confirmed_transaction=state.confirmed_transaction,
     )
     state = orchestrator.run_report(
         state,
@@ -115,6 +116,7 @@ def build_golden_user_flow_artifacts() -> Dict[str, Any]:
 
     return {
         "golden": golden,
+        "document_input": golden["document_input"],
         "workflow": state,
         "decision": decision,
         "shortlist": shortlist,
@@ -166,7 +168,7 @@ def golden_user_flow_summary() -> Dict[str, Any]:
             "confirmed_ui_due_date": (
                 golden["confirmation"].checks.confirmed_due_date
             ),
-            "document_input_due_date": golden["document_input"]["trade"][
+            "document_input_due_date": artifacts["document_input"]["trade"][
                 "settlement_date"
             ],
             "stage1_target_date": (
@@ -181,13 +183,11 @@ def golden_user_flow_summary() -> Dict[str, Any]:
             "stage5_date": report_due_date,
         },
         "date_source_paths": {
-            "document_input": golden["document_input"]["trade"][
+            "document_input": artifacts["document_input"]["trade"][
                 "settlement_date_source"
             ],
             "stage2": stage2.source_paths["settlement_date"],
-            "stage5": (
-                "stage0.confirmation.confirmed_values.settlement_date"
-            ),
+            "stage5": "workflow.confirmed_transaction.due_date",
         },
         "amounts": {
             "scheduled_exposure_usd": stage2.total_foreign_amount,

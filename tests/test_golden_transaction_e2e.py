@@ -83,7 +83,7 @@ class GoldenConfirmedTransactionE2ETests(unittest.TestCase):
         )
         self.assertEqual(
             trade["settlement_date_source"],
-            "stage0.confirmation.checks.confirmed_due_date",
+            "workflow.confirmed_transaction.due_date",
         )
 
     def test_golden_financial_values_and_consultation_order_are_unchanged(self):

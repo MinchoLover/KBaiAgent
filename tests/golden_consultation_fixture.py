@@ -29,8 +29,11 @@ from src.domain.consultation_models import InstallmentPaymentStatus
 from src.domain.stage1_models import ScenarioPoint, Stage1ScenarioSet
 from src.domain.trade_risk_models import TradeSettlementRiskInput
 from src.stage1.normalizer import normalize_stage1_scenarios
+from src.stage2.binding import (
+    confirmed_transaction_from_confirmation,
+    document_input_from_confirmed_transaction,
+)
 from src.stage2.engine import run_stage2
-from validators import build_stage2_input
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,13 +77,13 @@ def build_golden_consultation_fixture(
     )
     if not validation.stage2_allowed:
         raise ValueError("Golden 확정 거래가 Stage 2 gate를 통과하지 못했습니다.")
-    document_input = build_stage2_input(
+    confirmed_transaction = confirmed_transaction_from_confirmation(
         extraction=extraction,
         validation=validation,
-        confirmations=confirmation.checks,
-        source_filename=pdf_path.name,
-        source_sha256=source_sha256,
-        confirmed_at=confirmation.confirmed_at,
+        confirmation=confirmation,
+    )
+    document_input = document_input_from_confirmed_transaction(
+        confirmed_transaction
     )
     stage1 = normalize_stage1_scenarios(
         Stage1ScenarioSet(
@@ -158,11 +161,13 @@ def build_golden_consultation_fixture(
             [payment_status] if payment_status is not None else None
         ),
         generated_at="2026-07-29T09:00:00+09:00",
+        confirmed_transaction=confirmed_transaction,
     )
     return {
         "extraction": extraction,
         "demo_inputs": demo_inputs,
         "confirmation": confirmation,
+        "confirmed_transaction": confirmed_transaction,
         "validation": validation,
         "document_input": document_input,
         "stage1": stage1,

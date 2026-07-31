@@ -354,6 +354,10 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 stage2_input["exposures"][0]["settlement_date"],
                 "2026-08-20",
             )
+            self.assertEqual(
+                stage2["source_paths"]["settlement_date"],
+                "workflow.confirmed_transaction.due_date",
+            )
             self.assertEqual(stage2["total_foreign_amount"], "100000.00")
             down_five = next(
                 item
@@ -437,6 +441,16 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 "2026-08-20",
             )
             self.assertIn("2026-08-20", report["markdown"])
+            self.assertIn(
+                "[source: workflow.confirmed_transaction.due_date]",
+                report["markdown"],
+            )
+            self.assertEqual(
+                report["report_json"]["workflow"][
+                    "confirmed_transaction"
+                ]["due_date"],
+                "2026-08-20",
+            )
             labels = {
                 item.label for item in app.get("download_button")
             }
