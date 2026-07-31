@@ -909,11 +909,25 @@ class WorkflowOrchestrator:
         return state
 
     @staticmethod
-    def _default_product_query(stage3: Stage3Result) -> str:
+    def _default_product_query(
+        stage3: Stage3Result,
+        trade_type: str,
+    ) -> str:
+        settlement_terms = {
+            "EXPORT": ["단기수출보험", "수출대금", "미회수"],
+            "IMPORT": ["수입보험", "선급금", "미회수"],
+        }.get(trade_type, [])
         if not stage3.candidates:
-            return (
-                "수출입 결제자금 환율관리 운영자금 상담 "
-                "선물환 환변동보험"
+            return " ".join(
+                [
+                    "수출입 결제자금",
+                    "환율관리",
+                    "운영자금",
+                    "상담",
+                    "선물환",
+                    "환변동보험",
+                ]
+                + settlement_terms
             )
         return " ".join(
             stage3.candidates[0].required_product_types
@@ -925,6 +939,7 @@ class WorkflowOrchestrator:
                 "정책자금",
                 "보증상품",
             ]
+            + settlement_terms
         )
 
     def run_product_search(
@@ -960,7 +975,8 @@ class WorkflowOrchestrator:
             return state
 
         effective_query = query or self._default_product_query(
-            state.hedge.data
+            state.hedge.data,
+            state.cashflow.data.trade_type,
         )
         fallback_used = False
         warnings: List[str] = []

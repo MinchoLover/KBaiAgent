@@ -164,6 +164,20 @@ def _matches(
     ]
 
 
+def _product_priority(
+    consultation_category: str,
+    product_category: str,
+) -> int:
+    product_categories = CONSULTATION_PRODUCT_CATEGORIES.get(
+        consultation_category,
+        [],
+    )
+    try:
+        return product_categories.index(product_category)
+    except ValueError:
+        return len(product_categories)
+
+
 def shortlist_official_candidates(
     *,
     stage4_result: Stage4Result,
@@ -188,7 +202,7 @@ def shortlist_official_candidates(
         for topic in consultation_topics
     }
     matched_rows: List[
-        Tuple[int, Decimal, str, ProductCandidate]
+        Tuple[int, int, Decimal, str, ProductCandidate]
     ] = []
     removed_unofficial = 0
     for candidate in stage4_result.candidates:
@@ -229,14 +243,18 @@ def shortlist_official_candidates(
         matched_rows.append(
             (
                 min(_priority(item) for item in matched_categories),
+                min(
+                    _product_priority(item, candidate.category)
+                    for item in matched_categories
+                ),
                 -_candidate_score(candidate),
                 candidate.product_id,
                 matched,
             )
         )
 
-    matched_rows.sort(key=lambda item: item[:3])
-    candidates = [item[3] for item in matched_rows[:limit]]
+    matched_rows.sort(key=lambda item: item[:4])
+    candidates = [item[4] for item in matched_rows[:limit]]
     matched_category_set = {
         category
         for candidate in candidates

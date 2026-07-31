@@ -29,7 +29,9 @@ from src.application.stage2_input_service import (
 from src.application.registered_document_service import (
     PRESENTATION_FIXTURE_ID,
     extract_registered_document,
+    presentation_demo_inputs,
     presentation_document,
+    presentation_document_sha256,
 )
 from src.application.consultation_service import build_decision_support
 from src.application.integration_readiness_service import (
@@ -154,8 +156,8 @@ from src.ui.layout import (
     PAGE_HOME,
     PAGE_TRANSACTION,
     active_page,
+    render_demo_summary,
     render_page_header,
-    render_provider_status,
     render_sample_info_card,
     render_sidebar_navigation,
     render_step_indicator,
@@ -203,6 +205,20 @@ def _model_from_state(key: str, model_class: Any) -> Optional[Any]:
 
 def _save_model(key: str, value: Any) -> None:
     st.session_state[key] = value.model_dump()
+
+
+def _registered_demo_inputs_from_state() -> Optional[Dict[str, Any]]:
+    if (
+        st.session_state.get("registered_document_id")
+        != PRESENTATION_FIXTURE_ID
+    ):
+        return None
+    metadata = st.session_state.get("upload_metadata")
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("sha256") != presentation_document_sha256():
+        return None
+    return presentation_demo_inputs()
 
 
 def _render_kb_macro_hedge_reference(
@@ -810,7 +826,9 @@ def _render_consultation_priorities(
         st.download_button(
             "상담 준비서 다운로드",
             data=value.markdown,
-            file_name="kb_consultation_handoff.md",
+            file_name="KB_상담_준비서_{}.md".format(
+                _consultation_artifact_date(value)
+            ),
             mime="text/markdown",
             key="{}_handoff_download".format(key_prefix),
             type="primary",
@@ -1108,6 +1126,28 @@ def _render_financial_overview(
         else "원화 수취액"
     )
     loss_verb = "증가" if trade_type == "IMPORT" else "감소"
+    amount_flow_label = "지급액" if trade_type == "IMPORT" else "수취액"
+    fx_amount_rows = ""
+    if stage2_result is not None and adverse_five is not None:
+        adverse_amount = (
+            adverse_five.fx_krw_outflow
+            if trade_type == "IMPORT"
+            else adverse_five.fx_krw_inflow
+        )
+        fx_amount_rows = (
+            "<div class='metric-row'><span>기준 원화 {}</span><b>{}</b></div>"
+            "<div class='metric-row'><span>{} 원화 {}</span><b>{}</b></div>"
+        ).format(
+            escape(amount_flow_label),
+            escape(
+                format_krw(
+                    stage2_result.base_required_or_proceeds_krw
+                )
+            ),
+            escape(scenario_label),
+            escape(amount_flow_label),
+            escape(format_krw(adverse_amount)),
+        )
     allowed_loss = _priority_rationale_text(
         value,
         ("사용자 허용손실",),
@@ -1146,7 +1186,7 @@ def _render_financial_overview(
         if protection_needs_review
         else "확인된 보호수단과 적용범위를 상담에서 재확인"
     )
-    st.markdown("### 이번 거래의 핵심 결과")
+    st.markdown("### 분석 핵심 결과")
     st.caption(
         "{} {} · 상대국 {} · 결제 예정일 {}".format(
             "수입" if trade_type == "IMPORT" else "수출",
@@ -1163,7 +1203,7 @@ def _render_financial_overview(
         "<div class='metric-heading'>"
         "<span class='metric-icon'>↘</span><span>환율 영향</span></div>"
         "<div class='hero-metric'>{} 시<br>{}<b>{} {}</b></div>"
-        "<p>{}</p></div>"
+        "{}<p>{}</p></div>"
         "<div class='impact-card cash' aria-label='스트레스 후 예상 현금 {}; "
         "목표 버퍼 {}; 버퍼 부족 {}; 현금 적자 {}; "
         "지급 또는 post-credit 부족 {}'><div class='metric-heading'>"
@@ -1191,6 +1231,7 @@ def _render_financial_overview(
             escape(loss_subject),
             escape(format_krw(loss_value)),
             escape(loss_verb),
+            fx_amount_rows,
             escape(loss_limit_copy),
             escape(format_krw(cash_after)),
             escape(target_buffer),
@@ -1492,6 +1533,47 @@ def _render_cashflow_error(detail: CashflowErrorDetail) -> None:
         )
 
 
+def _render_stage_system_error(
+    *,
+    code: str,
+    stage: str,
+    task_label: str,
+    errors: List[str],
+    field_path: Optional[str] = None,
+    offending_value: Optional[str] = None,
+) -> None:
+    confirmed = _model_from_state(
+        "confirmed_transaction",
+        ConfirmedTransactionSnapshot,
+    )
+    input_fingerprint = (
+        confirmed.input_fingerprint if confirmed is not None else None
+    )
+    st.error(
+        "시스템 오류 · {}을(를) 완료하지 못했습니다. 입력값을 확인해 "
+        "다시 실행하고, 같은 문제가 반복되면 아래 오류 코드를 전달해 "
+        "주세요.".format(task_label)
+    )
+    with st.expander("오류 기술 정보", expanded=False):
+        st.write("error code: `{}`".format(code))
+        st.write("stage: `{}`".format(stage))
+        st.write(
+            "field path: `{}`".format(field_path or "UNKNOWN")
+        )
+        st.write(
+            "offending value: `{}`".format(
+                offending_value or "UNKNOWN"
+            )
+        )
+        st.write(
+            "input fingerprint: `{}`".format(
+                input_fingerprint or "UNKNOWN"
+            )
+        )
+        for error in errors:
+            st.write("detail: `{}`".format(error))
+
+
 def _persist_cashflow_failure(detail: CashflowErrorDetail) -> None:
     _save_model("cashflow_error", detail)
     workflow = _workflow_from_state()
@@ -1644,6 +1726,7 @@ def _decimal_total(values: List[str]) -> str:
 def _stage2_form_defaults(
     value: Optional[Stage2Input],
     document_input: Optional[Dict[str, Any]] = None,
+    demo_inputs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     defaults: Dict[str, Any] = {
         "current_cash": "200000000",
@@ -1681,6 +1764,66 @@ def _stage2_form_defaults(
             if trade_type == "EXPORT":
                 defaults["usable_fx"] = "0"
                 defaults["same_flow_direction"] = "OUTFLOW"
+        if demo_inputs is not None:
+            finance = demo_inputs.get("company_finance_manual_inputs")
+            if isinstance(finance, dict):
+                as_of_text = str(finance.get("as_of_date") or "")
+                if as_of_text:
+                    parsed_as_of = date.fromisoformat(as_of_text)
+                    defaults["as_of"] = parsed_as_of
+                    defaults["same_flow_date"] = parsed_as_of
+                defaults.update(
+                    {
+                        "current_cash": str(
+                            finance.get(
+                                "current_krw_cash",
+                                defaults["current_cash"],
+                            )
+                        ),
+                        "minimum_buffer": str(
+                            finance.get(
+                                "minimum_cash_buffer",
+                                defaults["minimum_buffer"],
+                            )
+                        ),
+                        "credit_limit": str(
+                            finance.get(
+                                "credit_limit",
+                                defaults["credit_limit"],
+                            )
+                        ),
+                        "acceptable_loss": str(
+                            finance.get(
+                                "acceptable_fx_loss",
+                                defaults["acceptable_loss"],
+                            )
+                        ),
+                        "usable_fx": str(
+                            finance.get(
+                                "usable_fx_balance",
+                                defaults["usable_fx"],
+                            )
+                        ),
+                        "bank_spread": str(
+                            finance.get(
+                                "bank_spread_bps",
+                                defaults["bank_spread"],
+                            )
+                        ),
+                        "bank_fee": str(
+                            finance.get(
+                                "bank_fee",
+                                defaults["bank_fee"],
+                            )
+                        ),
+                        "cashflows": list(
+                            finance.get(
+                                "confirmed_krw_cashflows",
+                                defaults["cashflows"],
+                            )
+                        ),
+                    }
+                )
         return defaults
 
     flows = [
@@ -1756,11 +1899,12 @@ def _trade_risk_form_defaults(
     *,
     extraction: TradeDocumentExtraction,
     confirmation: Optional[TradeRiskConfirmationRecord],
+    demo_inputs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     if confirmation is None:
         prefill = build_trade_risk_prefill(extraction)
         ratio = prefill.advance_payment_ratio
-        return {
+        defaults = {
             "relationship": "UNKNOWN",
             "advance_status": (
                 "UNKNOWN"
@@ -1781,6 +1925,66 @@ def _trade_risk_form_defaults(
             "protection_types": [],
             "protection_applicability": "PRESENT_SCOPE_UNVERIFIED",
         }
+        if demo_inputs is not None:
+            trade_inputs = demo_inputs.get("user_confirmed_trade_inputs")
+            if isinstance(trade_inputs, dict):
+                demo_ratio = trade_inputs.get("advance_payment_ratio")
+                defaults.update(
+                    {
+                        "relationship": str(
+                            trade_inputs.get(
+                                "counterparty_relationship",
+                                defaults["relationship"],
+                            )
+                        ),
+                        "advance_status": (
+                            "UNKNOWN"
+                            if demo_ratio is None
+                            else "NONE_CONFIRMED"
+                            if Decimal(str(demo_ratio)) == 0
+                            else "RATIO_CONFIRMED"
+                        ),
+                        "advance_percent": (
+                            float(
+                                Decimal(str(demo_ratio))
+                                * Decimal("100")
+                            )
+                            if demo_ratio is not None
+                            else defaults["advance_percent"]
+                        ),
+                        "balance_method": str(
+                            trade_inputs.get(
+                                "balance_payment_method",
+                                defaults["balance_method"],
+                            )
+                        ),
+                        "term_basis": str(
+                            trade_inputs.get(
+                                "payment_term_basis",
+                                defaults["term_basis"],
+                            )
+                        ),
+                        "term_days": int(
+                            trade_inputs.get(
+                                "payment_term_days",
+                                defaults["term_days"],
+                            )
+                        ),
+                        "protection_status": str(
+                            trade_inputs.get(
+                                "protection_information_status",
+                                defaults["protection_status"],
+                            )
+                        ),
+                        "protection_types": list(
+                            trade_inputs.get(
+                                "protection_mechanisms",
+                                defaults["protection_types"],
+                            )
+                        ),
+                    }
+                )
+        return defaults
 
     confirmed = confirmation.confirmed_input
     ratio = confirmed.advance_payment_ratio
@@ -2053,6 +2257,7 @@ def _render_trade_risk_section(
     defaults = _trade_risk_form_defaults(
         extraction=extraction,
         confirmation=stored_confirmation,
+        demo_inputs=_registered_demo_inputs_from_state(),
     )
 
     with st.expander(
@@ -2634,6 +2839,11 @@ def _packet_official_candidates(
     return candidates
 
 
+def _consultation_artifact_date(value: ConsultationPacketResult) -> str:
+    settlement_date = value.packet.company_summary.settlement_date
+    return settlement_date or "날짜미정"
+
+
 def _render_download_action_panel(
     value: ConsultationPacketResult,
 ) -> None:
@@ -2646,7 +2856,9 @@ def _render_download_action_panel(
     st.download_button(
         "⇩  상담 준비서 다운로드",
         data=value.markdown,
-        file_name="kb_consultation_handoff.md",
+        file_name="KB_상담_준비서_{}.md".format(
+            _consultation_artifact_date(value)
+        ),
         mime="text/markdown",
         key="consultation_workspace_handoff_download",
         type="primary",
@@ -3765,36 +3977,22 @@ if current_page == PAGE_HOME:
         )
         with st.container(key="service_entry_actions"):
             entry_columns = st.columns(2)
-            if presentation_mode:
-                entry_columns[0].button(
-                    "샘플 수출 거래로 체험하기",
-                    type="primary",
-                    width="stretch",
-                    on_click=_start_golden_registration,
-                    key="service_sample_export",
-                )
-            else:
-                entry_columns[0].button(
-                    "샘플 수출 거래로 체험하기",
-                    type="primary",
-                    width="stretch",
-                    on_click=_demo_all,
-                    args=("SELLER",),
-                    key="service_sample_export",
-                )
+            entry_columns[0].button(
+                "3분 데모 시작하기",
+                type="primary",
+                width="stretch",
+                on_click=_start_golden_registration,
+                key="service_sample_export",
+            )
             entry_columns[1].button(
-                "내 거래문서 업로드",
+                "내 거래문서 분석하기",
                 width="stretch",
                 on_click=_start_document_registration,
                 key="service_register_document",
             )
         render_sample_info_card(
-            (
-                "브라질 Golden 수출 샘플"
-                if presentation_mode
-                else "미국 수출 샘플"
-            ),
-            "실제 고객정보가 없는 API-free 합성문서입니다. 모든 데이터는 "
+            "브라질 Golden 수출 샘플",
+            "실제 고객정보가 없는 검증된 합성문서입니다. 모든 데이터는 "
             "가명·합성 데이터로 구성되어 있습니다.",
         )
         completed_step = (
@@ -3817,52 +4015,12 @@ if current_page == PAGE_HOME:
             "결과가 아닙니다."
         )
     with home_columns[1]:
-        home_stage2_input = _model_from_state(
-            "stage2_input",
-            Stage2Input,
-        )
-        analysis_date = (
-            home_stage2_input.as_of_date
-            if home_stage2_input is not None
-            else "거래 확정 후 설정"
-        )
-        scenario_mode_label = {
-            "WEB_FORECAST": "모델 경로 + stress",
-            "EXTERNAL_STAGE1": "외부 JSON/REST adapter",
-            "MANUAL_STRESS": "결정론 stress",
-        }.get(
-            str(st.session_state.get("stage1_mode_widget")),
-            "결정론 stress",
-        )
-        render_provider_status(
+        render_demo_summary(
             {
-                "기준 통화": "KRW",
-                "분석 기준일": str(analysis_date),
-                "환율 시나리오": scenario_mode_label,
-                "문서 AI": (
-                    "API-free 등록문서"
-                    if presentation_mode
-                    else (
-                        "사용 가능"
-                        if settings.live_extraction_ready
-                        else "데모 전용"
-                    )
-                ),
-                "API 인증": (
-                    "사용 안 함 · API-free"
-                    if presentation_mode
-                    else "설정됨"
-                    if settings.openai_api_key
-                    else "미설정"
-                ),
-                "환율 provider": (
-                    "수동 기준환율"
-                    if str(
-                        st.session_state.get("stage1_mode_widget")
-                    )
-                    == "MANUAL_STRESS"
-                    else settings.spot_rate_provider
-                ),
+                "거래": "계약 핵심정보와 원문 근거 확인",
+                "영향": "환율 변화와 회사 자금 방어선 분석",
+                "상담": "우선 상담 Top 3와 공식 출처 후보",
+                "저장": "상담 준비서·통합 보고서·JSON",
             }
         )
     st.stop()
@@ -3930,8 +4088,7 @@ with stage0_tab:
 
     registered_document = None
     if (
-        presentation_mode
-        and st.session_state.get("registered_document_id")
+        st.session_state.get("registered_document_id")
         == PRESENTATION_FIXTURE_ID
     ):
         registered_document = presentation_document()
@@ -3978,7 +4135,7 @@ with stage0_tab:
         )
         if registered_document is not None and uploaded is None:
             st.caption(
-                "등록된 API-free 합성 계약서가 선택되었습니다. 업로드한 "
+                "브라질 Golden 합성 계약서가 선택되었습니다. 업로드한 "
                 "문서가 있으면 업로드 문서를 우선 분석합니다."
             )
 
@@ -4048,10 +4205,9 @@ with stage0_tab:
                 if extraction_run is None:
                     if not settings.live_extraction_ready:
                         raise ValueError(
-                            "이 문서는 등록된 API-free fixture와 일치하지 "
-                            "않습니다. OPENAI_API_KEY와 "
-                            "ENABLE_LIVE_DOCUMENT_EXTRACTION=true를 "
-                            "설정하거나 등록된 합성문서를 선택하세요."
+                            "현재 이 문서를 분석할 연결이 준비되지 않았습니다. "
+                            "브라질 Golden 데모 문서를 선택하거나 관리자가 "
+                            "실제 문서 분석 연결을 준비한 뒤 다시 시도하세요."
                         )
                     with st.spinner(
                         "문서를 안전 검사하고 모델로 추출 중입니다..."
@@ -4068,8 +4224,8 @@ with stage0_tab:
                         )
                 else:
                     st.info(
-                        "content SHA-256이 등록된 합성 계약과 일치해 "
-                        "API-free 검토 adapter를 사용했습니다."
+                        "등록된 Golden 계약서와 일치해 검증된 거래정보를 "
+                        "불러왔습니다."
                     )
                 extraction = extraction_run.extraction
                 validation = extraction_run.validation
@@ -5247,6 +5403,7 @@ with stage2_tab:
         form_defaults = _stage2_form_defaults(
             stored_stage2_input,
             document_input=document_input,
+            demo_inputs=_registered_demo_inputs_from_state(),
         )
         st.caption(
             "확정 거래 · {} · {} · 결제일 {}".format(
@@ -5995,7 +6152,7 @@ with stage3_tab:
             unsafe_allow_html=True,
         )
     else:
-        st.markdown("## 먼저 확인할 상담")
+        st.markdown("## 상담 Top 3")
         st.caption(
             "기존 ConsultationPacket 순서입니다. 핵심 숫자와 결정사항을 "
             "확인한 뒤 필요한 준비자료·은행 질문·공식 후보를 여세요."
@@ -6136,22 +6293,27 @@ with stage3_tab:
                 ),
             )
             _save_workflow(workflow)
-            if workflow.hedge is None or workflow.hedge.data is None:
-                st.error(
-                    "헤지 후보 계산에 실패했습니다: {}".format(
-                        ", ".join(
-                            workflow.hedge.errors
-                            if workflow.hedge is not None
-                            else []
-                        )
-                    )
-                )
-                st.stop()
-            result = workflow.hedge.data
-            _save_model("stage3_result", result)
-            clear_downstream(st.session_state, 4)
-            st.rerun()
+            if workflow.hedge is not None and workflow.hedge.data is not None:
+                result = workflow.hedge.data
+                _save_model("stage3_result", result)
+                clear_downstream(st.session_state, 4)
+                st.rerun()
         stage3_result = _model_from_state("stage3_result", Stage3Result)
+        stage3_workflow = _workflow_from_state()
+        if (
+            stage3_result is None
+            and stage3_workflow is not None
+            and stage3_workflow.hedge is not None
+            and stage3_workflow.hedge.data is None
+            and stage3_workflow.hedge.errors
+        ):
+            _render_stage_system_error(
+                code="STAGE3_UNEXPECTED_ERROR",
+                stage="stage3.hedge",
+                task_label="헤지 대응안 비교",
+                errors=stage3_workflow.hedge.errors,
+                field_path="stage3.assumptions",
+            )
         if stage3_result is not None:
             if not stage3_result.candidates:
                 st.info(
@@ -6508,6 +6670,7 @@ with stage4_tab:
                 }[value],
                 key="stage4_search_mode_widget",
             )
+        stage4_local_errors: List[str] = []
         if st.button(
             "우리 거래에 맞는 공식 상담 후보 찾기",
             type="primary",
@@ -6604,8 +6767,35 @@ with stage4_tab:
                 clear_downstream(st.session_state, 5)
                 st.rerun()
             except (RuntimeError, TypeError, ValueError) as exc:
-                st.error(str(exc))
+                stage4_local_errors = [
+                    "official candidate binding failed ({})".format(
+                        type(exc).__name__
+                    )
+                ]
         stage4_result = _model_from_state("stage4_result", Stage4Result)
+        stage4_workflow = _workflow_from_state()
+        if stage4_local_errors:
+            _render_stage_system_error(
+                code="STAGE4_BINDING_ERROR",
+                stage="stage4.official_candidates",
+                task_label="공식 상담 후보 연결",
+                errors=stage4_local_errors,
+                field_path="consultation_topics",
+            )
+        elif (
+            stage4_result is None
+            and stage4_workflow is not None
+            and stage4_workflow.product_search is not None
+            and stage4_workflow.product_search.data is None
+            and stage4_workflow.product_search.errors
+        ):
+            _render_stage_system_error(
+                code="STAGE4_UNEXPECTED_ERROR",
+                stage="stage4.product_search",
+                task_label="공식 상담정보 검색",
+                errors=stage4_workflow.product_search.errors,
+                field_path="stage4.query",
+            )
         official_candidate_shortlist = _model_from_state(
             "official_candidate_shortlist",
             OfficialCandidateShortlist,
@@ -6725,7 +6915,9 @@ with stage5_tab:
             action_columns[0].download_button(
                 "상담 준비서 다운로드",
                 data=consultation_packet.markdown,
-                file_name="kb_consultation_handoff.md",
+                file_name="KB_상담_준비서_{}.md".format(
+                    _consultation_artifact_date(consultation_packet)
+                ),
                 mime="text/markdown",
                 key="stage5_handoff_download",
                 type="primary",
@@ -6878,9 +7070,11 @@ with stage5_tab:
                 )
             )
             json_download(
-                label="JSON 데이터 다운로드",
+                label="JSON 다운로드",
                 value=packet,
-                filename="kb_consultation_packet.json",
+                filename="KB_상담_데이터_{}.json".format(
+                    _consultation_artifact_date(consultation_packet)
+                ),
                 key="download_consultation_packet_json_stage5",
             )
         with st.expander(
@@ -6988,19 +7182,27 @@ with stage5_tab:
             )
             _save_workflow(workflow)
             if workflow.final_report is None:
-                st.error(
-                    "보고서 생성에 실패했습니다: {}".format(
-                        ", ".join(
-                            workflow.report.errors
-                            if workflow.report is not None
-                            else []
-                        )
-                    )
-                )
-                st.stop()
-            report = workflow.final_report
-            _save_model("report_result", report)
-            st.rerun()
+                report_result = None
+            else:
+                report = workflow.final_report
+                _save_model("report_result", report)
+                st.rerun()
+
+    report_workflow = _workflow_from_state()
+    if (
+        report_result is None
+        and report_workflow is not None
+        and report_workflow.report is not None
+        and report_workflow.report.data is None
+        and report_workflow.report.errors
+    ):
+        _render_stage_system_error(
+            code="STAGE5_UNEXPECTED_ERROR",
+            stage="stage5.report",
+            task_label="통합 보고서 생성",
+            errors=report_workflow.report.errors,
+            field_path="consultation_packet",
+        )
 
     if report_result is not None:
         report_panel.markdown(
@@ -7011,9 +7213,11 @@ with stage5_tab:
             unsafe_allow_html=True,
         )
         report_panel.download_button(
-            "통합 상담 리포트 다운로드",
+            "통합 보고서 다운로드",
             data=report_result.markdown,
-            file_name="trade_finance_decision_report.md",
+            file_name="KB_통합_금융분석_{}.md".format(
+                _consultation_artifact_date(consultation_packet)
+            ),
             mime="text/markdown",
             key="download_report_md",
             width="stretch",
@@ -7025,7 +7229,9 @@ with stage5_tab:
                 ensure_ascii=False,
                 indent=2,
             ),
-            file_name="trade_finance_decision_report.json",
+            file_name="KB_통합_금융분석_{}.json".format(
+                _consultation_artifact_date(consultation_packet)
+            ),
             mime="application/json",
             key="download_report_json",
             width="stretch",

@@ -253,7 +253,7 @@ def render_sample_info_card(title: str, description: str) -> None:
     )
 
 
-def render_provider_status(items: Dict[str, str]) -> None:
+def render_demo_summary(items: Dict[str, str]) -> None:
     rows = "".join(
         "<div class='provider-row'><span>{}</span><strong>{}</strong></div>".format(
             escape(label),
@@ -262,8 +262,9 @@ def render_provider_status(items: Dict[str, str]) -> None:
         for label, value in items.items()
     )
     st.markdown(
-        "<div class='home-settings-panel'><h3>분석 환경 및 고급 설정</h3>"
-        "{}<p>세부 provider와 fallback은 좌측 설정에서 확인합니다.</p>"
+        "<div class='home-settings-panel'><h3>3분 동안 확인할 내용</h3>"
+        "{}<p>기술 설정과 원본 데이터는 필요한 경우에만 펼쳐볼 수 "
+        "있습니다.</p>"
         "</div>".format(rows),
         unsafe_allow_html=True,
     )
