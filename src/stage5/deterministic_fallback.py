@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional
 from schemas import TradeDocumentExtraction
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import ConsultationPacket
+from src.domain.confirmed_transaction_models import (
+    ConfirmedTransactionSnapshot,
+)
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import NormalizedScenarioSet
@@ -13,6 +16,7 @@ from src.domain.stage3_models import Stage3Result
 from src.stage2.binding import (
     confirmed_due_date_from_confirmation,
     validate_downstream_due_date,
+    validate_snapshot_downstream_due_date,
 )
 from src.stage5.critic import critique_report
 
@@ -419,34 +423,104 @@ def build_report_source_bundle(
     stage4: Stage4Result,
     market_integration: Optional[MarketIntegrationResult] = None,
     consultation_packet: Optional[ConsultationPacket] = None,
+    confirmed_transaction: Optional[
+        ConfirmedTransactionSnapshot
+    ] = None,
 ) -> Dict[str, Any]:
-    confirmed_due_date = validate_downstream_due_date(
-        confirmation=confirmation,
-        stage1_target_date=stage1.target_date,
-        stage2_dates=[
-            item.settlement_date
-            for item in stage2.exposure_computations
-        ],
-    )
-    if (
-        consultation_packet is not None
-        and consultation_packet.company_summary.settlement_date
-        != confirmed_due_date
-    ):
-        raise ValueError(
-            "상담 패킷 결제일이 확정 결제일과 일치하지 않습니다."
+    stage2_dates = [
+        item.settlement_date
+        for item in stage2.exposure_computations
+    ]
+    if confirmed_transaction is None:
+        confirmed_due_date = validate_downstream_due_date(
+            confirmation=confirmation,
+            stage1_target_date=stage1.target_date,
+            stage2_dates=stage2_dates,
         )
-    confirmed_values = {
-        key: confirmation.confirmed_values.get(key)
-        for key in (
-            "trade_type",
-            "currency",
-            "amount_due",
-            "settlement_date",
-            "installment_due_dates",
+        if (
+            consultation_packet is not None
+            and consultation_packet.company_summary.settlement_date
+            != confirmed_due_date
+        ):
+            raise ValueError(
+                "상담 패킷 결제일이 확정 결제일과 일치하지 않습니다."
+            )
+        confirmed_values = {
+            key: confirmation.confirmed_values.get(key)
+            for key in (
+                "trade_type",
+                "currency",
+                "amount_due",
+                "settlement_date",
+                "installment_due_dates",
+            )
+            if key in confirmation.confirmed_values
+        }
+        extraction_bundle = {
+            "document_type": extraction.document_type,
+            "document_number": extraction.document_number,
+            "company_role": extraction.company_role,
+            "trade_type": extraction.trade_type,
+            "currency": extraction.currency,
+            "amount_due": extraction.amount_due,
+            "payment_terms": extraction.payment_terms,
+            "incoterm": extraction.incoterm,
+            "seller_country": extraction.seller_country,
+            "buyer_country": extraction.buyer_country,
+            "installments": [
+                item.model_dump()
+                for item in extraction.installments
+            ],
+            "evidence_ids": [
+                "stage0.extraction.evidence.{}".format(item.field)
+                for item in extraction.evidence
+            ],
+        }
+    else:
+        confirmed_due_date = validate_snapshot_downstream_due_date(
+            snapshot=confirmed_transaction,
+            stage1_target_date=stage1.target_date,
+            stage2_dates=stage2_dates,
+            consultation_date=(
+                consultation_packet.company_summary.settlement_date
+                if consultation_packet is not None
+                else confirmed_transaction.due_date
+            ),
+            stage5_date=confirmed_transaction.due_date,
         )
-        if key in confirmation.confirmed_values
-    }
+        confirmed_values = {
+            "trade_type": confirmed_transaction.trade_type,
+            "currency": confirmed_transaction.currency,
+            "amount_due": confirmed_transaction.amount_due,
+            "settlement_date": confirmed_transaction.due_date,
+            "installment_due_dates": [
+                item.due_date
+                for item in confirmed_transaction.installments
+            ],
+        }
+        extraction_bundle = {
+            "document_type": confirmed_transaction.document_type,
+            "document_number": confirmed_transaction.document_number,
+            "company_role": confirmed_transaction.company_role,
+            "trade_type": confirmed_transaction.trade_type,
+            "currency": confirmed_transaction.currency,
+            "amount_due": confirmed_transaction.amount_due,
+            "payment_terms": confirmed_transaction.payment_terms,
+            "incoterm": confirmed_transaction.incoterm,
+            "seller_country": confirmed_transaction.seller_country,
+            "buyer_country": confirmed_transaction.buyer_country,
+            "installments": [
+                {
+                    "sequence": item.sequence,
+                    "amount": item.amount,
+                    "currency": item.currency,
+                    "due_date": item.due_date,
+                    "condition": item.condition,
+                }
+                for item in confirmed_transaction.installments
+            ],
+            "evidence_ids": [],
+        }
     stage4_bundle: Dict[str, Any]
     if consultation_packet is None:
         stage4_bundle = stage4.model_dump()
@@ -463,26 +537,7 @@ def build_report_source_bundle(
         }
     bundle: Dict[str, Any] = {
         "stage0": {
-            "extraction": {
-                "document_type": extraction.document_type,
-                "document_number": extraction.document_number,
-                "company_role": extraction.company_role,
-                "trade_type": extraction.trade_type,
-                "currency": extraction.currency,
-                "amount_due": extraction.amount_due,
-                "payment_terms": extraction.payment_terms,
-                "incoterm": extraction.incoterm,
-                "seller_country": extraction.seller_country,
-                "buyer_country": extraction.buyer_country,
-                "installments": [
-                    item.model_dump()
-                    for item in extraction.installments
-                ],
-                "evidence_ids": [
-                    "stage0.extraction.evidence.{}".format(item.field)
-                    for item in extraction.evidence
-                ],
-            },
+            "extraction": extraction_bundle,
             "confirmation": {
                 "source_filename": confirmation.source_filename,
                 "source_sha256": confirmation.source_sha256,
@@ -498,6 +553,10 @@ def build_report_source_bundle(
         "stage3": stage3.model_dump(),
         "stage4": stage4_bundle,
     }
+    if confirmed_transaction is not None:
+        bundle["workflow"] = {
+            "confirmed_transaction": confirmed_transaction.model_dump()
+        }
     if market_integration is not None:
         bundle["market_integration"] = market_integration.model_dump()
     if consultation_packet is not None:
@@ -515,6 +574,9 @@ def generate_deterministic_report(
     stage4: Stage4Result,
     market_integration: Optional[MarketIntegrationResult] = None,
     consultation_packet: Optional[ConsultationPacket] = None,
+    confirmed_transaction: Optional[
+        ConfirmedTransactionSnapshot
+    ] = None,
 ) -> ReportResult:
     bundle = build_report_source_bundle(
         extraction=extraction,
@@ -525,6 +587,7 @@ def generate_deterministic_report(
         stage4=stage4,
         market_integration=market_integration,
         consultation_packet=consultation_packet,
+        confirmed_transaction=confirmed_transaction,
     )
     worst = max(
         stage2.scenario_results,
@@ -535,8 +598,12 @@ def generate_deterministic_report(
         if stage1.kind == "STRESS"
         else "외부 Stage 1 값은 FORECAST이며 보장값이 아닙니다."
     )
-    due_date = confirmed_due_date_from_confirmation(confirmation)
-    due_source = "stage0.confirmation.confirmed_values.settlement_date"
+    if confirmed_transaction is None:
+        due_date = confirmed_due_date_from_confirmation(confirmation)
+        due_source = "stage0.confirmation.confirmed_values.settlement_date"
+    else:
+        due_date = confirmed_transaction.due_date
+        due_source = "workflow.confirmed_transaction.due_date"
     product_lines = "\n".join(
         _product_lines(
             stage4=stage4,

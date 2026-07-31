@@ -1047,6 +1047,7 @@ class WorkflowOrchestrator:
         report_kwargs = {
             "extraction": state.extracted_trade,
             "confirmation": state.confirmation,
+            "confirmed_transaction": state.confirmed_transaction,
             "stage1": state.market_risk.data.scenario_set,
             "stage2": state.cashflow.data,
             "stage3": state.hedge.data,
@@ -1142,6 +1143,7 @@ class WorkflowOrchestrator:
             report_kwargs = {
                 "extraction": state.extracted_trade,
                 "confirmation": state.confirmation,
+                "confirmed_transaction": state.confirmed_transaction,
                 "stage1": state.market_risk.data.scenario_set,
                 "stage2": state.cashflow.data,
                 "stage3": state.hedge.data,

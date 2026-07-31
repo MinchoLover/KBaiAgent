@@ -7,6 +7,9 @@ from schemas import TradeDocumentExtraction
 from src.config import Settings
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import ConsultationPacket
+from src.domain.confirmed_transaction_models import (
+    ConfirmedTransactionSnapshot,
+)
 from src.domain.product_models import Stage4Result
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import NormalizedScenarioSet
@@ -68,6 +71,9 @@ def generate_report(
     stage4: Stage4Result,
     market_integration: Optional[MarketIntegrationResult] = None,
     consultation_packet: Optional[ConsultationPacket] = None,
+    confirmed_transaction: Optional[
+        ConfirmedTransactionSnapshot
+    ] = None,
     settings: Optional[Settings] = None,
     client: Optional[Any] = None,
     max_revisions: int = 1,
@@ -85,6 +91,7 @@ def generate_report(
         stage4=stage4,
         market_integration=market_integration,
         consultation_packet=consultation_packet,
+        confirmed_transaction=confirmed_transaction,
     )
     authoritative_candidates = (
         (
@@ -137,6 +144,7 @@ def generate_report(
         stage4=stage4,
         market_integration=market_integration,
         consultation_packet=consultation_packet,
+        confirmed_transaction=confirmed_transaction,
     )
     revision_count = 0
     try:

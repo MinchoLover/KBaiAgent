@@ -239,7 +239,7 @@ def classify_cashflow_error(
         )
     ):
         code = "MISSING_REQUIRED_DATE"
-        field_path = "stage0.confirmation.confirmed_values.settlement_date"
+        field_path = "workflow.confirmed_transaction.due_date"
         user_message = (
             "확정 결제일이 없습니다. 거래 확인 단계에서 결제일을 "
             "확인한 뒤 다시 계산하세요."

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from schemas import TradeDocumentExtraction
+from schemas import PaymentInstallment, TradeDocumentExtraction
 from src.consultation.prioritization import (
     build_consultation_priorities,
 )
@@ -90,6 +90,9 @@ def _input_hash(
     installment_payment_statuses: Optional[
         List[InstallmentPaymentStatus]
     ] = None,
+    confirmed_transaction: Optional[
+        ConfirmedTransactionSnapshot
+    ] = None,
 ) -> str:
     canonical: Dict[str, Any] = {
         "confirmation": {
@@ -100,6 +103,10 @@ def _input_hash(
         "stage1": stage1.model_dump(),
         "stage2_input": stage2_input.model_dump(),
     }
+    if confirmed_transaction is not None:
+        canonical["confirmed_transaction_fingerprint"] = (
+            confirmed_transaction.input_fingerprint
+        )
     if trade_settlement_risk is not None:
         canonical["trade_risk_input_fingerprint"] = (
             trade_settlement_risk.input_fingerprint
@@ -143,6 +150,50 @@ def _input_hash(
         separators=(",", ":"),
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _confirmed_extraction_projection(
+    *,
+    extraction: TradeDocumentExtraction,
+    confirmed_transaction: Optional[ConfirmedTransactionSnapshot],
+) -> TradeDocumentExtraction:
+    """Supply legacy priority rules only values from the confirmed snapshot."""
+
+    if confirmed_transaction is None:
+        return extraction
+    return TradeDocumentExtraction(
+        document_type=confirmed_transaction.document_type,
+        document_number=confirmed_transaction.document_number,
+        seller_name=confirmed_transaction.seller_name,
+        seller_country=confirmed_transaction.seller_country,
+        buyer_name=confirmed_transaction.buyer_name,
+        buyer_country=confirmed_transaction.buyer_country,
+        company_role=confirmed_transaction.company_role,
+        trade_type=confirmed_transaction.trade_type,
+        currency=confirmed_transaction.currency,
+        grand_total=confirmed_transaction.grand_total,
+        amount_due=confirmed_transaction.amount_due,
+        issue_date=confirmed_transaction.issue_date,
+        contract_date=confirmed_transaction.contract_date,
+        shipment_date=confirmed_transaction.shipment_date,
+        explicit_due_date=confirmed_transaction.due_date,
+        payment_terms=confirmed_transaction.payment_terms,
+        incoterm=confirmed_transaction.incoterm,
+        installments=[
+            PaymentInstallment(
+                sequence=item.sequence,
+                amount=item.amount,
+                currency=item.currency,
+                due_date=item.due_date,
+                condition=item.condition,
+            )
+            for item in confirmed_transaction.installments
+        ],
+        evidence=[],
+        warnings=[],
+        missing_required_fields=[],
+        needs_human_review=False,
+    )
 
 
 def _worst_scenario(
@@ -873,6 +924,10 @@ def build_consultation_packet(
                 "상담 패킷 금액이 canonical confirmed amount_due와 "
                 "일치하지 않습니다."
             )
+    priority_extraction = _confirmed_extraction_projection(
+        extraction=extraction,
+        confirmed_transaction=confirmed_transaction,
+    )
     worst = _worst_scenario(stage2_result, assessment)
     loss = max(Decimal(worst.loss_vs_base), Decimal("0"))
     counterparty_country = (
@@ -894,7 +949,7 @@ def build_consultation_packet(
         priority_fingerprint,
         materialized_payment_statuses,
     ) = build_consultation_priorities(
-        extraction=extraction,
+        extraction=priority_extraction,
         stage2_input=stage2_input,
         stage2_result=stage2_result,
         assessment=assessment,
@@ -956,6 +1011,7 @@ def build_consultation_packet(
             installment_payment_statuses=(
                 materialized_payment_statuses
             ),
+            confirmed_transaction=confirmed_transaction,
         ),
         exchange_rate_as_of=stage1.as_of,
         scenario_ids=[
