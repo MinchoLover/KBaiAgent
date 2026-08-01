@@ -409,6 +409,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             stage2_input = _state(app, "stage2_input")
             stage2 = _state(app, "stage2_result")
             packet = _state(app, "consultation_packet")["packet"]
+            trade_statistics = _state(app, "trade_statistics_result")
             self.assertEqual(
                 stage2_input["exposures"][0]["settlement_date"],
                 "2026-08-20",
@@ -464,6 +465,24 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 ],
                 "UNKNOWN",
             )
+            self.assertEqual(
+                trade_statistics["status"],
+                "OFFICIAL_FIXTURE",
+            )
+            self.assertEqual(
+                trade_statistics["summary"]["scope"],
+                "COUNTRY_TOTAL",
+            )
+            self.assertEqual(
+                trade_statistics["summary"][
+                    "latest_12m_export_usd"
+                ],
+                "8282425000",
+            )
+            self.assertEqual(
+                packet["trade_statistics"]["request_fingerprint"],
+                trade_statistics["request_fingerprint"],
+            )
             result_cards = [
                 item.value
                 for item in app.markdown
@@ -486,6 +505,43 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 "Open Account / T/T",
             ):
                 self.assertIn(expected, result_cards[0])
+            financial_page_text = " ".join(
+                [item.value for item in app.markdown]
+                + [item.value for item in app.caption]
+                + [item.value for item in app.info]
+                + [
+                    "{} {} {}".format(
+                        item.label,
+                        item.value,
+                        item.delta or "",
+                    )
+                    for item in app.metric
+                ]
+            )
+            for expected in (
+                "거래국 무역 통계",
+                "한국–브라질 교역 동향",
+                "국가 전체 교역",
+                "USD 8,282,425,000",
+                "USD 6,154,122,000",
+                "USD 2,128,302,000",
+                "2024-07~2026-06",
+                "HS Code가 없어 국가 전체 교역 통계만",
+                "수출 FOB / 수입 CIF",
+            ):
+                self.assertIn(expected, financial_page_text)
+            self.assertIn(
+                "출처 및 기술정보",
+                [item.label for item in app.expander],
+            )
+            self.assertIn(
+                "품목별 통계 조회 (선택)",
+                [item.label for item in app.expander],
+            )
+            self.assertGreaterEqual(
+                len(app.get("arrow_vega_lite_chart")),
+                1,
+            )
             consultation_cards = [
                 item.value
                 for item in app.markdown

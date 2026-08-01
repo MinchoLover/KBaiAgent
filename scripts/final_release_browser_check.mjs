@@ -433,6 +433,31 @@ async function captureResponsive(name) {
   await setViewport(1440, 1000, false);
 }
 
+async function captureResponsiveAtText(name, text) {
+  const scrollToText = async () => {
+    const scrolled = await evaluate(`(() => {
+      const expected = ${JSON.stringify(text)};
+      const target = Array.from(document.querySelectorAll("h1, h2, h3, h4"))
+        .find((item) => item.offsetParent !== null &&
+          (item.innerText || "").includes(expected));
+      if (!target) return false;
+      target.scrollIntoView({block: "start", inline: "nearest"});
+      return true;
+    })()`);
+    if (!scrolled) throw new Error(`Heading not found for screenshot: ${text}`);
+    await sleep(500);
+  };
+  await setViewport(1440, 1000, false);
+  await scrollToText();
+  evidence.responsive.push(await responsiveEvidence(`${name}-desktop`));
+  await screenshot(`kbai-final-desktop-${name}.png`);
+  await setViewport(390, 844, true);
+  await scrollToText();
+  evidence.responsive.push(await responsiveEvidence(`${name}-mobile`));
+  await screenshot(`kbai-final-mobile-${name}.png`);
+  await setViewport(1440, 1000, false);
+}
+
 async function downloadByKey(key, outputName) {
   const before = new Map(
     fs.readdirSync(BROWSER_DOWNLOAD_DIRECTORY).map((filename) => {
@@ -507,6 +532,23 @@ function validateConsultationArtifacts(
       JSON.stringify(priorities) === JSON.stringify(expectedPriorities),
       `Consultation Top 3 mismatch: ${JSON.stringify(priorities)}`,
     );
+    const statistics = packet.trade_statistics;
+    assert(statistics?.status === "OFFICIAL_FIXTURE", "Consultation trade statistics source mismatch");
+    assert(statistics?.summary?.scope === "COUNTRY_TOTAL", "Consultation trade statistics scope mismatch");
+    assert(statistics?.summary?.latest_12m_export_usd === "8282425000", "Consultation trade export total mismatch");
+    assert(statistics?.summary?.latest_12m_import_usd === "6154122000", "Consultation trade import total mismatch");
+    assert(statistics?.summary?.latest_12m_balance_usd === "2128302000", "Consultation trade balance mismatch");
+    assert(statistics?.summary?.latest_period === "2026-06", "Consultation trade latest period mismatch");
+    assert(statistics?.summary?.hs_code === null, "Consultation unexpectedly inferred HS Code");
+    for (const expected of [
+      "거래국 무역 통계",
+      "USD 8,282,425,000",
+      "USD 6,154,122,000",
+      "USD 2,128,302,000",
+      "HS Code",
+    ]) {
+      assertIncludes(markdown, expected, "Consultation Markdown trade statistics");
+    }
   } else {
     assert(priorities.length === 3, `Direct-upload Top 3 count mismatch: ${priorities.length}`);
   }
@@ -553,6 +595,27 @@ function validateIntegratedArtifacts(markdownArtifact, jsonArtifact) {
     "workflow.confirmed_transaction.due_date",
     "Integrated report Markdown",
   );
+  if (report.consultation?.trade_statistics?.status === "OFFICIAL_FIXTURE") {
+    const statistics = report.consultation.trade_statistics;
+    assert(
+      statistics.summary.latest_12m_export_usd === "8282425000" &&
+        statistics.summary.latest_12m_import_usd === "6154122000" &&
+        statistics.summary.latest_12m_balance_usd === "2128302000",
+      "Integrated report trade statistics mismatch",
+    );
+    assertIncludes(markdown, "## 8. 거래국 무역 통계", "Integrated report Markdown");
+    assertIncludes(markdown, "USD 8,282,425,000", "Integrated report Markdown");
+    assertIncludes(markdown, "+56.4%", "Integrated report Markdown");
+    assertIncludes(markdown, "-16.7%", "Integrated report Markdown");
+    assert(
+      !markdown.includes("56.36383442142403103102139311%"),
+      "Integrated report exposes unrounded trade-statistics percentage",
+    );
+    assert(
+      statistics.summary.export_yoy_pct === "56.36383442142403103102139311",
+      "Integrated report JSON lost original trade-statistics precision",
+    );
+  }
   return {
     confirmedDueDate: confirmed.due_date,
     stage0SettlementDate:
@@ -586,8 +649,8 @@ async function runFinancialAnalysis(expectRegisteredDefaults) {
   await waitForText("회사 자금 입력");
   assertIncludes(await visibleText(), "결제 예정일 2026-08-20", "Stage 1 UI");
   await clickCheckboxKey("trade_risk_confirm_widget");
-  await clickButton("결제·회수 위험 확인");
-  await waitForText("확인된 거래조건으로 결제·회수 위험을 갱신했습니다.");
+  await clickButton("대금 회수조건 확인");
+  await waitForText("대금 회수조건 수정");
 
   const defaults = {
     currentCash: await inputValue("stage2_current_cash_widget"),
@@ -597,13 +660,13 @@ async function runFinancialAnalysis(expectRegisteredDefaults) {
   };
   evidence.companyFundDefaults.push({ expectRegisteredDefaults, ...defaults });
   if (expectRegisteredDefaults) {
-    assert(defaults.currentCash === "20000000.00", "Golden demo cash default mismatch");
-    assert(defaults.minimumBuffer === "10000000.00", "Golden demo buffer mismatch");
-    assert(defaults.creditLimit === "0.00", "Golden demo credit mismatch");
-    assert(defaults.acceptableLoss === "5000000.00", "Golden demo loss mismatch");
+    assert(defaults.currentCash?.replaceAll(",", "") === "20000000.00", "Golden demo cash default mismatch");
+    assert(defaults.minimumBuffer?.replaceAll(",", "") === "10000000.00", "Golden demo buffer mismatch");
+    assert(defaults.creditLimit?.replaceAll(",", "") === "0.00", "Golden demo credit mismatch");
+    assert(defaults.acceptableLoss?.replaceAll(",", "") === "5000000.00", "Golden demo loss mismatch");
   } else {
     assert(
-      defaults.currentCash !== "20000000.00",
+      defaults.currentCash?.replaceAll(",", "") !== "20000000.00",
       "Direct upload incorrectly inherited registered-demo finance defaults",
     );
   }
@@ -626,8 +689,8 @@ async function runFinancialAnalysis(expectRegisteredDefaults) {
         "133,000,000원",
         "7,000,000원",
         "스트레스 후 예상 현금 8,000,000원",
-        "목표 버퍼 10,000,000원",
-        "버퍼 부족 2,000,000원",
+        "최소 유지 운영자금 10,000,000원",
+        "운영자금 부족 2,000,000원",
         "현금 적자 0원",
         "지급 또는 post-credit 부족 0원",
       ]
@@ -641,6 +704,33 @@ async function runFinancialAnalysis(expectRegisteredDefaults) {
       ];
   for (const expected of expectedResultText) {
     assertIncludes(text, expected, "Financial result UI");
+  }
+  if (expectRegisteredDefaults) {
+    for (const expected of [
+      "거래국 무역 통계",
+      "한국–브라질 교역 동향",
+      "국가 전체 교역",
+      "USD 8,282,425,000",
+      "USD 6,154,122,000",
+      "USD 2,128,302,000",
+      "2024-07",
+      "2026-06",
+      "HS Code 미확인",
+      "공식 fixture · API-free 데모",
+    ]) {
+      assertIncludes(text, expected, "Trade statistics UI");
+    }
+  } else {
+    assertIncludes(
+      text,
+      "공식 무역통계 API 키 설정이 필요합니다",
+      "Live trade statistics unavailable state",
+    );
+    assertIncludes(
+      text,
+      "현재 환율·현금흐름 계산에는 영향을 주지 않습니다",
+      "Live trade statistics boundary",
+    );
   }
   return text;
 }
@@ -806,7 +896,7 @@ try {
   await closeExpander("분석 환경 및 고급 설정");
 
   await clickKey("service_sample_export");
-  await waitForText("브라질 Golden 합성 계약서가 선택되었습니다");
+  await waitForText("문서 분석하고 거래정보 채우기");
   await clickKey("analyze_document");
   await waitForText("USD 100,000");
   let transactionText = await visibleText();
@@ -833,6 +923,7 @@ try {
   await confirmCurrentDocument();
   await runFinancialAnalysis(true);
   await captureResponsive("analysis-result");
+  await captureResponsiveAtText("trade-statistics", "한국–브라질 교역 동향");
   evidence.demo = await runConsultationAndDownloads("demo");
 
   await clickKey("new_analysis");
