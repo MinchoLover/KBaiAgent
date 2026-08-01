@@ -34,6 +34,7 @@ from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+from src.domain.trade_statistics_models import TradeStatisticsResult
 from src.stage2.binding import (
     validate_downstream_due_date,
     validate_snapshot_downstream_due_date,
@@ -70,6 +71,11 @@ SAFETY_BOUNDARIES = [
         "상담 순위는 검토 순서이며 상품 승인·보험 인수·대출 심사 "
         "결과가 아닙니다."
     ),
+    (
+        "무역통계는 최근 교역 흐름을 확인하는 참고 통계이며 개별 "
+        "거래처 신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 "
+        "가능성을 뜻하지 않습니다."
+    ),
 ]
 
 
@@ -84,6 +90,7 @@ def _input_hash(
     country_environment: Optional[
         CountryTradeEnvironmentAssessment
     ] = None,
+    trade_statistics: Optional[TradeStatisticsResult] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
     ] = None,
@@ -115,6 +122,19 @@ def _input_hash(
         canonical["country_environment_input_fingerprint"] = (
             country_environment.input_fingerprint
         )
+    if trade_statistics is not None:
+        canonical["trade_statistics"] = {
+            "request_fingerprint": (
+                trade_statistics.request_fingerprint
+            ),
+            "status": trade_statistics.status,
+            "error_code": trade_statistics.error_code,
+            "normalized_sha256": (
+                trade_statistics.snapshot.normalized_sha256
+                if trade_statistics.snapshot is not None
+                else None
+            ),
+        }
     if official_candidate_shortlist is not None:
         canonical["official_candidate_shortlist"] = {
             "selection_policy": (
@@ -438,6 +458,108 @@ def _country_environment_lines(
     return "\n".join(lines)
 
 
+def _trade_statistics_lines(
+    result: Optional[TradeStatisticsResult],
+) -> str:
+    boundary = (
+        "최근 교역 흐름을 확인하는 참고 통계이며 개별 거래처의 "
+        "신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 가능성을 "
+        "의미하지 않습니다."
+    )
+    if result is None:
+        return "- 상태: 조회하지 않음\n- 한계: {}".format(boundary)
+    if result.summary is None or result.snapshot is None:
+        missing = (
+            "\n".join(
+                "- 추가 확인: {}".format(item)
+                for item in result.missing_information
+            )
+            or "- 추가 확인: 공식 통계 연결 상태를 확인해 주세요."
+        )
+        return (
+            "- 상태: **{status}**\n"
+            "- 이용 불가 사유: {message}\n"
+            "{missing}\n"
+            "- 한계: {boundary}"
+        ).format(
+            status=result.status,
+            message=result.user_message,
+            missing=missing,
+            boundary=boundary,
+        )
+    summary = result.summary
+    snapshot = result.snapshot
+    source = summary.source_refs[0] if summary.source_refs else None
+
+    def money(value: Optional[str]) -> str:
+        if value is None:
+            return "비교 불가"
+        return "USD {:,.0f}".format(Decimal(value))
+
+    def percentage(value: Optional[str], status: str) -> str:
+        if value is not None:
+            return "{:+,.1f}%".format(Decimal(value))
+        labels = {
+            "PREVIOUS_ZERO": "비교 불가(기준기간 값 0)",
+            "MISSING_MONTHS": "비교 불가(누락월 있음)",
+            "INSUFFICIENT_HISTORY": "비교 불가(기간 부족)",
+        }
+        return labels.get(status, "비교 불가")
+
+    hs_status = (
+        "확인된 HS {}단위 `{}`".format(summary.hs_level, summary.hs_code)
+        if summary.hs_code is not None
+        else "HS Code 미확인 · 국가 전체 교역만 제공"
+    )
+    source_line = (
+        "[{}]({}) · 기준월 {} · {}".format(
+            source.source_title,
+            source.official_url,
+            source.source_as_of,
+            source.provider_status,
+        )
+        if source is not None
+        else snapshot.source_name
+    )
+    return "\n".join(
+        [
+            "- 상태·범위: **{} · {}**".format(
+                result.status,
+                "국가 전체 교역"
+                if summary.scope == "COUNTRY_TOTAL"
+                else "확인된 HS 품목",
+            ),
+            "- 관측기간: {}~{} · 최신 관측월 {}".format(
+                summary.observation_start,
+                summary.observation_end,
+                summary.latest_period,
+            ),
+            "- 최근 12개월 한국 수출: {} · 직전 기간 대비 {}".format(
+                money(summary.latest_12m_export_usd),
+                percentage(
+                    summary.export_yoy_pct,
+                    summary.export_comparison_status,
+                ),
+            ),
+            "- 최근 12개월 한국 수입: {} · 직전 기간 대비 {}".format(
+                money(summary.latest_12m_import_usd),
+                percentage(
+                    summary.import_yoy_pct,
+                    summary.import_comparison_status,
+                ),
+            ),
+            "- 최근 12개월 무역수지: {}".format(
+                money(summary.latest_12m_balance_usd)
+            ),
+            "- HS Code 상태: {}".format(hs_status),
+            "- 거래 참고: {}".format(summary.user_summary),
+            "- 공식 출처: {}".format(source_line),
+            "- 통계 기준: 수출 FOB · 수입 CIF · 금액 USD",
+            "- 한계: {}".format(boundary),
+        ]
+    )
+
+
 def rationale_display_text(
     item: ConsultationRationaleItem,
 ) -> str:
@@ -518,6 +640,9 @@ def _markdown(packet: ConsultationPacket) -> str:
         )
     country_environment_lines = _country_environment_lines(
         packet.country_environment
+    )
+    trade_statistics_lines = _trade_statistics_lines(
+        packet.trade_statistics
     )
     schedule_lines = (
         "\n".join(
@@ -766,6 +891,10 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 {country_environment_lines}
 
+## 4B. 거래국 무역 통계
+
+{trade_statistics_lines}
+
 ## 5. 검토할 금융 대응
 
 {topic_lines}
@@ -829,6 +958,7 @@ def _markdown(packet: ConsultationPacket) -> str:
         trade_risk_lines=trade_risk_lines,
         trade_risk_assumptions=trade_risk_assumptions,
         country_environment_lines=country_environment_lines,
+        trade_statistics_lines=trade_statistics_lines,
         priority_lines=priority_lines,
         topic_lines=topic_lines,
         other_topic_lines=other_topic_lines,
@@ -880,6 +1010,7 @@ def build_consultation_packet(
     country_environment: Optional[
         CountryTradeEnvironmentAssessment
     ] = None,
+    trade_statistics: Optional[TradeStatisticsResult] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
     ] = None,
@@ -922,6 +1053,31 @@ def build_consultation_packet(
         ):
             raise ValueError(
                 "상담 패킷 금액이 canonical confirmed amount_due와 "
+                "일치하지 않습니다."
+            )
+    if trade_statistics is not None:
+        if confirmed_transaction is None:
+            raise ValueError(
+                "무역통계는 canonical confirmed transaction에만 "
+                "연결할 수 있습니다."
+            )
+        expected_partner = (
+            confirmed_transaction.buyer_country
+            if confirmed_transaction.trade_type == "EXPORT"
+            else confirmed_transaction.seller_country
+        )
+        statistics_request = trade_statistics.request
+        if (
+            statistics_request.confirmed_transaction_fingerprint
+            != confirmed_transaction.input_fingerprint
+            or statistics_request.reporter_country
+            != confirmed_transaction.company_country
+            or statistics_request.partner_country != expected_partner
+            or statistics_request.trade_direction
+            != confirmed_transaction.trade_type
+        ):
+            raise ValueError(
+                "무역통계 결과가 canonical confirmed transaction과 "
                 "일치하지 않습니다."
             )
     priority_extraction = _confirmed_extraction_projection(
@@ -987,6 +1143,18 @@ def build_consultation_packet(
         gaps = list(
             dict.fromkeys(gaps + country_environment.reasons)
         )
+    if trade_statistics is not None:
+        gaps = list(
+            dict.fromkeys(
+                gaps
+                + trade_statistics.missing_information
+                + (
+                    [trade_statistics.user_message]
+                    if trade_statistics.summary is None
+                    else []
+                )
+            )
+        )
     calculation_versions = [
         stage2_result.calculation_version,
         assessment.calculation_version,
@@ -997,6 +1165,8 @@ def build_consultation_packet(
         )
     if country_environment is not None:
         calculation_versions.append(country_environment.rule_version)
+    if trade_statistics is not None:
+        calculation_versions.append("trade-statistics-summary-1.0")
     packet = ConsultationPacket(
         case_id=case_id,
         calculation_version="+".join(calculation_versions),
@@ -1007,6 +1177,7 @@ def build_consultation_packet(
             stage2_input=stage2_input,
             trade_settlement_risk=trade_settlement_risk,
             country_environment=country_environment,
+            trade_statistics=trade_statistics,
             official_candidate_shortlist=official_candidate_shortlist,
             installment_payment_statuses=(
                 materialized_payment_statuses
@@ -1086,6 +1257,7 @@ def build_consultation_packet(
         risk_findings=assessment.findings,
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
+        trade_statistics=trade_statistics,
         consultation_topics=consultation_topics,
         consultation_priorities=consultation_priorities,
         other_consultation_topics=other_consultation_topics,

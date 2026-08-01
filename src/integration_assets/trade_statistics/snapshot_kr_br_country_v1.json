@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "snapshot_version": "2026.08.01-kr-br-country-v1",
+  "snapshot_id": "kcs-trade-kr-br-country-2024-07_2026-06",
+  "source_name": "KOREA_CUSTOMS_SERVICE",
+  "provider_status": "OFFICIAL_FIXTURE",
+  "collected_at": "2026-08-01T22:55:18+09:00",
+  "observation_start": "2024-07",
+  "observation_end": "2026-06",
+  "source_as_of": "2026-06",
+  "reporter_country": "KR",
+  "partner_country": "BR",
+  "hs_code": null,
+  "hs_level": null,
+  "observations": [
+    {"period":"2024-07","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"482536000","import_value_usd":"627546000","trade_balance_usd":"-145010000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2024-07","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2024-08","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"463950000","import_value_usd":"413219000","trade_balance_usd":"50732000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2024-08","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2024-09","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"440467000","import_value_usd":"636443000","trade_balance_usd":"-195976000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2024-09","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2024-10","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"390073000","import_value_usd":"869201000","trade_balance_usd":"-479128000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2024-10","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2024-11","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"390275000","import_value_usd":"551541000","trade_balance_usd":"-161266000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2024-11","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2024-12","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"409488000","import_value_usd":"819021000","trade_balance_usd":"-409533000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2024-12","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-01","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"405357000","import_value_usd":"687723000","trade_balance_usd":"-282366000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-01","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-02","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"427287000","import_value_usd":"473438000","trade_balance_usd":"-46152000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-02","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-03","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"425885000","import_value_usd":"609071000","trade_balance_usd":"-183186000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-03","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-04","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"653859000","import_value_usd":"679743000","trade_balance_usd":"-25884000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-04","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-05","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"405682000","import_value_usd":"530884000","trade_balance_usd":"-125202000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-05","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-06","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"402034000","import_value_usd":"487962000","trade_balance_usd":"-85928000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-06","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-07","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"402748000","import_value_usd":"530124000","trade_balance_usd":"-127377000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-07","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-08","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"358648000","import_value_usd":"375281000","trade_balance_usd":"-16633000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-08","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-09","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"480784000","import_value_usd":"460281000","trade_balance_usd":"20503000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-09","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-10","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"2860765000","import_value_usd":"781871000","trade_balance_usd":"2078894000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-10","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-11","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"408149000","import_value_usd":"464903000","trade_balance_usd":"-56754000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-11","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2025-12","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"479220000","import_value_usd":"523993000","trade_balance_usd":"-44773000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2025-12","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2026-01","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"394975000","import_value_usd":"570814000","trade_balance_usd":"-175839000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2026-01","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2026-02","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"459535000","import_value_usd":"493079000","trade_balance_usd":"-33545000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2026-02","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2026-03","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"583641000","import_value_usd":"373003000","trade_balance_usd":"210638000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2026-03","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2026-04","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"650733000","import_value_usd":"719023000","trade_balance_usd":"-68290000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2026-04","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2026-05","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"561261000","import_value_usd":"516262000","trade_balance_usd":"45000000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2026-05","observation_status":"OFFICIAL_REPORTED"},
+    {"period":"2026-06","reporter_country":"KR","partner_country":"BR","hs_code":null,"hs_level":null,"export_value_usd":"641966000","import_value_usd":"345488000","trade_balance_usd":"296478000","export_weight_kg":null,"import_weight_kg":null,"source_record_id":"kcs-public-country-br-2026-06","observation_status":"OFFICIAL_REPORTED"}
+  ],
+  "raw_sha256": "16fcfc5222aab3e9b58dc3481cd130c411dbbcb4b103f994a1b42d872edb9cb5",
+  "normalized_sha256": "3e3120223e00013fcfbe9168bb794be21834c3c329b58d618fa84c09308e6b5b",
+  "warnings": [
+    "공식 공개 조회 화면의 월별 금액은 천 달러 단위로 반올림되어 있습니다."
+  ],
+  "limitations": [
+    "수출은 FOB, 수입은 CIF 기준의 통관 통계입니다.",
+    "수출입 신고의 정정·취하에 따라 과거 값이 변경될 수 있습니다.",
+    "개별 계약의 수익성, 거래처 신용도, 환율 방향 또는 금융상품 승인 결과를 뜻하지 않습니다."
+  ],
+  "metadata": {
+    "official_page_url": "https://tradedata.go.kr/cts/index.do",
+    "official_open_api_documentation": "https://www.data.go.kr/data/15100475/openapi.do",
+    "raw_asset": "raw/kr_br_country_2024-07_2026-06.json",
+    "raw_value_unit": "THOUSAND_USD",
+    "normalization_rule": "trim commas; Decimal(value) * 1000; no missing-month fill",
+    "aggregate_rounding_tolerance_usd": "1000",
+    "export_basis": "FOB",
+    "import_basis": "CIF",
+    "weight_basis": "NET_WEIGHT_KG_NOT_INCLUDED_IN_PUBLIC_FIXTURE"
+  }
+}

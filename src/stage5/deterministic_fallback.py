@@ -222,6 +222,131 @@ def _country_environment_lines(
     return lines
 
 
+def _trade_statistics_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or consultation_packet.trade_statistics is None
+    ):
+        return ["- 거래국 무역통계를 별도로 조회하지 않았습니다."]
+    result = consultation_packet.trade_statistics
+    if result.summary is None or result.snapshot is None:
+        return [
+            "- 공식 무역통계 상태는 **{}**입니다. {} "
+            "현재 환율·현금흐름 계산에는 영향을 주지 않습니다. "
+            "[source: consultation.trade_statistics.status] "
+            "[source: consultation.trade_statistics.user_message]".format(
+                result.status,
+                result.user_message,
+            )
+        ]
+    summary = result.summary
+    snapshot = result.snapshot
+    scope_label = (
+        "국가 전체 교역"
+        if summary.scope == "COUNTRY_TOTAL"
+        else "확인된 HS 품목"
+    )
+    export_total = (
+        "USD {:,.0f}".format(Decimal(summary.latest_12m_export_usd))
+        if summary.latest_12m_export_usd is not None
+        else "비교 불가"
+    )
+    import_total = (
+        "USD {:,.0f}".format(Decimal(summary.latest_12m_import_usd))
+        if summary.latest_12m_import_usd is not None
+        else "비교 불가"
+    )
+    balance_total = (
+        "USD {:,.0f}".format(Decimal(summary.latest_12m_balance_usd))
+        if summary.latest_12m_balance_usd is not None
+        else "비교 불가"
+    )
+
+    def percentage(value: Optional[str]) -> str:
+        return (
+            "{:+,.1f}%".format(Decimal(value))
+            if value is not None
+            else "비교 불가"
+        )
+
+    lines = [
+        "- 분석 범위는 **{}**, 관측기간은 {}~{}, 최신 관측월은 "
+        "{}입니다. [source: consultation.trade_statistics.summary.scope] "
+        "[source: consultation.trade_statistics.summary.observation_start] "
+        "[source: consultation.trade_statistics.summary.observation_end] "
+        "[source: consultation.trade_statistics.summary.latest_period]".format(
+            scope_label,
+            summary.observation_start,
+            summary.observation_end,
+            summary.latest_period,
+        ),
+        "- 최근 12개월 한국 수출금액은 {}, 직전 12개월 "
+        "대비 수출 증감률은 {}입니다. "
+        "[source: consultation.trade_statistics.summary] "
+        "[source: consultation.trade_statistics.summary."
+        "latest_12m_export_usd] "
+        "[source: consultation.trade_statistics.summary.export_yoy_pct]"
+        .format(
+            export_total,
+            percentage(summary.export_yoy_pct),
+        ),
+        "- 최근 12개월 한국 수입금액은 {}, 직전 12개월 "
+        "대비 수입 증감률은 {}입니다. "
+        "[source: consultation.trade_statistics.summary] "
+        "[source: consultation.trade_statistics.summary."
+        "latest_12m_import_usd] "
+        "[source: consultation.trade_statistics.summary.import_yoy_pct]"
+        .format(
+            import_total,
+            percentage(summary.import_yoy_pct),
+        ),
+        "- 최근 12개월 무역수지는 {}입니다. "
+        "[source: consultation.trade_statistics.summary] "
+        "[source: consultation.trade_statistics.summary."
+        "latest_12m_balance_usd]".format(
+            balance_total
+        ),
+        "- 현재 거래 참고: {} "
+        "[source: consultation.trade_statistics.summary.user_summary]"
+        .format(summary.user_summary),
+    ]
+    if summary.hs_code is None:
+        lines.append(
+            "- HS Code가 확인되지 않아 국가 전체 교역 통계만 "
+            "제공합니다. 품목별 통계는 신고·계약 자료에서 HS Code를 "
+            "확인한 뒤 사용할 수 있습니다. "
+            "[source: consultation.trade_statistics.summary.hs_code]"
+        )
+    else:
+        lines.append(
+            "- 사용자가 확인한 HS Code {}({}단위) 범위입니다. "
+            "[source: consultation.trade_statistics.summary.hs_code] "
+            "[source: consultation.trade_statistics.summary.hs_level]"
+            .format(summary.hs_code, summary.hs_level)
+        )
+    if summary.source_refs:
+        reference = summary.source_refs[0]
+        lines.append(
+            "- 공식 출처: [{}]({}) · 상태 {}. 수출은 FOB, 수입은 "
+            "CIF 기준이며 금액은 USD입니다. "
+            "[source: consultation.trade_statistics.summary.source_refs.0]"
+            .format(
+                reference.source_title,
+                reference.official_url,
+                snapshot.provider_status,
+            )
+        )
+    lines.append(
+        "- 이 통계는 최근 교역 흐름을 확인하는 참고 자료이며 개별 "
+        "거래처 신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 "
+        "가능성을 의미하지 않습니다. "
+        "[source: consultation.trade_statistics.summary.limitations]"
+    )
+    return lines
+
+
 def _consultation_topic_lines(
     consultation_packet: Optional[ConsultationPacket],
 ) -> List[str]:
@@ -616,6 +741,9 @@ def generate_deterministic_report(
     country_environment_lines = "\n".join(
         _country_environment_lines(consultation_packet)
     )
+    trade_statistics_lines = "\n".join(
+        _trade_statistics_lines(consultation_packet)
+    )
     country_environment_policy_note = (
         "OECD·World Bank·WTO는 합산 점수로 만들지 않았고 국가 신호는 "
         "Stage 2 현금흐름이나 Stage 3 환헤지 비율을 변경하지 않습니다.\n"
@@ -706,33 +834,37 @@ def generate_deterministic_report(
 
 {country_environment_policy_note}
 
-## 8. 환헤지 시뮬레이션 후보
+## 8. 거래국 무역 통계
+
+{trade_statistics_lines}
+
+## 9. 환헤지 시뮬레이션 후보
 
 {strategy_lines}
 
 위 후보는 확정 자문이 아니라 입력 가정 아래 계산된 검토안입니다.
 [source: stage3.status]
 
-## 9. 검토할 금융 대응
+## 10. 검토할 금융 대응
 
 {consultation_topic_lines}
 
 결제·회수 위험이 환헤지 비율을 직접 변경하지 않으며, 최종 판단은 사용자와
 거래은행·보험기관 담당자가 합니다.
 
-## 10. 공식 출처 상담 후보
+## 11. 공식 출처 상담 후보
 
 {product_lines}
 
-## 11. 아직 확인할 정보
+## 12. 아직 확인할 정보
 
 {missing_information_lines}
 
-## 12. 은행·보험기관 상담 시 질문
+## 13. 은행·보험기관 상담 시 질문
 
 {question_lines}
 
-## 13. 가정·한계·면책
+## 14. 가정·한계·면책
 
 본 결과는 제공된 입력의 결정론적 계산과 공식자료 후보 정리이며 금융자문·승인·보장을
 의미하지 않습니다. 실제 거래 전 은행·보험기관·전문가 확인이 필요합니다.
@@ -756,6 +888,7 @@ def generate_deterministic_report(
         trade_risk_lines=trade_risk_lines,
         country_environment_lines=country_environment_lines,
         country_environment_policy_note=country_environment_policy_note,
+        trade_statistics_lines=trade_statistics_lines,
         strategy_lines=strategy_lines,
         consultation_topic_lines=consultation_topic_lines,
         product_lines=product_lines,

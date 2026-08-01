@@ -17,6 +17,9 @@ from src.application.stage2_input_service import (
     cashflow_error_detail,
     classify_cashflow_error,
 )
+from src.application.trade_statistics_service import (
+    retrieve_trade_statistics,
+)
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.consultation_models import ConsultationPacket
 from src.domain.country_environment_models import (
@@ -30,6 +33,10 @@ from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.stage2_models import CashflowErrorDetail
 from src.domain.stage3_models import Stage3Assumptions, Stage3Result
+from src.domain.trade_statistics_models import (
+    TradeStatisticsRequest,
+    TradeStatisticsResult,
+)
 from src.stage1.adapter import load_stage1
 from src.stage1.manual_scenarios import build_manual_stress_scenarios
 from src.stage1.normalizer import normalize_stage1_scenarios
@@ -60,6 +67,10 @@ ReportGenerator = Callable[..., ReportResult]
 CountryEnvironmentRunner = Callable[
     [CountryTradeEnvironmentInput],
     CountryTradeEnvironmentAssessment,
+]
+TradeStatisticsRunner = Callable[
+    [TradeStatisticsRequest],
+    TradeStatisticsResult,
 ]
 
 
@@ -105,6 +116,7 @@ class WorkflowOrchestrator:
         country_environment_runner: CountryEnvironmentRunner = (
             assess_country_trade_environment
         ),
+        trade_statistics_runner: Optional[TradeStatisticsRunner] = None,
         fallback_report_generator: ReportGenerator = (
             generate_deterministic_report
         ),
@@ -121,6 +133,12 @@ class WorkflowOrchestrator:
         self.official_product_search = official_product_search
         self.report_generator = report_generator
         self.country_environment_runner = country_environment_runner
+        self.trade_statistics_runner = trade_statistics_runner or (
+            lambda request: retrieve_trade_statistics(
+                request,
+                settings=self.settings,
+            )
+        )
         self.fallback_report_generator = fallback_report_generator
         self.max_report_revisions = max_report_revisions
 
@@ -1231,6 +1249,17 @@ class WorkflowOrchestrator:
                     and consultation_packet.country_environment is not None
                 )
                 else []
+            )
+            + (
+                [
+                    "report.report_json.consultation."
+                    "trade_statistics",
+                ]
+                if (
+                    consultation_packet is not None
+                    and consultation_packet.trade_statistics is not None
+                )
+                else []
             ),
             started_at=started_at,
             finished_at=datetime.now(timezone.utc),
@@ -1306,6 +1335,95 @@ class WorkflowOrchestrator:
             )
         state.country_environment = result
         self._record(state, "country_environment", result)
+        return state
+
+    def run_trade_statistics(
+        self,
+        state: WorkflowState,
+        request: TradeStatisticsRequest,
+    ) -> WorkflowState:
+        if not confirmation_gate(state).allowed:
+            return self._wait_for_confirmation(
+                state,
+                "trade_statistics",
+            )
+        started_at, started_ns = self._started()
+        state.report = None
+        state.report_draft = None
+        state.critic_result = None
+        state.final_report = None
+        state.rewrite_count = 0
+        try:
+            transaction = state.confirmed_transaction
+            if transaction is None:
+                raise ValueError("확정 거래 snapshot이 필요합니다.")
+            expected_partner = (
+                transaction.buyer_country
+                if transaction.trade_type == "EXPORT"
+                else transaction.seller_country
+            )
+            if (
+                request.confirmed_transaction_fingerprint
+                != transaction.input_fingerprint
+                or request.reporter_country
+                != transaction.company_country
+                or request.partner_country != expected_partner
+                or request.trade_direction != transaction.trade_type
+            ):
+                raise ValueError(
+                    "무역통계 요청이 현재 확정 거래와 일치하지 않습니다."
+                )
+            statistics = self.trade_statistics_runner(request)
+            status = (
+                StageStatus.SUCCEEDED
+                if statistics.status in {"LIVE", "OFFICIAL_FIXTURE"}
+                else StageStatus.SKIPPED
+            )
+            result = StageResult[TradeStatisticsResult](
+                status=status,
+                data=statistics,
+                warnings=statistics.warnings,
+                evidence=[
+                    "status={}".format(statistics.status),
+                    "scope={}".format(request.scope),
+                    "reporter_country={}".format(
+                        request.reporter_country
+                    ),
+                    "partner_country={}".format(request.partner_country),
+                    "period={}:{}".format(
+                        request.period_start,
+                        request.period_end,
+                    ),
+                    "request_fingerprint={}".format(
+                        statistics.request_fingerprint
+                    ),
+                ]
+                + (
+                    [
+                        "snapshot_id={}".format(
+                            statistics.snapshot.snapshot_id
+                        )
+                    ]
+                    if statistics.snapshot is not None
+                    else []
+                ),
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider=request.provider,
+                fallback_used=False,
+            )
+        except Exception as exc:
+            result = StageResult[TradeStatisticsResult](
+                status=StageStatus.FAILED,
+                errors=[self._safe_error("trade_statistics", exc)],
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                duration_ms=self._duration_ms(started_ns),
+                provider=request.provider,
+            )
+        state.trade_statistics = result
+        self._record(state, "trade_statistics", result)
         return state
 
     @staticmethod

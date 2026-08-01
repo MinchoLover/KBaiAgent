@@ -25,6 +25,7 @@ from src.domain.stage2_models import (
     Stage2Result,
 )
 from src.domain.stage3_models import Stage3Result, StrategyCandidate
+from src.domain.trade_statistics_models import TradeStatisticsResult
 from src.workflow.result import StageResult, StageStatus
 from src.workflow.trace import TraceEvent
 
@@ -63,6 +64,9 @@ class WorkflowState(StrictModel):
     product_search: Optional[StageResult[Stage4Result]] = None
     country_environment: Optional[
         StageResult[CountryTradeEnvironmentAssessment]
+    ] = None
+    trade_statistics: Optional[
+        StageResult[TradeStatisticsResult]
     ] = None
     report: Optional[StageResult[ReportResult]] = None
     report_draft: Optional[str] = None

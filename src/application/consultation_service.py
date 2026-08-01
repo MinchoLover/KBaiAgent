@@ -24,6 +24,7 @@ from src.domain.product_models import OfficialCandidateShortlist
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+from src.domain.trade_statistics_models import TradeStatisticsResult
 
 
 def _dedupe(values: List[str]) -> List[str]:
@@ -96,6 +97,7 @@ def build_decision_support(
     country_environment: Optional[
         CountryTradeEnvironmentAssessment
     ] = None,
+    trade_statistics: Optional[TradeStatisticsResult] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
     ] = None,
@@ -142,6 +144,7 @@ def build_decision_support(
         consultation_topics=topics,
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
+        trade_statistics=trade_statistics,
         official_candidate_shortlist=official_candidate_shortlist,
         installment_payment_statuses=installment_payment_statuses,
         missing_information=missing_information,
@@ -152,6 +155,7 @@ def build_decision_support(
         risk_assessment=assessment,
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
+        trade_statistics=trade_statistics,
         consultation_topics=topics,
         official_candidate_shortlist=official_candidate_shortlist,
         consultation_packet=packet,

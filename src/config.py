@@ -112,6 +112,15 @@ class Settings:
     koreaexim_key: Optional[str] = field(default=None, repr=False)
     ecos_key: Optional[str] = field(default=None, repr=False)
     credit_key: Optional[str] = field(default=None, repr=False)
+    customs_trade_api_key: Optional[str] = field(
+        default=None,
+        repr=False,
+    )
+    trade_statistics_provider: str = "auto"
+    trade_statistics_timeout_seconds: float = 10.0
+    trade_statistics_snapshot_version: str = (
+        "2026.08.01-kr-br-country-v1"
+    )
     official_search_cache_ttl_hours: int = 24
     official_domains: Tuple[str, ...] = DEFAULT_OFFICIAL_DOMAINS
 
@@ -287,6 +296,21 @@ class Settings:
             koreaexim_key=os.getenv("KOREAEXIM_KEY") or None,
             ecos_key=os.getenv("ECOS_KEY") or None,
             credit_key=os.getenv("CREDIT_KEY") or None,
+            customs_trade_api_key=(
+                os.getenv("CUSTOMS_TRADE_API_KEY") or None
+            ),
+            trade_statistics_provider=os.getenv(
+                "TRADE_STATISTICS_PROVIDER",
+                "auto",
+            ).strip().lower(),
+            trade_statistics_timeout_seconds=_env_float(
+                "TRADE_STATISTICS_TIMEOUT_SECONDS",
+                10.0,
+            ),
+            trade_statistics_snapshot_version=os.getenv(
+                "TRADE_STATISTICS_SNAPSHOT_VERSION",
+                "2026.08.01-kr-br-country-v1",
+            ).strip(),
             official_search_cache_ttl_hours=_env_int(
                 "OFFICIAL_SEARCH_CACHE_TTL_HOURS",
                 24,

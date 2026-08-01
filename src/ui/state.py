@@ -22,6 +22,10 @@ PIPELINE_KEYS = (
     "country_environment_input",
     "country_environment_assessment",
     "country_environment_trace",
+    "trade_statistics_request",
+    "trade_statistics_result",
+    "trade_statistics_trace",
+    "trade_statistics_error",
     "risk_assessment",
     "consultation_topics",
     "installment_payment_statuses",
@@ -115,6 +119,11 @@ TRADE_RISK_WIDGET_KEYS = (
     "trade_risk_confirm_widget",
 )
 
+TRADE_STATISTICS_WIDGET_KEYS = (
+    "trade_statistics_hs_code_widget",
+    "trade_statistics_hs_confirmed_widget",
+)
+
 STAGE3_WIDGET_KEYS = (
     "stage3_grid_widget",
     "stage3_stability_widget",
@@ -150,6 +159,7 @@ CONSULTATION_WIDGET_KEYS = (
 DOWNSTREAM_WIDGET_KEYS = (
     CONFIRMATION_WIDGET_KEYS
     + TRADE_RISK_WIDGET_KEYS
+    + TRADE_STATISTICS_WIDGET_KEYS
     + STAGE1_WIDGET_KEYS
     + STAGE2_WIDGET_KEYS
     + STAGE3_WIDGET_KEYS
@@ -308,6 +318,10 @@ def clear_confirmation_and_later(state: object) -> None:
             "country_environment_input",
             "country_environment_assessment",
             "country_environment_trace",
+            "trade_statistics_request",
+            "trade_statistics_result",
+            "trade_statistics_trace",
+            "trade_statistics_error",
             "risk_assessment",
             "consultation_topics",
             "installment_payment_statuses",

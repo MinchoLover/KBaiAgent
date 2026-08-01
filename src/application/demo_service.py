@@ -11,6 +11,9 @@ from src.application.official_candidate_service import (
     build_official_candidate_query,
     shortlist_official_candidates,
 )
+from src.application.trade_statistics_service import (
+    build_trade_statistics_request,
+)
 from src.consultation.response_mapping import (
     map_trade_risk_consultation_topics,
 )
@@ -453,6 +456,21 @@ def run_decision_support_demo(
         state,
         country_environment_input,
     )
+    if state.confirmed_transaction is None:
+        raise RuntimeError("offline demo confirmed transaction이 없습니다.")
+    trade_statistics_request = build_trade_statistics_request(
+        confirmed_transaction=state.confirmed_transaction,
+        source_preference="OFFICIAL_FIXTURE",
+    )
+    state = workflow.run_trade_statistics(
+        state,
+        trade_statistics_request,
+    )
+    trade_statistics = (
+        state.trade_statistics.data
+        if state.trade_statistics is not None
+        else None
+    )
     decision_support = build_decision_support(
         case_id=state.case_id,
         extraction=extraction,
@@ -462,6 +480,7 @@ def run_decision_support_demo(
         stage2_result=state.cashflow.data,
         trade_settlement_risk=trade_risk_assessment,
         country_environment=country_environment_assessment,
+        trade_statistics=trade_statistics,
         generated_at="2026-07-23T09:00:00+09:00",
         confirmed_transaction=state.confirmed_transaction,
     )
@@ -479,6 +498,7 @@ def run_decision_support_demo(
         stage2_result=state.cashflow.data,
         trade_settlement_risk=trade_risk_assessment,
         country_environment=country_environment_assessment,
+        trade_statistics=trade_statistics,
         official_candidate_shortlist=official_candidate_shortlist,
         generated_at="2026-07-23T09:00:00+09:00",
         confirmed_transaction=state.confirmed_transaction,
@@ -502,6 +522,8 @@ def run_decision_support_demo(
         "country_environment_assessment": (
             country_environment_assessment
         ),
+        "trade_statistics_request": trade_statistics_request,
+        "trade_statistics_result": trade_statistics,
         "stage3": state.hedge.data,
         "stage4": state.product_search.data,
         "official_candidate_shortlist": official_candidate_shortlist,

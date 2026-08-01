@@ -15,6 +15,7 @@ from src.domain.trade_risk_models import (
     TradeRiskReviewNeed,
     TradeSettlementRiskAssessment,
 )
+from src.domain.trade_statistics_models import TradeStatisticsResult
 
 
 RiskCode = Literal[
@@ -240,6 +241,10 @@ class ConsultationPacket(StrictModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    trade_statistics: Optional[TradeStatisticsResult] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )
@@ -299,6 +304,10 @@ class DecisionSupportResult(StrictModel):
     country_environment: Optional[
         CountryTradeEnvironmentAssessment
     ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    trade_statistics: Optional[TradeStatisticsResult] = Field(
         default=None,
         exclude_if=lambda value: value is None,
     )

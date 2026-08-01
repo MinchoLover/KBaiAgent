@@ -49,6 +49,12 @@ from src.application.official_candidate_service import (
     shortlist_official_candidates,
 )
 from src.application.trade_risk_service import build_trade_risk_prefill
+from src.application.trade_statistics_service import (
+    TradeStatisticsRequestError,
+    build_trade_statistics_request,
+    trade_statistics_request_fingerprint,
+    trade_statistics_trace,
+)
 from src.config import Settings
 from src.consultation.packet import rationale_display_text
 from src.consultation.trade_settlement_risk import (
@@ -115,6 +121,9 @@ from src.domain.trade_risk_models import (
     TradeSettlementRiskAssessment,
     TradeSettlementRiskInput,
 )
+from src.domain.trade_statistics_models import (
+    TradeStatisticsResult,
+)
 from src.security.upload_guard import validate_upload
 from src.stage2.binding import (
     confirmed_analysis_due_date_from_document_input,
@@ -149,6 +158,7 @@ from src.ui.presentation import (
     transaction_summary,
     world_bank_display,
 )
+from src.trade_statistics.periods import month_range, shift_month
 from src.ui.layout import (
     PAGE_ANALYSIS,
     PAGE_CONSULTATION,
@@ -219,6 +229,85 @@ def _registered_demo_inputs_from_state() -> Optional[Dict[str, Any]]:
     if metadata.get("sha256") != presentation_document_sha256():
         return None
     return presentation_demo_inputs()
+
+
+def _trade_statistics_source_preference() -> str:
+    configured = settings.trade_statistics_provider.strip().lower()
+    if configured in {"live", "korea_customs_open_api"}:
+        return "LIVE"
+    if configured in {"fixture", "official_fixture"}:
+        return "OFFICIAL_FIXTURE"
+    is_demo_transaction = bool(
+        _registered_demo_inputs_from_state() is not None
+        or st.session_state.get("run_mode_widget") == "데모 모드"
+    )
+    return "OFFICIAL_FIXTURE" if is_demo_transaction else "LIVE"
+
+
+def _ensure_trade_statistics(
+    workflow: WorkflowState,
+) -> Tuple[WorkflowState, Optional[TradeStatisticsResult]]:
+    transaction = workflow.confirmed_transaction
+    if transaction is None:
+        return workflow, None
+    entered_hs_code = str(
+        st.session_state.get("trade_statistics_hs_code_widget", "")
+    ).strip()
+    hs_code_confirmed = bool(
+        st.session_state.get(
+            "trade_statistics_hs_confirmed_widget",
+            False,
+        )
+        and entered_hs_code
+    )
+    try:
+        request = build_trade_statistics_request(
+            confirmed_transaction=transaction,
+            source_preference=_trade_statistics_source_preference(),
+            hs_code=(entered_hs_code if hs_code_confirmed else None),
+            hs_code_confirmed=hs_code_confirmed,
+            snapshot_version=(
+                settings.trade_statistics_snapshot_version
+            ),
+        )
+    except TradeStatisticsRequestError as exc:
+        st.session_state.pop("trade_statistics_request", None)
+        st.session_state.pop("trade_statistics_result", None)
+        st.session_state.pop("trade_statistics_trace", None)
+        st.session_state["trade_statistics_error"] = {
+            "status": "VALIDATION_FAILED",
+            "error_code": exc.code,
+            "user_message": exc.user_message,
+            "confirmed_transaction_fingerprint": (
+                transaction.input_fingerprint
+            ),
+        }
+        return workflow, None
+    expected_fingerprint = trade_statistics_request_fingerprint(request)
+    stored = _model_from_state(
+        "trade_statistics_result",
+        TradeStatisticsResult,
+    )
+    if (
+        stored is not None
+        and stored.request_fingerprint == expected_fingerprint
+        and stored.request.confirmed_transaction_fingerprint
+        == transaction.input_fingerprint
+    ):
+        return workflow, stored
+    st.session_state.pop("trade_statistics_error", None)
+    st.session_state.pop("trade_statistics_result", None)
+    st.session_state.pop("trade_statistics_trace", None)
+    _save_model("trade_statistics_request", request)
+    updated = orchestrator.run_trade_statistics(workflow, request)
+    stage_result = updated.trade_statistics
+    result = stage_result.data if stage_result is not None else None
+    if result is not None:
+        _save_model("trade_statistics_result", result)
+        st.session_state["trade_statistics_trace"] = (
+            trade_statistics_trace(result)
+        )
+    return updated, result
 
 
 def _render_kb_macro_hedge_reference(
@@ -594,6 +683,14 @@ def _save_decision_support(value: DecisionSupportResult) -> None:
             "country_environment_assessment",
             value.country_environment,
         )
+    if value.trade_statistics is not None:
+        _save_model(
+            "trade_statistics_result",
+            value.trade_statistics,
+        )
+    else:
+        st.session_state.pop("trade_statistics_result", None)
+        st.session_state.pop("trade_statistics_trace", None)
     st.session_state["consultation_topics"] = [
         item.model_dump() for item in value.consultation_topics
     ]
@@ -1406,6 +1503,19 @@ def _render_financial_evidence(
     if country_assessment is not None:
         _render_country_environment_section(country_assessment)
 
+    trade_statistics = _model_from_state(
+        "trade_statistics_result",
+        TradeStatisticsResult,
+    )
+    if (
+        trade_statistics is not None
+        or isinstance(
+            st.session_state.get("trade_statistics_error"),
+            dict,
+        )
+    ):
+        _render_trade_statistics_section(trade_statistics)
+
     with st.expander("데이터 품질 및 기술정보", expanded=False):
         st.markdown("#### 환율 데이터와 적용 규칙")
         st.caption(
@@ -1753,6 +1863,10 @@ def _rebuild_consultation_with_payment_statuses(
         country_environment=_model_from_state(
             "country_environment_assessment",
             CountryTradeEnvironmentAssessment,
+        ),
+        trade_statistics=_model_from_state(
+            "trade_statistics_result",
+            TradeStatisticsResult,
         ),
         official_candidate_shortlist=_model_from_state(
             "official_candidate_shortlist",
@@ -2356,6 +2470,291 @@ def _render_country_environment_section(
         )
 
 
+def _render_trade_statistics_section(
+    result: Optional[TradeStatisticsResult],
+) -> None:
+    st.markdown("### 거래국 무역 통계")
+    boundary = (
+        "최근 교역 흐름을 확인하는 참고 통계입니다. 개별 거래처의 "
+        "신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 가능성을 "
+        "의미하지 않습니다."
+    )
+
+    def render_hs_controls() -> None:
+        with st.expander("품목별 통계 조회 (선택)", expanded=False):
+            st.caption(
+                "신고·계약 자료에서 직접 확인한 HS Code만 입력하세요. "
+                "상품명으로 HS Code를 자동 추정하지 않습니다."
+            )
+            hs_code = st.text_input(
+                "확인한 HS Code",
+                key="trade_statistics_hs_code_widget",
+                max_chars=10,
+                placeholder="2·4·6·10자리 숫자",
+            ).strip()
+            confirmed = st.checkbox(
+                "이 HS Code를 원자료에서 직접 확인했습니다",
+                key="trade_statistics_hs_confirmed_widget",
+            )
+            action_label = (
+                "확인한 HS Code로 통계 조회"
+                if hs_code
+                else "국가 전체 통계로 조회"
+            )
+            if st.button(
+                action_label,
+                key="trade_statistics_apply_hs_widget",
+                type="secondary",
+                use_container_width=True,
+            ):
+                if hs_code and not confirmed:
+                    st.warning(
+                        "품목별 통계를 조회하려면 HS Code를 원자료에서 "
+                        "확인했다는 항목을 체크하세요."
+                    )
+                    return
+                if confirmed and not hs_code:
+                    st.warning("확인한 HS Code를 입력해 주세요.")
+                    return
+                workflow = _workflow_from_state()
+                if workflow is None or workflow.confirmed_transaction is None:
+                    st.warning(
+                        "거래를 먼저 확정해야 무역통계를 조회할 수 있습니다."
+                    )
+                    return
+                try:
+                    build_trade_statistics_request(
+                        confirmed_transaction=(
+                            workflow.confirmed_transaction
+                        ),
+                        source_preference=(
+                            _trade_statistics_source_preference()
+                        ),
+                        hs_code=hs_code or None,
+                        hs_code_confirmed=bool(confirmed and hs_code),
+                        snapshot_version=(
+                            settings.trade_statistics_snapshot_version
+                        ),
+                    )
+                except TradeStatisticsRequestError as exc:
+                    st.warning(exc.user_message)
+                    return
+                updated, _ = _ensure_trade_statistics(workflow)
+                _save_workflow(updated)
+                st.rerun()
+
+    if result is None:
+        error = st.session_state.get("trade_statistics_error")
+        if isinstance(error, dict):
+            st.info(
+                str(
+                    error.get(
+                        "user_message",
+                        "무역통계를 조회할 거래정보를 확인해 주세요.",
+                    )
+                )
+            )
+            with st.expander("출처 및 기술정보", expanded=False):
+                st.caption(
+                    "status={} · error_code={} · input_fingerprint={}".format(
+                        error.get("status", "VALIDATION_FAILED"),
+                        error.get("error_code", "VALIDATION_FAILED"),
+                        error.get(
+                            "confirmed_transaction_fingerprint",
+                            "NOT_AVAILABLE",
+                        ),
+                    )
+                )
+        else:
+            st.caption("확정 거래를 기준으로 무역통계를 준비합니다.")
+        st.caption(boundary)
+        render_hs_controls()
+        return
+    if result.summary is None or result.snapshot is None:
+        st.info(result.user_message)
+        st.caption("현재 환율·현금흐름 계산에는 영향을 주지 않습니다.")
+        st.caption(boundary)
+        with st.expander("출처 및 기술정보", expanded=False):
+            st.caption(
+                "status={} · error_code={} · provider={} · period={}~{}"
+                .format(
+                    result.status,
+                    result.error_code or "NONE",
+                    result.request.provider,
+                    result.request.period_start,
+                    result.request.period_end,
+                )
+            )
+            st.caption(
+                "request_fingerprint={}".format(
+                    result.request_fingerprint
+                )
+            )
+        render_hs_controls()
+        return
+    summary = result.summary
+    snapshot = result.snapshot
+    reporter = _country_display(summary.reporter_country)
+    partner = _country_display(summary.partner_country)
+    status_label = (
+        "공식 fixture · API-free 데모"
+        if result.status == "OFFICIAL_FIXTURE"
+        else "관세청 OpenAPI live"
+    )
+    st.markdown(
+        "#### {}–{} 교역 동향".format(
+            COUNTRY_DISPLAY_NAMES.get(
+                summary.reporter_country,
+                summary.reporter_country,
+            ),
+            COUNTRY_DISPLAY_NAMES.get(
+                summary.partner_country,
+                summary.partner_country,
+            ),
+        )
+    )
+    st.caption(
+        "{} · {} · 관측 {}~{} · 최신 {}".format(
+            "국가 전체 교역"
+            if summary.scope == "COUNTRY_TOTAL"
+            else "확인된 HS {}단위 품목".format(summary.hs_level),
+            status_label,
+            summary.observation_start,
+            summary.observation_end,
+            summary.latest_period,
+        )
+    )
+
+    def metric_money(value: Optional[str]) -> str:
+        return (
+            "USD {:,.0f}".format(Decimal(value))
+            if value is not None
+            else "비교 불가"
+        )
+
+    def comparison_text(value: Optional[str], status: str) -> str:
+        if value is not None:
+            return "직전 12개월 대비 {:+,.1f}%".format(Decimal(value))
+        return {
+            "PREVIOUS_ZERO": "비교 불가 · 기준기간 값 0",
+            "MISSING_MONTHS": "비교 불가 · 누락월 있음",
+            "INSUFFICIENT_HISTORY": "비교 불가 · 기간 부족",
+        }.get(status, "비교 불가")
+
+    metrics = st.columns(3)
+    metrics[0].metric(
+        "{}의 대{} 수출 · 최근 12개월".format(reporter, partner),
+        metric_money(summary.latest_12m_export_usd),
+        comparison_text(
+            summary.export_yoy_pct,
+            summary.export_comparison_status,
+        ),
+    )
+    metrics[1].metric(
+        "{}의 대{} 수입 · 최근 12개월".format(reporter, partner),
+        metric_money(summary.latest_12m_import_usd),
+        comparison_text(
+            summary.import_yoy_pct,
+            summary.import_comparison_status,
+        ),
+    )
+    metrics[2].metric(
+        "무역수지 · 최근 12개월",
+        metric_money(summary.latest_12m_balance_usd),
+    )
+    st.write(summary.user_summary)
+    if summary.hs_code is None:
+        st.info(
+            "HS Code 미확인 · 현재 문서에서 확인된 HS Code가 없어 "
+            "국가 전체 교역 통계만 "
+            "제공합니다. 품목별 통계를 사용하려면 신고·계약 자료에서 "
+            "HS Code를 확인하세요."
+        )
+    else:
+        st.caption(
+            "사용자가 확인한 HS Code {} · {}단위 품목 통계".format(
+                summary.hs_code,
+                summary.hs_level,
+            )
+        )
+
+    latest_start = shift_month(summary.latest_period, -11)
+    chart_periods = month_range(latest_start, summary.latest_period)
+    observations = {
+        item.period: item
+        for item in snapshot.observations
+        if latest_start <= item.period <= summary.latest_period
+    }
+    chart_frame = pd.DataFrame(
+        [
+            {
+                "월": period,
+                "한국 수출 (USD)": (
+                    int(Decimal(observations[period].export_value_usd))
+                    if period in observations
+                    else None
+                ),
+                "한국 수입 (USD)": (
+                    int(Decimal(observations[period].import_value_usd))
+                    if period in observations
+                    else None
+                ),
+            }
+            for period in chart_periods
+        ]
+    )
+    st.markdown("#### 최근 월별 수출·수입 추이")
+    st.caption(
+        "단위 USD · 범례로 수출·수입을 구분합니다. 미응답 월은 0으로 "
+        "채우지 않습니다."
+    )
+    st.bar_chart(
+        chart_frame,
+        x="월",
+        y=["한국 수출 (USD)", "한국 수입 (USD)"],
+        x_label="관측월",
+        y_label="USD",
+        color=["#2563eb", "#f59e0b"],
+        stack=False,
+        use_container_width=True,
+        height=320,
+    )
+    if summary.source_refs:
+        reference = summary.source_refs[0]
+        st.markdown(
+            "[{}]({}) · 기준월 {} · 수출 FOB / 수입 CIF · 금액 USD"
+            .format(
+                escape(reference.source_title),
+                escape(reference.official_url),
+                escape(reference.source_as_of),
+            )
+        )
+    st.caption(boundary)
+    with st.expander("출처 및 기술정보", expanded=False):
+        st.caption(
+            "source={} · status={} · snapshot={} · collected_at={}".format(
+                snapshot.source_name,
+                result.status,
+                snapshot.snapshot_id,
+                snapshot.collected_at,
+            )
+        )
+        st.caption(
+            "raw_sha256={} · normalized_sha256={}".format(
+                snapshot.raw_sha256,
+                snapshot.normalized_sha256,
+            )
+        )
+        st.caption(
+            "request_fingerprint={}".format(result.request_fingerprint)
+        )
+        for warning in result.warnings:
+            st.caption("주의 · {}".format(warning))
+        for limitation in summary.limitations:
+            st.caption("한계 · {}".format(limitation))
+    render_hs_controls()
+
+
 def _render_trade_risk_section(
     *,
     document_input: Dict[str, Any],
@@ -2682,6 +3081,7 @@ def _render_trade_risk_section(
                         workflow,
                         country_input,
                     )
+                    workflow, _ = _ensure_trade_statistics(workflow)
                     _save_workflow(workflow)
                 stage1_load = _model_from_state(
                     "stage1_load",
@@ -2715,6 +3115,10 @@ def _render_trade_risk_section(
                         stage2_result=stage2_result,
                         trade_settlement_risk=assessment,
                         country_environment=country_assessment,
+                        trade_statistics=_model_from_state(
+                            "trade_statistics_result",
+                            TradeStatisticsResult,
+                        ),
                         installment_payment_statuses=(
                             _installment_payment_statuses_from_state()
                         ),
@@ -2746,6 +3150,10 @@ def _render_trade_risk_section(
                             stage2_result=stage2_result,
                             trade_settlement_risk=assessment,
                             country_environment=country_assessment,
+                            trade_statistics=_model_from_state(
+                                "trade_statistics_result",
+                                TradeStatisticsResult,
+                            ),
                             official_candidate_shortlist=shortlist,
                             installment_payment_statuses=(
                                 _installment_payment_statuses_from_state()
@@ -3155,6 +3563,18 @@ def _demo_all(company_role: str = "BUYER") -> None:
             result["country_environment_assessment"]
         ),
     )
+    _save_model(
+        "trade_statistics_request",
+        result["trade_statistics_request"],
+    )
+    if result["trade_statistics_result"] is not None:
+        _save_model(
+            "trade_statistics_result",
+            result["trade_statistics_result"],
+        )
+        st.session_state["trade_statistics_trace"] = (
+            trade_statistics_trace(result["trade_statistics_result"])
+        )
     _save_model("risk_assessment", result["risk_assessment"])
     st.session_state["consultation_topics"] = [
         item.model_dump() for item in result["consultation_topics"]
@@ -5778,6 +6198,10 @@ with stage2_tab:
                 _save_model("stage2_result", result)
                 st.session_state.pop("cashflow_error", None)
                 clear_downstream(st.session_state, 3)
+                workflow, trade_statistics = (
+                    _ensure_trade_statistics(workflow)
+                )
+                _save_workflow(workflow)
                 extraction_for_decision = _model_from_state(
                     "extraction",
                     TradeDocumentExtraction,
@@ -5810,6 +6234,7 @@ with stage2_tab:
                         "country_environment_assessment",
                         CountryTradeEnvironmentAssessment,
                     ),
+                    trade_statistics=trade_statistics,
                     installment_payment_statuses=(
                         _installment_payment_statuses_from_state()
                     ),
@@ -6872,6 +7297,10 @@ with stage4_tab:
                     country_environment=_model_from_state(
                         "country_environment_assessment",
                         CountryTradeEnvironmentAssessment,
+                    ),
+                    trade_statistics=_model_from_state(
+                        "trade_statistics_result",
+                        TradeStatisticsResult,
                     ),
                     official_candidate_shortlist=shortlist,
                     installment_payment_statuses=(

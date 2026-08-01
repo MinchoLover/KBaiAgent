@@ -1,5 +1,6 @@
 import json
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any, List, Set, Tuple
 
 from src.domain.report_models import ReportCritique
@@ -40,6 +41,10 @@ COUNTRY_REVIEW_PRIORITY_LABELS = {
     "HIGH_REVIEW": "우선 검토",
     "INSUFFICIENT_INFORMATION": "정보 부족",
 }
+TRADE_STATISTICS_DISPLAY_PERCENT_PATHS = {
+    "consultation.trade_statistics.summary.export_yoy_pct",
+    "consultation.trade_statistics.summary.import_yoy_pct",
+}
 
 
 def _normalized_number(token: str) -> str:
@@ -73,6 +78,22 @@ def _resolve_path(source_bundle: Any, path: str) -> Any:
     return current
 
 
+def _display_numbers_for_path(
+    source_bundle: Any,
+    path: str,
+) -> Set[str]:
+    if path not in TRADE_STATISTICS_DISPLAY_PERCENT_PATHS:
+        return set()
+    try:
+        value = _resolve_path(source_bundle, path)
+        if value is None:
+            return set()
+        rendered = "{:+,.1f}%".format(Decimal(str(value)))
+    except (InvalidOperation, KeyError, TypeError, ValueError):
+        return set()
+    return {_normalized_number(rendered)}
+
+
 def _missing_sections(
     markdown: str,
     source_bundle: Any,
@@ -103,6 +124,13 @@ def _missing_sections(
                 (
                     "국가·무역환경 검토",
                     ("국가·무역환경 검토",),
+                )
+            )
+        if isinstance(consultation.get("trade_statistics"), dict):
+            required.append(
+                (
+                    "거래국 무역 통계",
+                    ("거래국 무역 통계",),
                 )
             )
     return [
@@ -512,6 +540,110 @@ def _risk_boundary_issues(markdown: str) -> List[str]:
     return list(dict.fromkeys(issues))
 
 
+def _trade_statistics_grounding_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    statistics = consultation.get("trade_statistics")
+    section = re.search(
+        r"(?is)##[^\n]*거래국 무역 통계[^\n]*\n"
+        r"(.*?)(?=\n##|\Z)",
+        markdown,
+    )
+    if not isinstance(statistics, dict):
+        if re.search(
+            r"\[source:\s*consultation\.trade_statistics",
+            markdown,
+        ):
+            return ["무역통계 결과가 없는데 해당 근거를 인용했습니다."]
+        return []
+    issues: List[str] = []
+    if (
+        section is None
+        or not any(
+            item.startswith("consultation.trade_statistics")
+            for item in SOURCE_TAG_RE.findall(section.group(1))
+        )
+    ):
+        issues.append("거래국 무역통계 주장에 구조화된 근거가 없습니다.")
+        return issues
+    text = section.group(1)
+    summary = statistics.get("summary")
+    if not isinstance(summary, dict):
+        return issues
+    scope = str(summary.get("scope", ""))
+    expected_scope = (
+        "국가 전체 교역" if scope == "COUNTRY_TOTAL" else "확인된 HS 품목"
+    )
+    if scope in {"COUNTRY_TOTAL", "HS_ITEM"} and expected_scope not in text:
+        issues.append("무역통계 범위가 구조화된 요약과 일치하지 않습니다.")
+    hs_code = summary.get("hs_code")
+    if hs_code is None:
+        if "HS Code가 확인되지 않아" not in text:
+            issues.append("HS Code 미확인 상태가 보고서에 유지되지 않았습니다.")
+    elif str(hs_code) not in text:
+        issues.append("HS Code가 구조화된 무역통계 요약과 일치하지 않습니다.")
+    source_refs = summary.get("source_refs", [])
+    official_urls = {
+        str(item.get("official_url", ""))
+        for item in source_refs
+        if isinstance(item, dict)
+    }
+    for url in URL_RE.findall(text):
+        if url not in official_urls:
+            issues.append("무역통계 URL이 snapshot 공식 출처와 일치하지 않습니다.")
+    return list(dict.fromkeys(issues))
+
+
+def _trade_statistics_policy_boundary_issues(markdown: str) -> List[str]:
+    issues: List[str] = []
+    subject = r"(?:무역통계|교역(?:규모|흐름|증감)|수출입\s*(?:통계|증감))"
+    negation = r"(?:아니|않|금지|의미하지|변경하지|판단하지|예측하지)"
+    for line in markdown.splitlines():
+        if not re.search(subject, line, re.IGNORECASE):
+            continue
+        if re.search(negation, line):
+            continue
+        if re.search(
+            r"(?:부도확률|거래처\s*신용위험|국가\s*위험\s*점수)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append(
+                "무역통계를 거래처·국가 신용위험이나 부도확률로 "
+                "변환했습니다."
+            )
+        if re.search(
+            r"환율.{0,25}(?:상승|하락).{0,18}(?:예측|근거|가능성)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append("무역통계를 환율 방향 예측 근거로 사용했습니다.")
+        if re.search(
+            r"(?:환헤지|헤지).{0,18}(?:비율|비중).{0,18}"
+            r"(?:변경|조정|늘|줄|증가|감소)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append("무역통계로 헤지 비율을 변경했습니다.")
+        if re.search(
+            r"(?:금융상품\s*승인\s*가능성|상담\s*(?:우선)?순위)"
+            r".{0,18}(?:변경|상승|하락|높|낮)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append(
+                "무역통계로 금융상품 승인 가능성이나 상담 순위를 "
+                "변경했습니다."
+            )
+    return list(dict.fromkeys(issues))
+
+
 def _consultation_priority_boundary_issues(
     markdown: str,
     source_bundle: Any,
@@ -905,6 +1037,10 @@ def critique_report(
     recommendation_issues: List[str] = []
     prohibited_claims: List[str] = []
     allowed_numbers = _source_numbers(source_bundle)
+    for path in TRADE_STATISTICS_DISPLAY_PERCENT_PATHS:
+        allowed_numbers.update(
+            _display_numbers_for_path(source_bundle, path)
+        )
     source_tags = SOURCE_TAG_RE.findall(markdown)
 
     for path in source_tags:
@@ -923,6 +1059,9 @@ def critique_report(
             try:
                 line_allowed_numbers.update(
                     _source_numbers(_resolve_path(source_bundle, path))
+                )
+                line_allowed_numbers.update(
+                    _display_numbers_for_path(source_bundle, path)
                 )
             except KeyError:
                 continue
@@ -1034,6 +1173,14 @@ def critique_report(
         evidence_issues.append(issue)
         recommendation_issues.append(issue)
 
+    for issue in _trade_statistics_grounding_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
     for issue in _risk_boundary_issues(markdown):
         issues.append(issue)
         recommendation_issues.append(issue)
@@ -1048,6 +1195,11 @@ def critique_report(
         prohibited_claims.append(issue)
 
     for issue in _country_policy_boundary_issues(markdown):
+        issues.append(issue)
+        recommendation_issues.append(issue)
+        prohibited_claims.append(issue)
+
+    for issue in _trade_statistics_policy_boundary_issues(markdown):
         issues.append(issue)
         recommendation_issues.append(issue)
         prohibited_claims.append(issue)
