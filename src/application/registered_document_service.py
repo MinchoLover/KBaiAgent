@@ -10,6 +10,9 @@ from src.config import Settings
 from src.document_intake.extractor import ExtractionRun
 from src.document_intake.openai_adapter import ExtractionUsage
 from src.document_intake.source_evidence import extract_pdf_page_texts
+from src.document_intake.party_matching import (
+    match_company_role_from_verified_parties,
+)
 from src.security.upload_guard import validate_upload
 from validators import apply_deterministic_review_state
 
@@ -89,12 +92,26 @@ def extract_registered_document(
     raw_extraction = TradeDocumentExtraction.model_validate_json(
         PRESENTATION_EXTRACTION_PATH.read_text(encoding="utf-8")
     )
+    source_page_texts = extract_pdf_page_texts(file_bytes)
     extraction, validation = apply_deterministic_review_state(
         raw_extraction,
         company_role=company_role,
         company_country=company_country,
-        source_page_texts=extract_pdf_page_texts(file_bytes),
+        source_page_texts=source_page_texts,
     )
+    role_match = match_company_role_from_verified_parties(
+        extraction,
+        company_country,
+    )
+    auto_matched_role = None
+    if role_match is not None and role_match.role != company_role:
+        extraction, validation = apply_deterministic_review_state(
+            raw_extraction,
+            company_role=role_match.role,
+            company_country=company_country,
+            source_page_texts=source_page_texts,
+        )
+        auto_matched_role = role_match.role
     return ExtractionRun(
         raw_extraction=raw_extraction,
         extraction=extraction,
@@ -110,4 +127,5 @@ def extract_registered_document(
             total_tokens=0,
             attempts=1,
         ),
+        auto_matched_company_role=auto_matched_role,
     )

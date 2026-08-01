@@ -70,6 +70,30 @@ class ConfirmedTransactionProductionTests(unittest.TestCase):
         self.assertEqual(result.extraction.amount_due, "100000.00")
         self.assertFalse(result.validation.stage2_allowed)
 
+    def test_registered_document_corrects_wrong_default_role_from_source(self):
+        registered = presentation_document()
+        result = extract_registered_document(
+            file_bytes=registered.file_bytes,
+            filename=registered.filename,
+            mime_type=registered.mime_type,
+            company_role="BUYER",
+            company_country="KR",
+            settings=Settings(
+                app_env="presentation",
+                openai_api_key=None,
+                enable_live_document_extraction=False,
+            ),
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.auto_matched_company_role, "SELLER")
+        self.assertEqual(result.extraction.company_role, "SELLER")
+        self.assertEqual(result.extraction.trade_type, "EXPORT")
+        self.assertNotIn(
+            "COMPANY_COUNTRY_ROLE_MISMATCH",
+            {item.code for item in result.validation.issues},
+        )
+
     def test_registered_document_is_available_only_in_demo_boundaries(self):
         registered = presentation_document()
         development_result = extract_registered_document(

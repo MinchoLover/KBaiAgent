@@ -34,6 +34,7 @@ PIPELINE_KEYS = (
     "report_result",
     "workflow_state",
     "review_audit_trail",
+    "party_role_auto_match_notice",
 )
 
 REVIEW_WIDGET_KEYS = (

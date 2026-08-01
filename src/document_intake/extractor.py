@@ -10,6 +10,9 @@ from src.document_intake.openai_adapter import (
     OpenAIDocumentAdapter,
 )
 from src.document_intake.normalization import normalize_country_name
+from src.document_intake.party_matching import (
+    match_company_role_from_verified_parties,
+)
 from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.security.upload_guard import (
     UploadMetadata,
@@ -30,6 +33,7 @@ class ExtractionRun:
     validation: ValidationResult
     upload: UploadMetadata
     usage: ExtractionUsage
+    auto_matched_company_role: Optional[str] = None
 
 
 def extract_trade_document_with_metadata(
@@ -87,12 +91,26 @@ def extract_trade_document_with_metadata(
             company_country=company_country,
             source_page_texts=source_page_texts,
         )
+        role_match = match_company_role_from_verified_parties(
+            extraction,
+            normalized_company_country,
+        )
+        auto_matched_role = None
+        if role_match is not None and role_match.role != company_role:
+            extraction, validation = apply_deterministic_review_state(
+                adapter_result.extraction,
+                company_role=role_match.role,
+                company_country=normalized_company_country,
+                source_page_texts=source_page_texts,
+            )
+            auto_matched_role = role_match.role
         return ExtractionRun(
             raw_extraction=adapter_result.extraction,
             extraction=extraction,
             validation=validation,
             upload=upload,
             usage=adapter_result.usage,
+            auto_matched_company_role=auto_matched_role,
         )
     except (UploadValidationError, OpenAIAdapterError) as exc:
         raise ExtractionError(str(exc)) from exc

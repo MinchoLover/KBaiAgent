@@ -4080,6 +4080,18 @@ with stage0_tab:
             validation=existing_validation,
             section="summary",
         )
+        role_match_notice = st.session_state.get(
+            "party_role_auto_match_notice"
+        )
+        if isinstance(role_match_notice, dict):
+            st.caption(
+                "회사 국가 {}와 원문에서 확인된 {} 국가가 일치해 우리 회사 "
+                "역할을 {}로 자동 설정했습니다.".format(
+                    role_match_notice.get("company_country", ""),
+                    role_match_notice.get("party_label", "당사자"),
+                    role_match_notice.get("company_role", ""),
+                )
+            )
         with st.container(key="transaction_confirmation_workspace"):
             confirmation_column, detail_column = st.columns([0.38, 0.62])
             with confirmation_column:
@@ -4228,7 +4240,10 @@ with stage0_tab:
         key="analyze_document",
     ):
         try:
-            _normalized_company_country(company_country)
+            auto_matched_company_role = None
+            normalized_company_country = _normalized_company_country(
+                company_country
+            )
             if run_mode == "LIVE":
                 if not preview_bytes:
                     raise ValueError(
@@ -4271,6 +4286,9 @@ with stage0_tab:
                 extraction = extraction_run.extraction
                 validation = extraction_run.validation
                 original_extraction = extraction_run.raw_extraction
+                auto_matched_company_role = (
+                    extraction_run.auto_matched_company_role
+                )
                 provider_name = extraction_run.usage.model
                 metadata_dict = {
                     "filename": extraction_run.upload.filename,
@@ -4318,6 +4336,27 @@ with stage0_tab:
             _save_model("extraction_original", original_extraction)
             _save_model("extraction_validation", validation)
             st.session_state["upload_metadata"] = metadata_dict
+            if auto_matched_company_role is not None:
+                st.session_state["pending_company_role_widget"] = (
+                    "구매자 · BUYER"
+                    if auto_matched_company_role == "BUYER"
+                    else "판매자 · SELLER"
+                )
+                st.session_state["skip_signature_sync_once"] = True
+                st.session_state["party_role_auto_match_notice"] = {
+                    "company_country": normalized_company_country,
+                    "company_role": auto_matched_company_role,
+                    "party_label": (
+                        "구매자"
+                        if auto_matched_company_role == "BUYER"
+                        else "판매자"
+                    ),
+                }
+            else:
+                st.session_state.pop(
+                    "party_role_auto_match_notice",
+                    None,
+                )
             clear_review_widgets(st.session_state)
             clear_confirmation_and_later(st.session_state)
             _store_intake_workflow(
@@ -4639,6 +4678,10 @@ with stage0_tab:
                 st.session_state["review_audit_trail"] = audit_trail
                 _save_model("extraction", edited)
                 _save_model("extraction_validation", validation)
+                st.session_state.pop(
+                    "party_role_auto_match_notice",
+                    None,
+                )
                 clear_confirmation_and_later(st.session_state)
                 st.session_state["pending_company_role_widget"] = (
                     "구매자 · BUYER"

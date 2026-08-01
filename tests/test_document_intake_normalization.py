@@ -13,6 +13,9 @@ from src.document_intake.normalization import (
     normalize_country_name,
     normalize_date_text,
 )
+from src.document_intake.party_matching import (
+    match_company_role_from_verified_parties,
+)
 from src.document_intake.source_evidence import (
     augment_party_evidence,
     extract_pdf_page_texts,
@@ -189,6 +192,55 @@ class TradeTypeDerivationTests(unittest.TestCase):
             "TRADE_TYPE_OVERRIDE_CONFLICT",
             issue_codes(validation),
         )
+
+
+class CompanyRoleMatchingTests(unittest.TestCase):
+    def test_unique_verified_party_country_matches_buyer(self):
+        extraction, unused_validation = apply_deterministic_review_state(
+            raw_contract(),
+            company_role="BUYER",
+            company_country="KR",
+        )
+
+        match = match_company_role_from_verified_parties(
+            extraction,
+            "KR",
+        )
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match.role, "BUYER")
+        self.assertEqual(match.matched_party, "buyer")
+
+    def test_unique_verified_party_country_matches_seller(self):
+        extraction, unused_validation = apply_deterministic_review_state(
+            raw_contract(),
+            company_role="SELLER",
+            company_country="US",
+        )
+
+        match = match_company_role_from_verified_parties(
+            extraction,
+            "US",
+        )
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match.role, "SELLER")
+        self.assertEqual(match.matched_party, "seller")
+
+    def test_missing_verified_party_country_does_not_guess(self):
+        raw = raw_contract()
+        evidence = [
+            item
+            for item in raw.evidence
+            if item.field != "seller_country"
+        ]
+
+        match = match_company_role_from_verified_parties(
+            raw.model_copy(update={"evidence": evidence}),
+            "KR",
+        )
+
+        self.assertIsNone(match)
 
 
 class EvidenceNormalizationTests(unittest.TestCase):
