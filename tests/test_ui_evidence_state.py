@@ -791,7 +791,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         submit = next(
             button
             for button in app.button
-            if button.label == "결제·회수 위험 확인"
+            if button.label == "대금 회수조건 확인"
         )
         submit.click().run()
 

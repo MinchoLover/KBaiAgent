@@ -1097,6 +1097,23 @@ def _render_financial_overview(
 ) -> None:
     packet = value.packet
     trade_type = packet.company_summary.trade_type
+    if stage2_result is not None:
+        risk_tone, risk_label, risk_headline, risk_detail = _risk_summary(
+            stage2_result
+        )
+        st.markdown("### 분석 종합 결론")
+        st.markdown(
+            "<div class='risk-banner {}'><div class='signal'>{}</div>"
+            "<div><strong>{}</strong><p>입력한 회사 자금과 환율 시나리오를 "
+            "함께 반영한 결과입니다.</p></div>"
+            "<div class='detail'>{}</div></div>".format(
+                risk_tone,
+                escape(risk_label),
+                escape(risk_headline),
+                escape(risk_detail),
+            ),
+            unsafe_allow_html=True,
+        )
     adverse_five = _five_percent_adverse_result(stage2_result)
     if adverse_five is not None:
         scenario_label = _scenario_label(adverse_five.scenario_name)
@@ -1166,9 +1183,9 @@ def _render_financial_overview(
         ("사용자 허용손실",),
     )
     loss_limit_copy = (
-        "허용손실 {} 초과".format(allowed_loss)
+        "감당 가능한 최대 환율손실 {} 초과".format(allowed_loss)
         if loss_limit_exceeded
-        else "허용손실 {} 이내".format(allowed_loss)
+        else "감당 가능한 최대 환율손실 {} 이내".format(allowed_loss)
     )
     target_buffer = _priority_rationale_text(
         value,
@@ -1218,13 +1235,13 @@ def _render_financial_overview(
         "<div class='hero-metric'>{} 시<br>{}<b>{} {}</b></div>"
         "{}<p>{}</p></div>"
         "<div class='impact-card cash' aria-label='스트레스 후 예상 현금 {}; "
-        "목표 버퍼 {}; 버퍼 부족 {}; 현금 적자 {}; "
+        "최소 유지 운영자금 {}; 운영자금 부족 {}; 현금 적자 {}; "
         "지급 또는 post-credit 부족 {}'><div class='metric-heading'>"
-        "<span class='metric-icon'>◇</span><span>현금 방어선</span></div>"
+        "<span class='metric-icon'>◇</span><span>환율 변동 후 운영자금 점검</span></div>"
         "<div class='metric-row'><span>스트레스 후 예상 현금</span>"
         "<b>{}</b></div>"
-        "<div class='metric-row'><span>목표 버퍼</span><b>{}</b></div>"
-        "<div class='metric-row'><span>버퍼 부족</span>"
+        "<div class='metric-row'><span>최소 유지 운영자금</span><b>{}</b></div>"
+        "<div class='metric-row'><span>운영자금 부족</span>"
         "<b class='danger'>{}</b></div>"
         "<div class='metric-row'><span>현금 적자</span><b>{}</b></div>"
         "<div class='metric-row'><span>지급 또는 post-credit 부족</span>"
@@ -1270,7 +1287,7 @@ def _render_financial_overview(
     with st.expander("결과 해석 기준", expanded=False):
         st.caption(SCHEDULED_EXPOSURE_WARNING)
         st.caption(
-            "목표 현금 버퍼 부족은 지급불능 또는 필요 대출금이 아닙니다. "
+            "운영자금 부족은 지급불능 또는 필요 대출금이 아닙니다. "
             "현금 적자와 지급/post-credit 부족을 함께 확인해야 합니다."
         )
 
@@ -1283,47 +1300,127 @@ def _render_financial_evidence(
     risk_assessment: Optional[RiskAssessment],
 ) -> None:
     scenarios = stage1_load.scenario_set
-    with st.expander(
-        "환율 분석 근거 및 데이터 품질",
-        expanded=False,
-    ):
-        st.markdown("#### 환율 가정과 출처")
+    st.markdown("#### 적용한 환율 시나리오")
+    base_scenario = next(
+        (
+            item
+            for item in stage2_result.scenario_results
+            if item.scenario_name == "BASE"
+        ),
+        None,
+    )
+    adverse_scenario = _five_percent_adverse_result(stage2_result)
+    core_scenarios = [
+        ("현재 기준", base_scenario),
+        (
+            "{} · 결과 카드 적용".format(
+                _scenario_label(adverse_scenario.scenario_name)
+                if adverse_scenario is not None
+                else "불리한 시나리오"
+            ),
+            adverse_scenario,
+        ),
+    ]
+    core_rows = [
+        {
+            "시나리오": label,
+            "적용 환율": "{}원".format(
+                format_decimal_display(item.applied_rate, 2)
+            ),
+            "기준 대비 영향": format_krw(item.loss_vs_base),
+            "결제 후 잔고": format_krw(item.ending_cash),
+        }
+        for label, item in core_scenarios
+        if item is not None
+    ]
+    if core_rows:
+        st.dataframe(core_rows, width="stretch", hide_index=True)
+
+    stage2_rows = [
+        {
+            "환율 구간": _scenario_label(item.scenario_name),
+            "적용 환율": "{}원".format(
+                format_decimal_display(item.applied_rate, 2)
+            ),
+            "기준 대비 영향": format_krw(item.loss_vs_base),
+            "결제 후 잔고": format_krw(item.ending_cash),
+            "운영자금 부족": format_krw(
+                item.maximum_buffer_shortfall
+            ),
+            "현금 적자": format_krw(item.cash_deficit),
+            "지급/post-credit 부족": format_krw(
+                item.post_credit_shortfall
+            ),
+        }
+        for item in stage2_result.scenario_results
+    ]
+    with st.expander("전체 환율 시나리오 보기", expanded=False):
         st.caption(
-            "{} · 통화 {} · 결제 예정일 {} · 적용 규칙 {}".format(
+            "±3%, ±5%, ±10% 고정 스트레스와 모델 경로위험 분위수를 "
+            "모두 확인할 수 있습니다."
+        )
+        st.dataframe(stage2_rows, width="stretch", hide_index=True)
+
+    st.markdown("#### 시장 분석 근거")
+    if (
+        market_integration is not None
+        and market_integration.forecast_load is not None
+    ):
+        forecast = market_integration.forecast_load.forecast
+        direction_copy = (
+            "하락"
+            if forecast.direction.label == "USD_KRW_DOWN"
+            else "상승"
+        )
+        st.write(forecast.market_context.summary)
+        st.info(
+            "모델 분석에서는 USD/KRW {} 방향이 우세하게 나타났습니다. "
+            "실제 발생확률이 아닌 시장 방향 참고 결과입니다.".format(
+                direction_copy
+            )
+        )
+        st.caption("뉴스는 계산값을 변경하지 않았습니다.")
+    else:
+        st.caption(
+            "시장 방향 자료 없이 확인된 기준환율과 고정 스트레스 "
+            "시나리오를 적용했습니다."
+        )
+
+    if stage1_load.warnings:
+        st.info(
+            "일부 시장 데이터가 과거 값으로 보완되었습니다. "
+            "환율 계산은 완료됐으며 시장 방향 정보는 참고용입니다."
+        )
+
+    trade_assessment = _model_from_state(
+        "trade_risk_assessment",
+        TradeSettlementRiskAssessment,
+    )
+    if trade_assessment is not None:
+        _render_trade_risk_details(trade_assessment)
+
+    country_assessment = _model_from_state(
+        "country_environment_assessment",
+        CountryTradeEnvironmentAssessment,
+    )
+    if country_assessment is not None:
+        _render_country_environment_section(country_assessment)
+
+    with st.expander("데이터 품질 및 기술정보", expanded=False):
+        st.markdown("#### 환율 데이터와 적용 규칙")
+        st.caption(
+            "source {} · currency {} · target date {} · "
+            "application rule {}".format(
                 stage1_load.source,
                 scenarios.currency,
                 scenarios.target_date,
                 scenarios.application_rule,
             )
         )
-        base_point = next(
-            (item for item in scenarios.scenarios if item.is_base),
-            scenarios.scenarios[0],
-        )
-        base_value = _decimal_or_zero(base_point.rate)
-        scenario_rows = []
-        for item in scenarios.scenarios:
-            item_rate = _decimal_or_zero(item.rate)
-            movement = Decimal("0")
-            if base_value != 0:
-                movement = (
-                    (item_rate / base_value) - Decimal("1")
-                ) * Decimal("100")
-            scenario_rows.append(
-                {
-                    "구간": _scenario_label(item.name),
-                    "적용 환율": "{}원".format(
-                        format_decimal_display(item.rate, 2)
-                    ),
-                    "기준 대비": "{:+.1f}%".format(movement),
-                    "출처 성격": item.source_kind,
-                }
-            )
-        st.dataframe(scenario_rows, width="stretch", hide_index=True)
         if market_integration is not None:
             quote = market_integration.spot_quote
             st.caption(
-                "기준환율 {}원 · rate type {} · source {}".format(
+                "기준환율 {}원 · rate type {} · provider {}".format(
                     format_decimal_display(quote.rate, 2),
                     quote.rate_type,
                     quote.source,
@@ -1332,15 +1429,36 @@ def _render_financial_evidence(
             forecast_load = market_integration.forecast_load
             if forecast_load is not None:
                 forecast = forecast_load.forecast
-                st.write(forecast.market_context.summary)
                 st.caption(
-                    "모델 score는 발생확률이 아니며 q90은 예측분포의 "
-                    "경로위험 분위수입니다. 검색 오류 지역 · {}".format(
-                        ", ".join(forecast.market_context.query_errors)
-                        or "없음"
+                    "UNCALIBRATED_DIRECTION_SCORE · up {} · down {} · "
+                    "calibrated {}".format(
+                        format_ratio(forecast.direction.up_score),
+                        format_ratio(forecast.direction.down_score),
+                        forecast.direction.calibrated_probability,
                     )
                 )
+                model_rows = [
+                    {
+                        "model scenario": item.id,
+                        "direction": item.direction,
+                        "move": format_ratio(str(abs(Decimal(item.move)))),
+                        "rate": "{}원".format(
+                            format_decimal_display(item.rate, 2)
+                        ),
+                        "calculation included": item.included_in_calculation,
+                    }
+                    for item in (
+                        market_integration.scenario_build.model_path_scenarios
+                    )
+                ]
+                if model_rows:
+                    st.dataframe(
+                        model_rows,
+                        width="stretch",
+                        hide_index=True,
+                    )
                 if forecast.market_context.news:
+                    st.markdown("#### 뉴스 원문 분석 데이터")
                     st.dataframe(
                         [
                             {
@@ -1356,31 +1474,19 @@ def _render_financial_evidence(
                         width="stretch",
                         hide_index=True,
                     )
+                st.caption(
+                    "NEWS_QUERY_ERRORS · {}".format(
+                        ", ".join(forecast.market_context.query_errors)
+                        or "없음"
+                    )
+                )
         if stage1_load.warnings:
-            st.markdown("**데이터 품질 경고**")
+            st.markdown("#### 상세 warning code")
             for warning in stage1_load.warnings:
                 st.warning(warning)
 
         st.divider()
         st.markdown("#### 환율 구간별 현금흐름")
-        stage2_rows = [
-            {
-                "환율 구간": _scenario_label(item.scenario_name),
-                "적용 환율": "{}원".format(
-                    format_decimal_display(item.applied_rate, 2)
-                ),
-                "기준 대비 영향": format_krw(item.loss_vs_base),
-                "결제 후 잔고": format_krw(item.ending_cash),
-                "운영자금 부족": format_krw(
-                    item.maximum_buffer_shortfall
-                ),
-                "현금 적자": format_krw(item.cash_deficit),
-                "지급/post-credit 부족": format_krw(
-                    item.post_credit_shortfall
-                ),
-            }
-            for item in stage2_result.scenario_results
-        ]
         st.dataframe(stage2_rows, width="stretch", hide_index=True)
         ledger_rows = []
         for scenario in stage2_result.scenario_results:
@@ -1409,7 +1515,7 @@ def _render_financial_evidence(
                 "FX_COST_RISK": "환율 상승 시 수입 결제비용 증가",
                 "FX_RECEIPT_RISK": "환율 하락 시 수출대금 원화 수취 감소",
                 "LOSS_LIMIT_EXCEEDED": "입력한 손실한도 초과",
-                "LIQUIDITY_BUFFER_RISK": "최소 운영자금 방어선 미달",
+                "LIQUIDITY_BUFFER_RISK": "최소 유지 운영자금 미달",
                 "NEGATIVE_CASH_RISK": "현금 잔고 음수",
                 "PAYMENT_CAPACITY_RISK": "현금·대출한도 반영 후 지급 부족",
                 "TIMING_MISMATCH_RISK": "현금 유입·지급 시점 불일치",
@@ -2273,8 +2379,24 @@ def _render_trade_risk_section(
         demo_inputs=_registered_demo_inputs_from_state(),
     )
 
+    if stored_confirmation is None:
+        with st.container(border=True):
+            st.markdown("#### 대금 회수 정보 확인 필요")
+            st.write(
+                "상담 우선순위를 정하려면 아래 정보를 확인해야 합니다."
+            )
+            st.markdown(
+                "- 신규 거래처 여부\n"
+                "- 잔금 결제방식\n"
+                "- 보호수단 적용 여부"
+            )
+
     with st.expander(
-        "거래·결제조건 확인",
+        (
+            "대금 회수조건 확인"
+            if stored_confirmation is None
+            else "대금 회수조건 수정"
+        ),
         expanded=stored_confirmation is None,
     ):
         st.caption(
@@ -2476,7 +2598,7 @@ def _render_trade_risk_section(
                 key="trade_risk_confirm_widget",
             )
             submitted = st.form_submit_button(
-                "결제·회수 위험 확인",
+                "대금 회수조건 확인",
                 type="primary",
             )
 
@@ -2542,6 +2664,7 @@ def _render_trade_risk_section(
                 )
                 clear_trade_risk_and_related(st.session_state)
                 _save_model("trade_risk_confirmation", record)
+                stored_confirmation = record
                 _save_model("trade_risk_assessment", assessment)
                 _save_model("country_environment_input", country_input)
                 _save_model(
@@ -2636,6 +2759,7 @@ def _render_trade_risk_section(
                         )
                     _save_decision_support(decision_support)
                 st.success("확인된 거래조건으로 결제·회수 위험을 갱신했습니다.")
+                st.rerun()
             except (ValueError, TypeError) as exc:
                 st.error("거래조건을 확인하세요: {}".format(exc))
 
@@ -2644,11 +2768,92 @@ def _render_trade_risk_section(
         TradeSettlementRiskAssessment,
     )
     if assessment is None:
-        st.info(
-            "거래처 관계와 결제·보호조건을 확인하면 환율 위험과 별도로 "
-            "결제·회수 검토 우선도를 보여드립니다."
-        )
         return
+    confirmed_input = (
+        stored_confirmation.confirmed_input
+        if stored_confirmation is not None
+        else None
+    )
+    transaction = transaction_summary(
+        extraction,
+        confirmed_transaction=_model_from_state(
+            "confirmed_transaction",
+            ConfirmedTransactionSnapshot,
+        ),
+        consultation=_model_from_state(
+            "consultation_packet",
+            ConsultationPacketResult,
+        ),
+    )
+    major_installment = transaction.get("major_installment")
+    balance_amount = "확인 필요"
+    if isinstance(major_installment, dict):
+        balance_amount = _format_foreign_ui(
+            major_installment.get("amount") or "0",
+            str(
+                major_installment.get("currency")
+                or transaction.get("currency")
+                or ""
+            ),
+        )
+    payment_labels = {
+        "UNKNOWN": "확인 필요",
+        "NOT_APPLICABLE": "해당 없음",
+        "OPEN_ACCOUNT": "Open Account · 사후송금",
+        "DOCUMENTARY_CREDIT": "신용장 · L/C",
+        "DOCUMENTARY_COLLECTION_DP": "추심 D/P",
+        "DOCUMENTARY_COLLECTION_DA": "추심 D/A",
+        "DOCUMENTARY_COLLECTION_UNSPECIFIED": "추심 · 방식 미확인",
+        "OTHER": "기타",
+    }
+    protection_labels = {
+        "UNKNOWN": "적용 여부 확인 필요",
+        "NONE_CONFIRMED": "없음 확인",
+        "DETAILS_PROVIDED": "보호수단 있음",
+    }
+    need_labels = {
+        "ADVANCE_PAYMENT_PROTECTION_REVIEW": "선지급 보호수단 검토",
+        "RECEIVABLE_PROTECTION_REVIEW": "수출대금 회수 보호 검토",
+        "DOCUMENTARY_CREDIT_TERMS_REVIEW": "신용장 세부조건 검토",
+        "TRADE_TERMS_REVIEW": "결제조건 재확인",
+        "HUMAN_REVIEW": "담당자 확인",
+    }
+    next_action = (
+        " · ".join(
+            need_labels.get(value, "담당자 확인")
+            for value in assessment.review_needs
+        )
+        if assessment.review_needs
+        else "정기적으로 결제조건을 재확인하세요."
+    )
+    with st.container(border=True):
+        st.markdown("#### 대금 회수 조건 확인 완료")
+        summary_columns = st.columns(3)
+        summary_columns[0].metric("잔금", balance_amount)
+        summary_columns[1].metric(
+            "결제방식",
+            payment_labels.get(
+                confirmed_input.balance_payment_method,
+                "확인 필요",
+            )
+            if confirmed_input is not None
+            else "확인 필요",
+        )
+        summary_columns[2].metric(
+            "보호수단",
+            protection_labels.get(
+                confirmed_input.protection_information_status,
+                "확인 필요",
+            )
+            if confirmed_input is not None
+            else "확인 필요",
+        )
+        st.caption("다음 검토 행동 · {}".format(next_action))
+
+
+def _render_trade_risk_details(
+    assessment: TradeSettlementRiskAssessment,
+) -> None:
     tone, label, headline = _trade_risk_priority_copy(assessment)
     risk_name = (
         "수입 선지급·계약이행"
@@ -2656,53 +2861,32 @@ def _render_trade_risk_section(
         == "IMPORT_PREPAYMENT_PERFORMANCE_RISK"
         else "수출대금 회수"
     )
-    st.markdown(
-        "<div class='risk-banner {}'><div class='signal'>{}</div>"
-        "<div><strong>{}</strong><p>{}</p></div>"
-        "<div class='detail'>{}</div></div>".format(
-            tone,
-            escape(label),
-            escape(headline),
-            escape(risk_name),
-            "규칙 기반 사전검토",
-        ),
-        unsafe_allow_html=True,
-    )
-    visible_factors = [
-        item
-        for item in assessment.factors
-        if item.effect in {"RISK_SIGNAL", "INFORMATION_GAP"}
-    ][:3]
-    if visible_factors:
-        st.markdown("**핵심 근거**")
-        for factor in visible_factors:
-            st.markdown("- {}".format(factor.reason))
-    if assessment.review_needs:
-        need_labels = {
-            "ADVANCE_PAYMENT_PROTECTION_REVIEW": "선지급 보호수단 검토",
-            "RECEIVABLE_PROTECTION_REVIEW": "수출대금 회수 보호 검토",
-            "DOCUMENTARY_CREDIT_TERMS_REVIEW": "신용장 세부조건 검토",
-            "TRADE_TERMS_REVIEW": "결제조건 재확인",
-            "HUMAN_REVIEW": "담당자 확인",
-        }
-        st.caption(
-            "다음 검토: {}".format(
-                " · ".join(
-                    need_labels[value]
-                    for value in assessment.review_needs
-                )
-            )
+    with st.expander("대금 회수 위험 상세", expanded=False):
+        st.markdown(
+            "<div class='risk-banner {}'><div class='signal'>{}</div>"
+            "<div><strong>{}</strong><p>{}</p></div>"
+            "<div class='detail'>{}</div></div>".format(
+                tone,
+                escape(label),
+                escape(headline),
+                escape(risk_name),
+                "규칙 기반 사전검토",
+            ),
+            unsafe_allow_html=True,
         )
-    st.caption(
-        "공식 신용등급이나 승인 결과가 아니며, 환헤지 비율과 "
-        "유동성 계산을 직접 변경하지 않습니다."
-    )
-    country_assessment = _model_from_state(
-        "country_environment_assessment",
-        CountryTradeEnvironmentAssessment,
-    )
-    if country_assessment is not None:
-        _render_country_environment_section(country_assessment)
+        visible_factors = [
+            item
+            for item in assessment.factors
+            if item.effect in {"RISK_SIGNAL", "INFORMATION_GAP"}
+        ]
+        if visible_factors:
+            st.markdown("**검토 근거**")
+            for factor in visible_factors:
+                st.markdown("- {}".format(factor.reason))
+        st.caption(
+            "공식 신용등급이나 승인 결과가 아니며, 환헤지 비율과 "
+            "유동성 계산을 직접 변경하지 않습니다."
+        )
 
 
 def _scenario_label(value: str) -> str:
@@ -2767,16 +2951,16 @@ def _risk_summary(
             "대출한도 반영 후에도 최대 {} 부족할 수 있습니다.".format(
                 format_krw(highest_credit_gap)
             ),
-            "첫 운영자금 방어선 이탈: {}".format(first_gap),
+            "첫 최소 유지 운영자금 미달: {}".format(first_gap),
         )
     if highest_buffer_gap > 0:
         return (
             "warning",
             "운영자금 주의",
-            "최악 가정에서 운영자금 방어선이 최대 {} 부족합니다.".format(
+            "최악 가정에서 최소 유지 운영자금이 최대 {} 부족합니다.".format(
                 format_krw(highest_buffer_gap)
             ),
-            "첫 운영자금 방어선 이탈: {}".format(first_gap),
+            "첫 최소 유지 운영자금 미달: {}".format(first_gap),
         )
     if any(item.acceptable_loss_exceeded for item in scenarios):
         return (
@@ -2788,7 +2972,7 @@ def _risk_summary(
     return (
         "safe",
         "방어선 유지",
-        "현재 입력에서는 모든 환율 가정에서 운영자금 방어선을 지킵니다.",
+        "현재 입력에서는 모든 환율 가정에서 최소 유지 운영자금을 지킵니다.",
         "대출한도 반영 후 추가 부족액 0원",
     )
 
@@ -5038,41 +5222,6 @@ with stage1_tab:
         "consultation_packet",
         ConsultationPacketResult,
     )
-    if risk_overview is not None:
-        evidence_stage2 = _model_from_state(
-            "stage2_result",
-            Stage2Result,
-        )
-        _render_financial_overview(
-            risk_overview,
-            stage2_result=evidence_stage2,
-        )
-        evidence_stage1 = _model_from_state(
-            "stage1_load",
-            Stage1LoadResult,
-        )
-        if evidence_stage1 is not None and evidence_stage2 is not None:
-            _render_financial_evidence(
-                stage1_load=evidence_stage1,
-                stage2_result=evidence_stage2,
-                market_integration=_model_from_state(
-                    "market_integration",
-                    MarketIntegrationResult,
-                ),
-                risk_assessment=_model_from_state(
-                    "risk_assessment",
-                    RiskAssessment,
-                ),
-            )
-        st.button(
-            "상담 준비로 계속",
-            type="primary",
-            key="go_to_consultation_from_summary",
-            on_click=set_active_page,
-            args=(PAGE_CONSULTATION,),
-            width="stretch",
-        )
-        st.divider()
     document_input = st.session_state.get("stage2_document_input")
     if document_input is None:
         st.markdown(
@@ -5084,6 +5233,15 @@ with stage1_tab:
         )
     else:
         trade = document_input["trade"]
+        extraction_for_trade_risk = _model_from_state(
+            "extraction",
+            TradeDocumentExtraction,
+        )
+        if extraction_for_trade_risk is not None:
+            _render_trade_risk_section(
+                document_input=document_input,
+                extraction=extraction_for_trade_risk,
+            )
         target_date = ""
         try:
             target_date = confirmed_analysis_due_date_from_document_input(
@@ -5136,11 +5294,11 @@ with stage1_tab:
             )
         elif scenario_mode == "WEB_FORECAST" and spot_provider == "fixture":
             scenario_settings.warning(
-                "1,400원은 가상 데모 fixture이며 현재 시장환율이 아닙니다."
+                "1,400원은 데모 기준값이며 현재 시장환율이 아닙니다."
             )
         scenario_settings.caption(
-            "provider·fixture·file·fallback 설정은 sidebar의 "
-            "‘분석 환경 및 고급 설정’에서 관리합니다."
+            "확인한 기준환율을 바탕으로 결제일까지의 환율 변동 범위를 "
+            "준비합니다."
         )
         st.caption(
             "현재 기준환율 · 1 {} = {}원".format(
@@ -5148,7 +5306,7 @@ with stage1_tab:
                 format_decimal_display(base_rate, 2),
             )
         )
-        if st.button(
+        if scenario_settings.button(
             "환율 위험 범위 준비하기",
             type="primary",
             key="load_stage1",
@@ -5212,174 +5370,8 @@ with stage1_tab:
             "stage1_load",
             Stage1LoadResult,
         )
-        market_integration = _model_from_state(
-            "market_integration",
-            MarketIntegrationResult,
-        )
         if stage1_load is not None and risk_overview is None:
             scenarios = stage1_load.scenario_set
-            source_copy = (
-                "AI 경로위험 + 고정 스트레스"
-                if market_integration is not None
-                else "외부 전망"
-                if scenarios.kind == "FORECAST"
-                else "스트레스 테스트 · 예측 아님"
-            )
-            st.markdown(
-                "<div class='state-banner'><span class='state-icon'>✓</span>"
-                "<div><strong>환율 가정 준비 완료</strong>"
-                "<p>{} · 결제 예정일 {} 기준</p></div></div>".format(
-                    source_copy,
-                    escape(scenarios.target_date),
-                ),
-                unsafe_allow_html=True,
-            )
-            stage1_details = st.expander(
-                "환율 구간과 시장 분석 근거 보기",
-                expanded=False,
-            )
-            if market_integration is not None:
-                quote = market_integration.spot_quote
-                integration_cols = stage1_details.columns(4)
-                integration_cols[0].metric(
-                    "경로 분석 연결",
-                    (
-                        market_integration.forecast_load.source
-                        if market_integration.forecast_load is not None
-                        else "고정 스트레스만"
-                    ),
-                )
-                integration_cols[1].metric(
-                    "확인된 기준환율",
-                    "{}원".format(
-                        format_decimal_display(quote.rate, 2)
-                    ),
-                )
-                integration_cols[2].metric(
-                    "환율 출처",
-                    quote.rate_type,
-                )
-                integration_cols[3].metric(
-                    "모델 적용 범위",
-                    (
-                        "초기 21일 문맥만"
-                        if market_integration.scenario_build.horizon_mismatch
-                        else "결제기간 내 21일"
-                    ),
-                )
-                forecast_load = market_integration.forecast_load
-                if forecast_load is not None:
-                    forecast = forecast_load.forecast
-                    stage1_details.markdown("#### 모델 기반 21일 경로위험")
-                    direction_cols = stage1_details.columns(4)
-                    direction_cols[0].metric(
-                        "방향 문맥",
-                        (
-                            "USD/KRW 하락 우세"
-                            if forecast.direction.label == "USD_KRW_DOWN"
-                            else "USD/KRW 상승 우세"
-                        ),
-                    )
-                    direction_cols[1].metric(
-                        "상승 score",
-                        format_ratio(forecast.direction.up_score),
-                    )
-                    direction_cols[2].metric(
-                        "하락 score",
-                        format_ratio(forecast.direction.down_score),
-                    )
-                    direction_cols[3].metric(
-                        "확률 보정",
-                        (
-                            "보정됨"
-                            if forecast.direction.calibrated_probability
-                            else "보정되지 않음"
-                        ),
-                    )
-                    stage1_details.caption(
-                        "상승·하락 값은 v25 모델 score이며 보정된 실제 "
-                        "발생확률이 아닙니다. 기대손실 가중치에 사용하지 않습니다."
-                    )
-                    adverse_direction = (
-                        "UP"
-                        if trade["trade_type"] == "IMPORT"
-                        else "DOWN"
-                    )
-                    model_rows = []
-                    for item in (
-                        market_integration.scenario_build.model_path_scenarios
-                    ):
-                        model_rows.append(
-                            {
-                                "기업 위험 방향": (
-                                    "불리한 방향"
-                                    if item.direction == adverse_direction
-                                    else "반대 방향 참고"
-                                ),
-                                "경로위험 분위수": item.id,
-                                "상대 변동": format_ratio(
-                                    str(abs(Decimal(item.move)))
-                                ),
-                                "절대 환율": "{}원".format(
-                                    format_decimal_display(item.rate, 2)
-                                ),
-                                "결제 계산": (
-                                    "포함"
-                                    if item.included_in_calculation
-                                    else "제외 · 초기 21일 문맥만"
-                                ),
-                            }
-                        )
-                    stage1_details.dataframe(
-                        model_rows,
-                        width="stretch",
-                        hide_index=True,
-                    )
-                    stage1_details.info(
-                        "q90은 ‘90% 확률로 발생’이 아니라 모델 "
-                        "예측분포의 상위 경로위험 분위수입니다."
-                    )
-
-                    stage1_details.markdown("#### 뉴스 기반 시장 문맥")
-                    stage1_details.write(forecast.market_context.summary)
-                    stage1_details.caption(
-                        "뉴스는 환율 숫자를 변경하지 않았습니다 · 중복 기사 "
-                        "{}건 제거 · 검색 오류 지역 {}".format(
-                            forecast.market_context.duplicate_news_removed,
-                            ", ".join(
-                                forecast.market_context.query_errors
-                            )
-                            or "없음",
-                        )
-                    )
-                    if forecast.market_context.news:
-                        news_rows = [
-                            {
-                                "지역": item.region,
-                                "범주": item.category,
-                                "요약": item.summary,
-                                "분석 신뢰": format_ratio(
-                                    item.analysis_confidence
-                                ),
-                            }
-                            for item in forecast.market_context.news
-                        ]
-                        stage1_details.dataframe(
-                            news_rows,
-                            width="stretch",
-                            hide_index=True,
-                        )
-                if market_integration.scenario_build.horizon_mismatch:
-                    stage1_details.warning(
-                        "HORIZON_MISMATCH · 결제일이 Stage 1의 21거래일 "
-                        "검증범위 밖입니다. 모델 환율은 계산에서 제외하고 "
-                        "±3/5/10% 고정 스트레스만 적용했습니다."
-                    )
-                stage1_details.markdown("#### 고정 스트레스 테스트")
-                stage1_details.caption(
-                    "아래 구간은 미래 예측이 아니라 전체 결제기간의 "
-                    "지급·수취 능력을 확인하는 결정론적 가정입니다."
-                )
             base_point = next(
                 (
                     item
@@ -5388,62 +5380,45 @@ with stage1_tab:
                 ),
                 scenarios.scenarios[0],
             )
-            base_value = _decimal_or_zero(base_point.rate)
-            scenario_rows = []
-            for item in scenarios.scenarios:
-                item_rate = _decimal_or_zero(item.rate)
-                movement = Decimal("0")
-                if base_value != 0:
-                    movement = (
-                        (item_rate / base_value) - Decimal("1")
-                    ) * Decimal("100")
-                scenario_rows.append(
-                    {
-                        "구간": _scenario_label(item.name),
-                        "적용 환율": "{}원".format(
-                            format_decimal_display(item.rate, 2)
-                        ),
-                        "기준 대비": "{:+.1f}%".format(movement),
-                        "성격": (
-                            "기준"
-                            if item.is_base
-                            else "모델 경로위험 분위수"
-                            if item.source_kind
-                            == "STAGE1_MODEL_QUANTILE"
-                            else "외부 전망"
-                            if scenarios.kind == "FORECAST"
-                            else "고정 스트레스 가정"
-                        ),
-                    }
-                )
-            stage1_details.dataframe(
-                scenario_rows,
-                width="stretch",
-                hide_index=True,
+            adverse_label = (
+                "환율 5%"
+                if trade["trade_type"] == "IMPORT"
+                else "환율 -5%"
             )
-            if stage1_load.warnings:
-                stage1_details.markdown("#### 데이터 품질·적용 경고")
-                for warning in stage1_load.warnings:
-                    stage1_details.warning(warning)
-            with st.expander("고급 · 환율 데이터 및 적용 규칙", expanded=False):
-                st.caption(
-                    "{} · 적용 규칙: {} · 확률값 유효={}".format(
-                        stage1_load.source,
-                        scenarios.application_rule,
-                        (
-                            "예"
-                            if scenarios.probability_valid
-                            else "아니오"
-                        ),
+            adverse_point = next(
+                (
+                    item
+                    for item in scenarios.scenarios
+                    if _scenario_label(item.name) == adverse_label
+                ),
+                None,
+            )
+            assumption_columns = st.columns(3)
+            assumption_columns[0].metric(
+                "적용 기준환율",
+                "{}원".format(
+                    format_decimal_display(base_point.rate, 2)
+                ),
+            )
+            assumption_columns[1].metric(
+                "결제 예정일",
+                scenarios.target_date,
+            )
+            assumption_columns[2].metric(
+                "불리한 환율 가정",
+                (
+                    "{} · {}원".format(
+                        adverse_label,
+                        format_decimal_display(adverse_point.rate, 2),
                     )
-                )
-                _advanced_downloads_title()
-                json_download(
-                    label="정규화 환율 시나리오 JSON",
-                    value=scenarios,
-                    filename="stage1_normalized.json",
-                    key="download_stage1",
-                )
+                    if adverse_point is not None
+                    else "계산 시나리오 확인 필요"
+                ),
+            )
+            st.caption(
+                "시장 상세·전체 시나리오·데이터 품질은 계산 결과 아래에서 "
+                "확인할 수 있습니다."
+            )
 
 with stage2_tab:
     stage1_load = _model_from_state("stage1_load", Stage1LoadResult)
@@ -5457,18 +5432,10 @@ with stage2_tab:
         )
         st.markdown("### 회사 자금 입력")
         st.caption(
-            "현재 현금과 운영자금 방어선을 입력하면 환율이 불리해질 때의 "
+            "현재 사용할 수 있는 원화와 최소 유지 운영자금을 입력하면 "
+            "환율이 불리해질 때의 "
             "추가 부담과 실제 지급 부족 여부를 계산합니다."
         )
-        extraction_for_trade_risk = _model_from_state(
-            "extraction",
-            TradeDocumentExtraction,
-        )
-        if extraction_for_trade_risk is not None:
-            _render_trade_risk_section(
-                document_input=document_input,
-                extraction=extraction_for_trade_risk,
-            )
         trade = document_input["trade"]
         confirmed_analysis_due_date = ""
         try:
@@ -5502,32 +5469,72 @@ with stage2_tab:
                 confirmed_analysis_due_date or "확인 필요",
             )
         )
-        with st.form("stage2_company_input"):
-            st.markdown("#### 회사의 자금 방어선")
+        if risk_overview is not None and stored_stage2_input is not None:
+            with st.container(border=True):
+                st.markdown("#### 입력한 회사 자금")
+                input_summary_columns = st.columns(4)
+                input_summary_columns[0].metric(
+                    "현재 사용할 수 있는 원화",
+                    format_krw(stored_stage2_input.current_krw_cash),
+                )
+                input_summary_columns[1].metric(
+                    "최소 유지 운영자금",
+                    format_krw(stored_stage2_input.minimum_cash_buffer),
+                )
+                input_summary_columns[2].metric(
+                    "사용 가능한 대출한도",
+                    format_krw(stored_stage2_input.credit_limit),
+                )
+                input_summary_columns[3].metric(
+                    "감당 가능한 최대 환율손실",
+                    format_krw(stored_stage2_input.acceptable_fx_loss),
+                )
+        company_input_panel = st.expander(
+            (
+                "입력 수정"
+                if risk_overview is not None
+                else "필수 입력 · 회사 자금"
+            ),
+            expanded=risk_overview is None,
+        )
+        with company_input_panel.form("stage2_company_input"):
+            st.markdown("#### 환율 변동 후 운영자금 점검")
             st.caption(
                 "현재 쓸 수 있는 원화와 어떤 상황에서도 남겨야 하는 운영자금을 입력하세요."
             )
             cash_cols = st.columns(4)
             current_cash = cash_cols[0].text_input(
-                "현재 원화 현금",
-                value=form_defaults["current_cash"],
+                "현재 사용할 수 있는 원화 · 원",
+                value=format_decimal_display(
+                    form_defaults["current_cash"],
+                    2,
+                ),
                 help="오늘 기준으로 실제 사용할 수 있는 원화 현금",
                 key="stage2_current_cash_widget",
             )
             minimum_buffer = cash_cols[1].text_input(
-                "반드시 남길 운영자금",
-                value=form_defaults["minimum_buffer"],
+                "최소 유지 운영자금 · 원",
+                value=format_decimal_display(
+                    form_defaults["minimum_buffer"],
+                    2,
+                ),
                 help="급여·임차료 등 운영을 위해 지켜야 하는 최소 현금",
                 key="stage2_minimum_buffer_widget",
             )
             credit_limit = cash_cols[2].text_input(
-                "사용 가능한 대출한도",
-                value=form_defaults["credit_limit"],
+                "사용 가능한 대출한도 · 원",
+                value=format_decimal_display(
+                    form_defaults["credit_limit"],
+                    2,
+                ),
                 key="stage2_credit_limit_widget",
             )
             acceptable_loss = cash_cols[3].text_input(
-                "허용 가능한 환율 추가부담",
-                value=form_defaults["acceptable_loss"],
+                "감당 가능한 최대 환율손실 · 원",
+                value=format_decimal_display(
+                    form_defaults["acceptable_loss"],
+                    2,
+                ),
                 key="stage2_acceptable_loss_widget",
             )
             additional_funds = st.expander(
@@ -5586,7 +5593,7 @@ with stage2_tab:
             )
             natural_cols = additional_funds.columns(3)
             same_flow_amount = natural_cols[0].text_input(
-                "예정 외화금액",
+                "예정 외화금액 · {}".format(trade["currency"]),
                 value=form_defaults["same_flow_amount"],
                 key="stage2_same_flow_amount_widget",
             )
@@ -5617,7 +5624,7 @@ with stage2_tab:
             additional_funds.markdown("#### 기존 환율 고정·은행 비용")
             hedge_cols = additional_funds.columns(3)
             hedge_amount = hedge_cols[0].text_input(
-                "기존 헤지 외화금액",
+                "기존 헤지 외화금액 · {}".format(trade["currency"]),
                 value=form_defaults["hedge_amount"],
                 key="stage2_hedge_amount_widget",
             )
@@ -5627,7 +5634,7 @@ with stage2_tab:
                 key="stage2_locked_rate_widget",
             )
             hedge_fee = hedge_cols[2].text_input(
-                "기존 헤지 수수료",
+                "기존 헤지 수수료 · 원",
                 value=form_defaults["hedge_fee"],
                 key="stage2_hedge_fee_widget",
             )
@@ -5638,7 +5645,7 @@ with stage2_tab:
                 key="stage2_bank_spread_widget",
             )
             bank_fee = fee_cols[1].text_input(
-                "거래별 은행 수수료",
+                "거래별 은행 수수료 · 원",
                 value=form_defaults["bank_fee"],
                 key="stage2_bank_fee_widget",
             )
@@ -5675,7 +5682,7 @@ with stage2_tab:
                         options=["REVENUE", "COST", "OTHER"],
                     ),
                     "date": "날짜",
-                    "amount": "금액",
+                    "amount": "금액 · 원",
                     "description": "설명",
                 },
                 key="krw_cashflow_editor",
@@ -5851,6 +5858,32 @@ with stage2_tab:
             _render_cashflow_error(stored_cashflow_error)
 
         stage2_result = _model_from_state("stage2_result", Stage2Result)
+        if stage2_result is not None and risk_overview is not None:
+            st.divider()
+            _render_financial_overview(
+                risk_overview,
+                stage2_result=stage2_result,
+            )
+            st.button(
+                "상담 준비로 계속",
+                type="primary",
+                key="go_to_consultation_from_summary",
+                on_click=set_active_page,
+                args=(PAGE_CONSULTATION,),
+                width="stretch",
+            )
+            _render_financial_evidence(
+                stage1_load=stage1_load,
+                stage2_result=stage2_result,
+                market_integration=_model_from_state(
+                    "market_integration",
+                    MarketIntegrationResult,
+                ),
+                risk_assessment=_model_from_state(
+                    "risk_assessment",
+                    RiskAssessment,
+                ),
+            )
         if stage2_result is not None and risk_overview is None:
             (
                 risk_tone,
@@ -5930,7 +5963,7 @@ with stage2_tab:
             )
             if highest_buffer_gap > 0:
                 st.caption(
-                    "운영자금 방어선 대비 최대 부족 · {}".format(
+                    "최소 유지 운영자금 대비 최대 부족 · {}".format(
                         format_krw(highest_buffer_gap)
                     )
                 )
@@ -6005,7 +6038,7 @@ with stage2_tab:
                 )
                 calculation_details.line_chart(ledger_frame)
                 calculation_details.caption(
-                    "선이 운영자금 방어선 아래로 내려가는 시점이 있는지 확인하세요."
+                    "선이 최소 유지 운영자금 아래로 내려가는 시점이 있는지 확인하세요."
                 )
             if stage2_result.warnings:
                 for warning in stage2_result.warnings:
@@ -6034,7 +6067,7 @@ with stage2_tab:
                     "FX_COST_RISK": "환율 상승 시 수입 결제비용 증가",
                     "FX_RECEIPT_RISK": "환율 하락 시 수출대금 원화 수취 감소",
                     "LOSS_LIMIT_EXCEEDED": "입력한 손실한도 초과",
-                    "LIQUIDITY_BUFFER_RISK": "최소 운영자금 방어선 미달",
+                    "LIQUIDITY_BUFFER_RISK": "최소 유지 운영자금 미달",
                     "NEGATIVE_CASH_RISK": "현금 잔고 음수",
                     "PAYMENT_CAPACITY_RISK": "현금·대출한도 반영 후 지급 부족",
                     "TIMING_MISMATCH_RISK": "현금 유입·지급 시점 불일치",
@@ -6131,7 +6164,7 @@ with stage2_tab:
                         topic_basis = (
                             ", ".join(topic.triggered_by)
                             if topic.triggered_by
-                            else "거래·결제조건 확인"
+                            else "대금 회수 조건 확인"
                             if topic.trade_risk_review_needs
                             else "정기 점검"
                         )

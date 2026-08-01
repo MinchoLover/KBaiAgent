@@ -325,17 +325,17 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             app.button,
             (
                 "FormSubmitter:trade_risk_confirmation_form-"
-                "결제·회수 위험 확인"
+                "대금 회수조건 확인"
             ),
         ).click().run(timeout=30)
 
     @staticmethod
     def _run_golden_cashflow(app):
         expected_text_defaults = {
-            "stage2_current_cash_widget": "20000000.00",
-            "stage2_minimum_buffer_widget": "10000000.00",
+            "stage2_current_cash_widget": "20,000,000.00",
+            "stage2_minimum_buffer_widget": "10,000,000.00",
             "stage2_credit_limit_widget": "0.00",
-            "stage2_acceptable_loss_widget": "5000000.00",
+            "stage2_acceptable_loss_widget": "5,000,000.00",
             "stage2_usable_fx_widget": "0.00",
             "stage2_bank_spread_widget": "0",
             "stage2_bank_fee_widget": "0.00",
@@ -476,10 +476,10 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 "140,000,000원",
                 "환율 -5% 원화 수취액",
                 "133,000,000원",
-                "허용손실 5,000,000원 초과",
+                "감당 가능한 최대 환율손실 5,000,000원 초과",
                 "스트레스 후 예상 현금 8,000,000원",
-                "목표 버퍼 10,000,000원",
-                "버퍼 부족 2,000,000원",
+                "최소 유지 운영자금 10,000,000원",
+                "운영자금 부족 2,000,000원",
                 "현금 적자 0원",
                 "지급 또는 post-credit 부족 0원",
                 "USD 80,000",
