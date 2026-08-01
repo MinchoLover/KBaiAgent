@@ -436,6 +436,38 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] details[open] summar
   font-size: 1.12rem;
 }
 
+.transaction-summary-heading {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.validation-status-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0.32rem 0.65rem;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.st-key-transaction_confirmation_workspace
+  [data-testid="stHorizontalBlock"] {
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.st-key-transaction_confirmation_card
+  [data-testid="stVerticalBlock"] {
+  gap: 0.45rem;
+}
+
 .transaction-core-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -816,6 +848,42 @@ div[data-testid="stFormSubmitButton"] > button:focus-visible {
     gap: 0.5rem;
     padding-left: 0;
     padding-right: 0;
+  }
+
+  .transaction-summary-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .transaction-core-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .transaction-core-item {
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+  }
+
+  .transaction-core-item:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .transaction-core-item:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .st-key-transaction_confirmation_workspace
+    [data-testid="stHorizontalBlock"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .st-key-transaction_confirmation_workspace
+    [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
   }
 
   .transaction-core-item strong {font-size: 1rem;}

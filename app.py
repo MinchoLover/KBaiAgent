@@ -871,6 +871,8 @@ def _render_transaction_overview(
     extraction: TradeDocumentExtraction,
     confirmed_transaction: Optional[ConfirmedTransactionSnapshot],
     consultation: Optional[ConsultationPacketResult],
+    validation: Optional[ValidationResult] = None,
+    section: str = "all",
 ) -> None:
     summary = transaction_summary(
         extraction,
@@ -897,40 +899,51 @@ def _render_transaction_overview(
         if isinstance(major_installment, dict)
         else "확인 필요"
     )
-    with st.container(border=True, key="transaction_summary_panel"):
-        st.markdown(
-            "<div class='trade-identity'><span class='direction-badge'>{}</span>"
-            "<strong>{}</strong></div>".format(
-                escape(str(summary["trade_type_label"])),
-                escape(str(summary["route_label"])),
-            ),
-            unsafe_allow_html=True,
+    if section in {"all", "summary"}:
+        validation_badge = (
+            "<span class='validation-status-badge'>자동 검증 완료</span>"
+            if validation is not None and validation.validation_pass
+            else ""
         )
-        st.markdown(
-            "<div class='transaction-core-grid'>"
-            "<div class='transaction-core-item'><small>{}</small>"
-            "<strong>{}</strong></div>"
-            "<div class='transaction-core-item'><small>{}</small>"
-            "<strong>{}</strong></div>"
-            "<div class='transaction-core-item'><small>결제일</small>"
-            "<strong>{}</strong></div>"
-            "<div class='transaction-core-item'><small>결제조건</small>"
-            "<strong>{}</strong></div></div>".format(
-                escape(amount_due_user_label(str(summary["trade_type"]))),
-                escape(
-                    _format_foreign_ui(
-                        summary["amount_due"] or "0",
-                        currency,
-                    )
+        with st.container(border=True, key="transaction_summary_panel"):
+            st.markdown(
+                "<div class='transaction-summary-heading'>"
+                "<div class='trade-identity'><span class='direction-badge'>{}</span>"
+                "<strong>{}</strong></div>{}</div>".format(
+                    escape(str(summary["trade_type_label"])),
+                    escape(str(summary["route_label"])),
+                    validation_badge,
                 ),
-                escape(major_label),
-                escape(major_value),
-                escape(str(summary["due_date"] or "확인 필요")),
-                escape(str(summary["payment_method"])),
-            ),
-            unsafe_allow_html=True,
-        )
-        render_warning_banner(str(summary["missing_information"]))
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<div class='transaction-core-grid'>"
+                "<div class='transaction-core-item'><small>{}</small>"
+                "<strong>{}</strong></div>"
+                "<div class='transaction-core-item'><small>{}</small>"
+                "<strong>{}</strong></div>"
+                "<div class='transaction-core-item'><small>결제일</small>"
+                "<strong>{}</strong></div>"
+                "<div class='transaction-core-item'><small>결제조건</small>"
+                "<strong>{}</strong></div></div>".format(
+                    escape(amount_due_user_label(str(summary["trade_type"]))),
+                    escape(
+                        _format_foreign_ui(
+                            summary["amount_due"] or "0",
+                            currency,
+                        )
+                    ),
+                    escape(major_label),
+                    escape(major_value),
+                    escape(str(summary["due_date"] or "확인 필요")),
+                    escape(str(summary["payment_method"])),
+                ),
+                unsafe_allow_html=True,
+            )
+            render_warning_banner(str(summary["missing_information"]))
+
+    if section == "summary":
+        return
 
     detail_snapshot = confirmed_transaction
     with st.expander("상세 거래정보", expanded=False):
@@ -4046,17 +4059,46 @@ with stage0_tab:
         "extraction",
         TradeDocumentExtraction,
     )
+    confirmation_slot = None
     if existing_extraction is not None:
+        existing_confirmation = _model_from_state(
+            "confirmed_transaction",
+            ConfirmedTransactionSnapshot,
+        )
+        existing_consultation = _model_from_state(
+            "consultation_packet",
+            ConsultationPacketResult,
+        )
+        existing_validation = _model_from_state(
+            "extraction_validation",
+            ValidationResult,
+        )
         _render_transaction_overview(
             existing_extraction,
-            _model_from_state(
-                "confirmed_transaction",
-                ConfirmedTransactionSnapshot,
-            ),
-            _model_from_state(
-                "consultation_packet",
-                ConsultationPacketResult,
-            ),
+            existing_confirmation,
+            existing_consultation,
+            validation=existing_validation,
+            section="summary",
+        )
+        with st.container(key="transaction_confirmation_workspace"):
+            confirmation_column, detail_column = st.columns([0.38, 0.62])
+            with confirmation_column:
+                confirmation_slot = st.container(
+                    border=True,
+                    key="transaction_confirmation_card",
+                )
+            with detail_column:
+                _render_transaction_overview(
+                    existing_extraction,
+                    existing_confirmation,
+                    existing_consultation,
+                    validation=existing_validation,
+                    section="details",
+                )
+        st.markdown("#### 수정·다시 분석·기술정보")
+        st.caption(
+            "값을 고치거나 문서를 다시 분석해야 할 때만 아래 보조 기능을 "
+            "사용하세요."
         )
     intake_controls = (
         st.expander("문서 업로드·다시 추출", expanded=False)
@@ -4133,11 +4175,6 @@ with stage0_tab:
                 else "application/octet-stream"
             )
         )
-        if registered_document is not None and uploaded is None:
-            st.caption(
-                "브라질 Golden 합성 계약서가 선택되었습니다. 업로드한 "
-                "문서가 있으면 업로드 문서를 우선 분석합니다."
-            )
 
     preview_error: Optional[str] = None
     if run_mode == "LIVE" and preview_bytes:
@@ -4181,8 +4218,12 @@ with stage0_tab:
         st.info("문서·역할·모드 변경을 감지해 이전 계산 결과를 비웠습니다.")
 
     if st.button(
-        "문서 분석하고 거래정보 채우기",
-        type="primary",
+        (
+            "문서 다시 분석"
+            if existing_extraction is not None
+            else "문서 분석하고 거래정보 채우기"
+        ),
+        type=("secondary" if existing_extraction is not None else "primary"),
         width="stretch",
         key="analyze_document",
     ):
@@ -4302,11 +4343,6 @@ with stage0_tab:
         TradeDocumentExtraction,
     )
     if extraction is not None:
-        st.divider()
-        st.caption(
-            "수정이 필요한 경우 아래에서 값을 저장하고 다시 검증할 수 "
-            "있습니다. 저장된 변경은 이후 분석 결과를 무효화합니다."
-        )
         document_types = [
             "COMMERCIAL_INVOICE",
             "SALES_CONTRACT",
@@ -4676,18 +4712,26 @@ with stage0_tab:
                 "검증 결과에서 충돌한 날짜·금액·근거를 확인하고 "
                 "수정 내용을 다시 저장하세요."
             )
-        st.markdown(
-            "<div class='state-banner {}'><span class='state-icon'>{}</span>"
-            "<div><strong>{}</strong><p>{}</p></div></div>".format(
-                banner_class,
-                banner_icon,
-                banner_title,
-                banner_copy,
-            ),
-            unsafe_allow_html=True,
-        )
-        if not is_confirmed:
-            render_validation_summary(validation)
+        if confirmation_slot is None:
+            raise RuntimeError("거래 확인 영역을 준비하지 못했습니다.")
+        if not is_confirmed and validation.validation_pass:
+            confirmation_slot.caption(
+                "아래 핵심값을 원문과 대조해 거래를 확정하세요."
+            )
+        else:
+            confirmation_slot.markdown(
+                "<div class='state-banner {}'><span class='state-icon'>{}</span>"
+                "<div><strong>{}</strong><p>{}</p></div></div>".format(
+                    banner_class,
+                    banner_icon,
+                    banner_title,
+                    banner_copy,
+                ),
+                unsafe_allow_html=True,
+            )
+        if not is_confirmed and not validation.validation_pass:
+            with confirmation_slot:
+                render_validation_summary(validation)
 
         with st.expander(
             "거래 검증 기술정보",
@@ -4704,14 +4748,14 @@ with stage0_tab:
         amount_ok = False
         due_ok = False
         evidence_override_fields: List[str] = []
-        st.markdown(
+        confirmation_slot.markdown(
             "#### {}".format(
                 "핵심 거래값 확인 기록"
                 if is_confirmed
                 else "핵심 거래값 최종 확인"
             )
         )
-        st.caption(
+        confirmation_slot.caption(
             "체크는 단순 동의가 아니라 문서 원문과 직접 대조했다는 기록입니다."
         )
         missing_evidence_fields = sorted(
@@ -4728,7 +4772,7 @@ with stage0_tab:
                 )
             }
         )
-        with st.form("critical_confirmation"):
+        with confirmation_slot.form("critical_confirmation"):
             confirmed_due = st.text_input(
                 "최종 결제일",
                 value=(
