@@ -99,8 +99,6 @@ REQUIRED_FILES = (
     "reports/eval_summary.json",
     "reports/eval_report.md",
     "reports/failure_cases.jsonl",
-    "artifacts/fine_tuning_candidate.jsonl",
-    "artifacts/fine_tuning_excluded.jsonl",
 )
 
 
