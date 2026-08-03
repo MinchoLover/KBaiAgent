@@ -76,6 +76,10 @@ def build_golden_user_flow_artifacts() -> Dict[str, Any]:
         state,
         mode="OFFLINE_KB",
     )
+    state = orchestrator.run_trade_statistics(
+        state,
+        golden["trade_statistics_request"],
+    )
     if (
         state.market_risk is None
         or state.market_risk.data is None
@@ -85,14 +89,19 @@ def build_golden_user_flow_artifacts() -> Dict[str, Any]:
         or state.hedge.data is None
         or state.product_search is None
         or state.product_search.data is None
+        or state.trade_statistics is None
+        or state.trade_statistics.data is None
     ):
-        raise ValueError("Golden Stage 1~4 오프라인 실행이 완료되지 않았습니다.")
+        raise ValueError(
+            "Golden Stage 1~4·무역통계 오프라인 실행이 완료되지 않았습니다."
+        )
 
     first_decision = golden["decision"]
     shortlist = shortlist_official_candidates(
         stage4_result=state.product_search.data,
         trade_type=state.cashflow.data.trade_type,
         consultation_topics=first_decision.consultation_topics,
+        consultation_packet=first_decision.consultation_packet.packet,
     )
     decision = build_decision_support(
         case_id=state.case_id,
@@ -103,6 +112,7 @@ def build_golden_user_flow_artifacts() -> Dict[str, Any]:
         stage2_result=state.cashflow.data,
         trade_settlement_risk=golden["trade_risk"],
         country_environment=golden["country_environment"],
+        trade_statistics=state.trade_statistics.data,
         official_candidate_shortlist=shortlist,
         generated_at="2026-07-29T09:00:00+09:00",
         confirmed_transaction=state.confirmed_transaction,
@@ -159,6 +169,7 @@ def golden_user_flow_summary() -> Dict[str, Any]:
             "stage2": state.cashflow.status.value,
             "stage3": state.hedge.status.value,
             "stage4": state.product_search.status.value,
+            "trade_statistics": state.trade_statistics.status.value,
             "consultation_packet": "SUCCEEDED",
             "stage5": state.report.status.value,
         },
@@ -202,6 +213,8 @@ def golden_user_flow_summary() -> Dict[str, Any]:
             ),
         },
         "down_5_financials_krw": {
+            "base_receipt": stage2.base_required_or_proceeds_krw,
+            "down_5_receipt": down_five.fx_krw_inflow,
             "receipt_loss": down_five.loss_vs_base,
             "ending_cash": down_five.ending_cash,
             "minimum_cash_buffer": (
@@ -224,7 +237,38 @@ def golden_user_flow_summary() -> Dict[str, Any]:
                 for item in artifacts["shortlist"].candidates
             }
         ),
+        "official_candidates": [
+            {
+                "institution": item.institution,
+                "name": item.name,
+            }
+            for item in artifacts["shortlist"].candidates
+        ],
         "stage3_candidate_status": state.hedge.data.status,
+        "trade_statistics": {
+            "status": packet.trade_statistics.status,
+            "scope": packet.trade_statistics.summary.scope,
+            "observation_period": "{}~{}".format(
+                packet.trade_statistics.summary.observation_start,
+                packet.trade_statistics.summary.observation_end,
+            ),
+            "latest_12m_export_usd": (
+                packet.trade_statistics.summary.latest_12m_export_usd
+            ),
+            "latest_12m_import_usd": (
+                packet.trade_statistics.summary.latest_12m_import_usd
+            ),
+            "latest_12m_balance_usd": (
+                packet.trade_statistics.summary.latest_12m_balance_usd
+            ),
+            "raw_sha256": packet.trade_statistics.snapshot.raw_sha256,
+            "normalized_sha256": (
+                packet.trade_statistics.snapshot.normalized_sha256
+            ),
+            "stage5_markdown_includes_section": (
+                "거래국 무역 통계" in report.markdown
+            ),
+        },
     }
 
 

@@ -13,7 +13,7 @@ STATUS_HELP = {
     "DERIVED": "문서 조건을 일반 코드로 계산한 값",
     "INFERRED": "문맥 추론값이며 사람 검토가 필요",
     "STRESS": "예측이 아닌 가정",
-    "FORECAST": "외부 Stage 1 예측 결과",
+    "FORECAST": "외부 환율 전망 결과",
     "CALCULATION": "결정론적 계산",
 }
 
@@ -40,12 +40,12 @@ SCHEDULED_EXPOSURE_WARNING = (
 )
 
 CONSULTATION_RATIONALE_LABELS = {
-    "-5% ending cash": "-5% 스트레스 후 예상 현금",
-    "buffer shortfall": "목표 현금 버퍼 부족",
-    "cash deficit": "현금 적자",
-    "payment/post-credit deficit": "지급·신용한도 반영 후 부족",
+    "-5% ending cash": "환율 5% 하락 시 예상 현금",
+    "buffer shortfall": "최소 운영자금 대비 부족액",
+    "cash deficit": "실제 현금 적자",
+    "payment/post-credit deficit": "대출한도 반영 후 부족액",
     "trade review": "거래 검토 우선도",
-    "목표 buffer": "목표 현금 버퍼",
+    "목표 buffer": "최소 유지 운영자금",
 }
 
 CONSULTATION_STATUS_LABELS = {
@@ -84,7 +84,7 @@ def consultation_priority_reason_copy(value: str) -> str:
     replacements = [
         (
             "Open Account 등 회수 보호 검토 finding과",
-            "Open Account 등 결제·회수 보호 필요와",
+            "외상거래(Open Account) 등 결제·회수 보호 필요와",
         ),
         (
             "기존 LOSS_LIMIT_EXCEEDED finding과",
@@ -92,7 +92,7 @@ def consultation_priority_reason_copy(value: str) -> str:
         ),
         (
             "기존 LIQUIDITY_BUFFER_RISK finding에 따라",
-            "목표 현금 버퍼 부족 신호에 따라",
+            "최소 운영자금 대비 부족 신호에 따라",
         ),
         (
             "기존 PAYMENT_CAPACITY_RISK finding의",

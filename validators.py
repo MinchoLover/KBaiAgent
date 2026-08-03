@@ -335,6 +335,11 @@ def _prepare_extraction_for_validation(
         )
     )
     audit.extend(recovered_evidence_audit)
+    normalized, recovered_currency_audit = augment_currency_evidence(
+        normalized,
+        ISO_4217_CODES,
+    )
+    audit.extend(recovered_currency_audit)
     normalized, party_evidence_audit = augment_party_evidence(
         normalized,
         source_page_texts=source_page_texts,

@@ -1020,7 +1020,7 @@ class KbMacroHedgeStreamlitTests(unittest.TestCase):
             "현재 수입 거래로 kb_macro_ai 계산하기",
             button.label,
         )
-        self.assertIn("고정된 kb_macro_ai 모델", visible)
+        self.assertIn("고정된 외부 모델", visible)
         self.assertIn("목업 견적", visible)
 
     def test_streamlit_can_validate_fixture_in_separate_reference_area(self):

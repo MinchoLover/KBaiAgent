@@ -1,7 +1,8 @@
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from prompt import get_prompt_version
 from schemas import TradeDocumentExtraction
@@ -9,6 +10,9 @@ from src.config import Settings
 from src.document_intake.extractor import ExtractionRun
 from src.document_intake.openai_adapter import ExtractionUsage
 from src.document_intake.source_evidence import extract_pdf_page_texts
+from src.document_intake.party_matching import (
+    match_company_role_from_verified_parties,
+)
 from src.security.upload_guard import validate_upload
 from validators import apply_deterministic_review_state
 
@@ -20,6 +24,9 @@ PRESENTATION_DOCUMENT_PATH = (
 )
 PRESENTATION_EXTRACTION_PATH = (
     ROOT / "dataset" / "golden_demo" / "expected_extraction.json"
+)
+PRESENTATION_DEMO_INPUTS_PATH = (
+    ROOT / "dataset" / "golden_demo" / "demo_inputs.json"
 )
 
 
@@ -40,6 +47,18 @@ def presentation_document() -> RegisteredDocument:
     )
 
 
+def presentation_document_sha256() -> str:
+    return hashlib.sha256(presentation_document().file_bytes).hexdigest()
+
+
+def presentation_demo_inputs() -> Dict[str, Any]:
+    with PRESENTATION_DEMO_INPUTS_PATH.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("등록 데모 입력은 JSON object여야 합니다.")
+    return payload
+
+
 def extract_registered_document(
     *,
     file_bytes: bytes,
@@ -51,17 +70,16 @@ def extract_registered_document(
 ) -> Optional[ExtractionRun]:
     """Use a reviewed fixture only when uploaded bytes match exactly.
 
-    The adapter is intentionally limited to presentation mode. Unknown bytes
-    return ``None`` and must continue through the live extraction adapter.
+    The adapter is intentionally limited to presentation or explicit demo
+    mode. Unknown bytes return ``None`` and must continue through the live
+    extraction adapter.
     """
 
-    if settings.app_env != "presentation":
+    if settings.app_env != "presentation" and not settings.demo_mode:
         return None
     registered = presentation_document()
     actual_sha256 = hashlib.sha256(file_bytes).hexdigest()
-    registered_sha256 = hashlib.sha256(
-        registered.file_bytes
-    ).hexdigest()
+    registered_sha256 = presentation_document_sha256()
     if actual_sha256 != registered_sha256:
         return None
 
@@ -74,12 +92,26 @@ def extract_registered_document(
     raw_extraction = TradeDocumentExtraction.model_validate_json(
         PRESENTATION_EXTRACTION_PATH.read_text(encoding="utf-8")
     )
+    source_page_texts = extract_pdf_page_texts(file_bytes)
     extraction, validation = apply_deterministic_review_state(
         raw_extraction,
         company_role=company_role,
         company_country=company_country,
-        source_page_texts=extract_pdf_page_texts(file_bytes),
+        source_page_texts=source_page_texts,
     )
+    role_match = match_company_role_from_verified_parties(
+        extraction,
+        company_country,
+    )
+    auto_matched_role = None
+    if role_match is not None and role_match.role != company_role:
+        extraction, validation = apply_deterministic_review_state(
+            raw_extraction,
+            company_role=role_match.role,
+            company_country=company_country,
+            source_page_texts=source_page_texts,
+        )
+        auto_matched_role = role_match.role
     return ExtractionRun(
         raw_extraction=raw_extraction,
         extraction=extraction,
@@ -95,4 +127,5 @@ def extract_registered_document(
             total_tokens=0,
             attempts=1,
         ),
+        auto_matched_company_role=auto_matched_role,
     )

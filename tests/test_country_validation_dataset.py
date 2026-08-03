@@ -18,11 +18,18 @@ from scripts.generate_country_validation_dataset import (
     NOTICE_EN,
     NOTICE_KO,
     NOTICE_PT,
+    TEXT_LAYER_CASE_ID,
     _cases,
     generate,
 )
+from src.application.registered_document_service import (
+    extract_registered_document,
+    presentation_document_sha256,
+)
 from src.config import Settings
+from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.security.upload_guard import validate_upload
+from validators import apply_deterministic_review_state
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,25 +85,25 @@ class CountryValidationDatasetTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         generate(render_documents=False)
 
-    def test_manifest_has_required_balanced_eight_cases(self):
+    def test_manifest_preserves_balanced_eight_cases_and_adds_text_asset(self):
         rows = _manifest_rows()
-        self.assertEqual(len(rows), 8)
+        self.assertEqual(len(rows), 9)
         self.assertEqual(
             sum(row["counterparty_country"] == "US" for row in rows),
-            4,
+            5,
         )
         self.assertEqual(
             sum(row["counterparty_country"] == "BR" for row in rows),
             4,
         )
         self.assertEqual(sum(row["trade_type"] == "IMPORT" for row in rows), 4)
-        self.assertEqual(sum(row["trade_type"] == "EXPORT" for row in rows), 4)
+        self.assertEqual(sum(row["trade_type"] == "EXPORT" for row in rows), 5)
         self.assertEqual(
             sum(
                 row["expected_validation_status"] == "CONDITIONAL_REVIEW"
                 for row in rows
             ),
-            5,
+            6,
         )
         self.assertEqual(
             sum(
@@ -121,6 +128,9 @@ class CountryValidationDatasetTests(unittest.TestCase):
                 )
                 self.assertTrue(document_path.is_file())
                 self.assertTrue(label_path.is_file())
+                if row["case_id"] == TEXT_LAYER_CASE_ID:
+                    self.assertFalse(prediction_path.exists())
+                    continue
                 self.assertTrue(prediction_path.is_file())
                 label = TradeDocumentExtraction.model_validate_json(
                     label_path.read_text(encoding="utf-8")
@@ -171,8 +181,12 @@ class CountryValidationDatasetTests(unittest.TestCase):
         for path in pdf_paths:
             reader = PdfReader(str(path))
             self.assertEqual(len(reader.pages), 1)
-            self.assertEqual((reader.pages[0].extract_text() or "").strip(), "")
-            self.assertGreaterEqual(len(reader.pages[0].images), 1)
+            text = (reader.pages[0].extract_text() or "").strip()
+            if path.stem == TEXT_LAYER_CASE_ID:
+                self.assertGreater(len(text), 100)
+            else:
+                self.assertEqual(text, "")
+                self.assertGreaterEqual(len(reader.pages[0].images), 1)
 
     def test_all_parties_are_obviously_fictional(self):
         for case_id, label in _labels().items():
@@ -218,7 +232,8 @@ class CountryValidationDatasetTests(unittest.TestCase):
                 if item.field == "document_notice"
             }
             self.assertIn(NOTICE_EN, notice_sources)
-            self.assertIn(NOTICE_KO, notice_sources)
+            if case_id != TEXT_LAYER_CASE_ID:
+                self.assertIn(NOTICE_KO, notice_sources)
             if spec["country"] == "BR":
                 self.assertIn(NOTICE_PT, notice_sources)
 
@@ -227,6 +242,10 @@ class CountryValidationDatasetTests(unittest.TestCase):
                 / "documents"
                 / "{}{}".format(case_id, spec["extension"])
             )
+            if case_id == TEXT_LAYER_CASE_ID:
+                text = "\n".join(extract_pdf_page_texts(path.read_bytes()))
+                self.assertIn(NOTICE_EN, text)
+                continue
             image = _document_image(path)
             top = image.crop((0, 0, image.width, image.height // 4))
             red_pixels = sum(
@@ -338,7 +357,7 @@ class CountryValidationDatasetTests(unittest.TestCase):
                 excluded_path=Path(temp_dir) / "excluded.jsonl",
             )
         self.assertEqual(included, 0)
-        self.assertEqual(excluded, 8)
+        self.assertEqual(excluded, 9)
 
     def test_fixture_offline_evaluator_cli(self):
         temp_root = ROOT / "temp"
@@ -359,6 +378,9 @@ class CountryValidationDatasetTests(unittest.TestCase):
                 "--reports-dir",
                 str(Path(temp_dir).relative_to(ROOT)),
             ]
+            for row in _manifest_rows():
+                if row["case_id"] != TEXT_LAYER_CASE_ID:
+                    command.extend(["--case-id", row["case_id"]])
             completed = subprocess.run(
                 command,
                 cwd=str(ROOT),
@@ -395,6 +417,77 @@ class CountryValidationDatasetTests(unittest.TestCase):
                 "us_import_missing_currency_photo_007",
                 "br_export_occluded_due_photo_008",
             },
+        )
+
+    def test_non_golden_text_pdf_contract_and_runtime_boundary(self):
+        row = next(
+            item
+            for item in _manifest_rows()
+            if item["case_id"] == TEXT_LAYER_CASE_ID
+        )
+        path = ROOT / row["document_path"]
+        label = _labels()[TEXT_LAYER_CASE_ID]
+        page_texts = extract_pdf_page_texts(path.read_bytes())
+        combined_text = "\n".join(page_texts)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+
+        self.assertTrue(row["synthetic_document"])
+        self.assertFalse(row["real_customer_document"])
+        self.assertFalse(row["fine_tuning_eligible"])
+        self.assertTrue(row["text_layer_expected"])
+        self.assertFalse(row["registered_api_free"])
+        self.assertFalse(row["fixture_prediction"])
+        self.assertEqual(row["document_sha256"], digest)
+        self.assertNotEqual(digest, presentation_document_sha256())
+        self.assertGreater(len(combined_text.strip()), 100)
+
+        for evidence in label.evidence:
+            with self.subTest(field=evidence.field):
+                self.assertEqual(evidence.page, 1)
+                self.assertIn(evidence.source_text, combined_text)
+
+        self.assertEqual(label.company_role, "SELLER")
+        self.assertEqual(label.trade_type, "EXPORT")
+        self.assertEqual(label.seller_country, "KR")
+        self.assertEqual(label.buyer_country, "US")
+        self.assertEqual(label.currency, "USD")
+        self.assertEqual(label.amount_due, "98000.00")
+        self.assertEqual(label.issue_date, "2026-08-03")
+        self.assertIsNone(label.shipment_date)
+        self.assertIsNone(label.explicit_due_date)
+        self.assertEqual(label.derived_due_date, "2026-10-02")
+        self.assertEqual(label.payment_terms, "Net 60 Days")
+        self.assertEqual(label.installments, [])
+        self.assertIn(
+            "Actual Advance Payment Status: Not stated in this document",
+            combined_text,
+        )
+        grounded, validation = apply_deterministic_review_state(
+            label,
+            company_role="SELLER",
+            company_country="KR",
+            source_page_texts=page_texts,
+        )
+        self.assertTrue(validation.validation_pass)
+        self.assertFalse(validation.stage2_allowed)
+        self.assertEqual(grounded.derived_due_date, "2026-10-02")
+        self.assertFalse(
+            {
+                "MISSING_CORE_EVIDENCE",
+                "EVIDENCE_UNVERIFIABLE",
+                "OCR_REQUIRED",
+            }
+            & {issue.code for issue in validation.issues}
+        )
+        self.assertIsNone(
+            extract_registered_document(
+                file_bytes=path.read_bytes(),
+                filename=path.name,
+                mime_type="application/pdf",
+                company_role="SELLER",
+                company_country="KR",
+                settings=Settings(app_env="presentation", demo_mode=True),
+            )
         )
 
     def test_generation_is_byte_deterministic_and_contains_no_secrets(self):

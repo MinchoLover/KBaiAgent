@@ -1,19 +1,28 @@
 from typing import Dict, List, Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from schemas import StrictModel
+from src.domain.country_economic_interpretation_models import (
+    CountryEconomicInterpretationResult,
+)
 from src.domain.country_environment_models import (
     CountryEnvironmentReviewNeed,
     CountryTradeEnvironmentAssessment,
 )
 from src.domain.product_models import (
+    AuxiliaryServiceCandidates,
     OfficialCandidateShortlist,
+    OfficialCandidateInputProfile,
     ProductCandidate,
 )
 from src.domain.trade_risk_models import (
     TradeRiskReviewNeed,
     TradeSettlementRiskAssessment,
+)
+from src.domain.trade_statistics_models import TradeStatisticsResult
+from src.domain.trade_statistics_interpretation_models import (
+    TradeStatisticsInterpretationResult,
 )
 
 
@@ -158,6 +167,75 @@ class ConsultationPriorityView(StrictModel):
     disclaimer: str
 
 
+ConsultationReviewAreaId = Literal[
+    "COLLECTION_PROTECTION",
+    "FX_MANAGEMENT",
+    "PAYMENT_TERMS",
+    "WORKING_CAPITAL_TRADE_FINANCE",
+    "POLICY_FINANCE",
+]
+
+ConsultationSupportingCheckId = Literal[
+    "TRADE_RISK_INFORMATION",
+    "TRADE_INFORMATION_COMPLETENESS",
+    "COUNTRY_INFORMATION_COMPLETENESS",
+    "COUNTRY_MACRO_MONITORING",
+    "MARKET_ACCESS_AND_TRADE_ENVIRONMENT",
+    "ROUTINE_TRADE_CHECK",
+]
+
+
+class ConsultationReviewAreaView(StrictModel):
+    rank: int = Field(ge=1, le=3)
+    review_area_id: ConsultationReviewAreaId
+    display_name: str
+    source_priority_category: str
+    source_priority_family: str
+    source_priority_categories: List[str] = Field(min_length=1)
+    source_priority_families: List[str] = Field(min_length=1)
+    source_priority_reasons: List[str] = Field(min_length=1)
+    summary: str
+    trigger_codes: List[str] = Field(default_factory=list)
+    evidence_items: List[ConsultationRationaleItem] = Field(
+        default_factory=list
+    )
+    missing_information: List[str] = Field(default_factory=list)
+    preparation_documents: List[str] = Field(default_factory=list)
+    bank_questions: List[str] = Field(default_factory=list)
+    expected_decision: str
+    next_action: str
+    source_topic_ids: List[str] = Field(default_factory=list)
+    source_priority_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    human_review_required: bool = True
+    disclaimer: str
+
+
+class ConsultationSupportingCheckView(StrictModel):
+    source_rank: int = Field(ge=1, le=3)
+    check_id: ConsultationSupportingCheckId
+    display_name: str
+    source_priority_category: str
+    source_priority_family: str
+    source_priority_categories: List[str] = Field(min_length=1)
+    source_priority_families: List[str] = Field(min_length=1)
+    source_priority_ranks: List[int] = Field(min_length=1)
+    source_priority_reasons: List[str] = Field(min_length=1)
+    summary: str
+    trigger_codes: List[str] = Field(default_factory=list)
+    evidence_items: List[ConsultationRationaleItem] = Field(
+        default_factory=list
+    )
+    missing_information: List[str] = Field(default_factory=list)
+    preparation_documents: List[str] = Field(default_factory=list)
+    bank_questions: List[str] = Field(default_factory=list)
+    expected_decision: str
+    next_action: str
+    source_topic_ids: List[str] = Field(default_factory=list)
+    source_priority_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    human_review_required: bool = True
+    disclaimer: str
+
+
 class PaymentScheduleSummary(StrictModel):
     sequence: int = Field(ge=1)
     amount_fx: Optional[str] = None
@@ -219,6 +297,11 @@ class ConsultationPacket(StrictModel):
     calculation_version: str
     generated_at: str
     input_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    confirmed_transaction_fingerprint: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+        exclude_if=lambda value: value is None,
+    )
     exchange_rate_as_of: str
     scenario_ids: List[str] = Field(default_factory=list)
     company_summary: CompanySummary
@@ -240,10 +323,40 @@ class ConsultationPacket(StrictModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    country_economic_interpretation: Optional[
+        CountryEconomicInterpretationResult
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    trade_statistics: Optional[TradeStatisticsResult] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    trade_statistics_interpretation: Optional[
+        TradeStatisticsInterpretationResult
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )
     consultation_priorities: List[ConsultationPriorityView] = Field(
+        default_factory=list,
+        max_length=3,
+        exclude_if=lambda value: not value,
+    )
+    consultation_review_areas: List[
+        ConsultationReviewAreaView
+    ] = Field(
+        default_factory=list,
+        max_length=3,
+        exclude_if=lambda value: not value,
+    )
+    consultation_supporting_checks: List[
+        ConsultationSupportingCheckView
+    ] = Field(
         default_factory=list,
         max_length=3,
         exclude_if=lambda value: not value,
@@ -269,6 +382,18 @@ class ConsultationPacket(StrictModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    official_candidate_input_profile: Optional[
+        OfficialCandidateInputProfile
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    auxiliary_service_candidates: Optional[
+        AuxiliaryServiceCandidates
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     missing_information: List[str] = Field(default_factory=list)
     required_documents: List[str] = Field(default_factory=list)
     bank_questions: List[str] = Field(default_factory=list)
@@ -278,6 +403,56 @@ class ConsultationPacket(StrictModel):
     )
     user_confirmed_fields: List[str] = Field(default_factory=list)
     disclaimer: str
+
+    @model_validator(mode="after")
+    def validate_official_candidate_projection(self) -> "ConsultationPacket":
+        auxiliary = self.auxiliary_service_candidates
+        profile = self.official_candidate_input_profile
+        shortlist = self.official_candidate_shortlist
+        transaction_fingerprint = self.confirmed_transaction_fingerprint
+        if profile is not None and (
+            transaction_fingerprint is None
+            or profile.bound_transaction_fingerprint
+            != transaction_fingerprint
+        ):
+            raise ValueError(
+                "상품 입력 profile이 상담 패킷의 confirmed transaction과 다릅니다."
+            )
+        if shortlist is not None:
+            if profile is None and shortlist.source_profile_fingerprint:
+                raise ValueError(
+                    "profile 없는 패킷에 profile 기반 금융후보가 연결됐습니다."
+                )
+            if profile is not None and (
+                shortlist.source_profile_fingerprint
+                != profile.input_fingerprint
+                or shortlist.source_transaction_fingerprint
+                != transaction_fingerprint
+            ):
+                raise ValueError(
+                    "금융후보 shortlist가 최신 profile 또는 transaction과 다릅니다."
+                )
+        if auxiliary is not None:
+            if auxiliary.trade_type != self.company_summary.trade_type:
+                raise ValueError(
+                    "보조서비스 projection 거래방향이 상담 패킷과 다릅니다."
+                )
+            if auxiliary.source_profile_fingerprint is not None and (
+                profile is None
+                or profile.input_fingerprint
+                != auxiliary.source_profile_fingerprint
+            ):
+                raise ValueError(
+                    "보조서비스 projection이 최신 상품 입력 profile과 다릅니다."
+                )
+            if (
+                auxiliary.source_transaction_fingerprint
+                != transaction_fingerprint
+            ):
+                raise ValueError(
+                    "보조서비스 projection이 최신 confirmed transaction과 다릅니다."
+                )
+        return self
 
 
 class ConsultationPacketResult(StrictModel):
@@ -302,11 +477,33 @@ class DecisionSupportResult(StrictModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    country_economic_interpretation: Optional[
+        CountryEconomicInterpretationResult
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    trade_statistics: Optional[TradeStatisticsResult] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    trade_statistics_interpretation: Optional[
+        TradeStatisticsInterpretationResult
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     consultation_topics: List[ConsultationTopic] = Field(
         default_factory=list
     )
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
+    ] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    auxiliary_service_candidates: Optional[
+        AuxiliaryServiceCandidates
     ] = Field(
         default=None,
         exclude_if=lambda value: value is None,

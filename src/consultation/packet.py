@@ -8,6 +8,9 @@ from schemas import PaymentInstallment, TradeDocumentExtraction
 from src.consultation.prioritization import (
     build_consultation_priorities,
 )
+from src.consultation.review_area import (
+    project_consultation_presentation,
+)
 from src.document_intake.confirmation import ConfirmationRecord
 from src.domain.confirmed_transaction_models import (
     ConfirmedTransactionSnapshot,
@@ -30,15 +33,30 @@ from src.domain.consultation_models import (
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
 )
-from src.domain.product_models import OfficialCandidateShortlist
+from src.domain.country_economic_interpretation_models import (
+    CountryEconomicInterpretationResult,
+)
+from src.domain.product_models import (
+    AuxiliaryServiceCandidates,
+    OfficialCandidateInputProfile,
+    OfficialCandidateShortlist,
+)
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
+from src.domain.trade_statistics_models import TradeStatisticsResult
+from src.domain.trade_statistics_interpretation_models import (
+    TradeStatisticsInterpretationResult,
+)
 from src.stage2.binding import (
     validate_downstream_due_date,
     validate_snapshot_downstream_due_date,
 )
 from src.stage2.metrics import money_string
+from src.trade_statistics.interpretation_input import (
+    ZERO_HASH as TRADE_STATISTICS_ZERO_HASH,
+    trade_statistics_result_fingerprint,
+)
 
 
 DISCLAIMER = (
@@ -70,6 +88,11 @@ SAFETY_BOUNDARIES = [
         "상담 순위는 검토 순서이며 상품 승인·보험 인수·대출 심사 "
         "결과가 아닙니다."
     ),
+    (
+        "무역통계는 최근 교역 흐름을 확인하는 참고 통계이며 개별 "
+        "거래처 신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 "
+        "가능성을 뜻하지 않습니다."
+    ),
 ]
 
 
@@ -84,8 +107,21 @@ def _input_hash(
     country_environment: Optional[
         CountryTradeEnvironmentAssessment
     ] = None,
+    country_economic_interpretation: Optional[
+        CountryEconomicInterpretationResult
+    ] = None,
+    trade_statistics: Optional[TradeStatisticsResult] = None,
+    trade_statistics_interpretation: Optional[
+        TradeStatisticsInterpretationResult
+    ] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
+    ] = None,
+    official_candidate_input_profile: Optional[
+        OfficialCandidateInputProfile
+    ] = None,
+    auxiliary_service_candidates: Optional[
+        AuxiliaryServiceCandidates
     ] = None,
     installment_payment_statuses: Optional[
         List[InstallmentPaymentStatus]
@@ -115,12 +151,39 @@ def _input_hash(
         canonical["country_environment_input_fingerprint"] = (
             country_environment.input_fingerprint
         )
+    if country_economic_interpretation is not None:
+        canonical["country_economic_interpretation_input_fingerprint"] = (
+            country_economic_interpretation.input_fingerprint
+        )
+    if trade_statistics is not None:
+        canonical["trade_statistics"] = {
+            "request_fingerprint": (
+                trade_statistics.request_fingerprint
+            ),
+            "status": trade_statistics.status,
+            "error_code": trade_statistics.error_code,
+            "normalized_sha256": (
+                trade_statistics.snapshot.normalized_sha256
+                if trade_statistics.snapshot is not None
+                else None
+            ),
+        }
+    if trade_statistics_interpretation is not None:
+        canonical["trade_statistics_interpretation_input_fingerprint"] = (
+            trade_statistics_interpretation.input_fingerprint
+        )
     if official_candidate_shortlist is not None:
-        canonical["official_candidate_shortlist"] = {
+        shortlist_canonical: Dict[str, Any] = {
             "selection_policy": (
                 official_candidate_shortlist.selection_policy
             ),
             "trade_type": official_candidate_shortlist.trade_type,
+            "source_profile_fingerprint": (
+                official_candidate_shortlist.source_profile_fingerprint
+            ),
+            "source_transaction_fingerprint": (
+                official_candidate_shortlist.source_transaction_fingerprint
+            ),
             "candidates": [
                 {
                     "product_id": candidate.product_id,
@@ -138,6 +201,49 @@ def _input_hash(
                 .unmatched_consultation_categories
             ),
         }
+        if official_candidate_shortlist.eligible_overflow_candidates:
+            shortlist_canonical["eligible_overflow_catalogue_ids"] = [
+                candidate.catalogue_id
+                for candidate in (
+                    official_candidate_shortlist
+                    .eligible_overflow_candidates
+                )
+            ]
+            shortlist_canonical["overflow_reasons"] = (
+                official_candidate_shortlist.overflow_reasons
+            )
+        if official_candidate_shortlist.deferred_catalogue_ids:
+            shortlist_canonical["deferred_catalogue_ids"] = (
+                official_candidate_shortlist.deferred_catalogue_ids
+            )
+        if official_candidate_shortlist.excluded_catalogue_ids:
+            shortlist_canonical["excluded_catalogue_ids"] = (
+                official_candidate_shortlist.excluded_catalogue_ids
+            )
+        canonical["official_candidate_shortlist"] = shortlist_canonical
+    if official_candidate_input_profile is not None:
+        canonical["official_candidate_input_fingerprint"] = (
+            official_candidate_input_profile.input_fingerprint
+        )
+    if auxiliary_service_candidates is not None:
+        auxiliary_canonical: Dict[str, Any] = {
+            "trade_type": auxiliary_service_candidates.trade_type,
+            "source_profile_fingerprint": (
+                auxiliary_service_candidates.source_profile_fingerprint
+            ),
+            "source_transaction_fingerprint": (
+                auxiliary_service_candidates.source_transaction_fingerprint
+            ),
+            "catalogue_ids": [
+                candidate.catalogue_id
+                for candidate in auxiliary_service_candidates.candidates
+            ],
+        }
+        if auxiliary_service_candidates.suppressed_catalogue_ids:
+            auxiliary_canonical["suppressed_catalogue_ids"] = (
+                auxiliary_service_candidates.suppressed_catalogue_ids
+            )
+        canonical["auxiliary_service_candidates"] = auxiliary_canonical
     if installment_payment_statuses:
         canonical["installment_payment_statuses"] = [
             item.model_dump()
@@ -438,6 +544,143 @@ def _country_environment_lines(
     return "\n".join(lines)
 
 
+def _country_economic_interpretation_lines(
+    result: Optional[CountryEconomicInterpretationResult],
+) -> str:
+    if result is None:
+        return "- 검증 완료된 별도 경제환경 사용자 설명이 없습니다."
+    indicator_labels = {
+        "GDP_GROWTH": "경제 성장",
+        "INFLATION": "물가 환경",
+        "CURRENT_ACCOUNT": "대외거래 환경",
+        "OECD_CLASSIFICATION": "결제·송금 참고 신호",
+    }
+    lines = ["- 종합 설명: {}".format(result.overall_summary)]
+    lines.extend(
+        "- **{}** — {} {}".format(
+            indicator_labels[item.indicator_id],
+            item.observation,
+            item.transaction_check,
+        )
+        for item in result.sections
+    )
+    lines.extend("- 한계: {}".format(item) for item in result.limitations)
+    return "\n".join(lines)
+
+
+def _trade_statistics_lines(
+    result: Optional[TradeStatisticsResult],
+    interpretation: Optional[TradeStatisticsInterpretationResult],
+) -> str:
+    boundary = (
+        "최근 교역 흐름을 확인하는 참고 통계이며 개별 거래처의 "
+        "신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 가능성을 "
+        "의미하지 않습니다."
+    )
+    if result is None:
+        return "- 상태: 조회하지 않음\n- 한계: {}".format(boundary)
+    if result.summary is None or result.snapshot is None:
+        missing = (
+            "\n".join(
+                "- 추가 확인: {}".format(item)
+                for item in result.missing_information
+            )
+            or "- 추가 확인: 공식 통계 연결 상태를 확인해 주세요."
+        )
+        return (
+            "- 상태: **{status}**\n"
+            "- 이용 불가 사유: {message}\n"
+            "{missing}\n"
+            "- 한계: {boundary}"
+        ).format(
+            status=result.status,
+            message=result.user_message,
+            missing=missing,
+            boundary=boundary,
+        )
+    summary = result.summary
+    snapshot = result.snapshot
+    source = summary.source_refs[0] if summary.source_refs else None
+
+    def money(value: Optional[str]) -> str:
+        if value is None:
+            return "비교 불가"
+        return "USD {:,.0f}".format(Decimal(value))
+
+    def percentage(value: Optional[str], status: str) -> str:
+        if value is not None:
+            return "{:+,.1f}%".format(Decimal(value))
+        labels = {
+            "PREVIOUS_ZERO": "비교 불가(기준기간 값 0)",
+            "MISSING_MONTHS": "비교 불가(누락월 있음)",
+            "INSUFFICIENT_HISTORY": "비교 불가(기간 부족)",
+        }
+        return labels.get(status, "비교 불가")
+
+    hs_status = (
+        "확인된 HS {}단위 `{}`".format(summary.hs_level, summary.hs_code)
+        if summary.hs_code is not None
+        else "HS Code 미확인 · 국가 전체 교역만 제공"
+    )
+    source_line = (
+        "[{}]({}) · 기준월 {} · {}".format(
+            source.source_title,
+            source.official_url,
+            source.source_as_of,
+            source.provider_status,
+        )
+        if source is not None
+        else snapshot.source_name
+    )
+    interpretation_lines = (
+        [
+            "- 해석: {}".format(interpretation.summary),
+            "- 한계: {}".format(interpretation.limitation),
+        ]
+        if interpretation is not None
+        else [
+            "- 해석: {}".format(summary.user_summary),
+            "- 한계: {}".format(boundary),
+        ]
+    )
+    return "\n".join(
+        [
+            "- 상태·범위: **{} · {}**".format(
+                result.status,
+                "국가 전체 교역"
+                if summary.scope == "COUNTRY_TOTAL"
+                else "확인된 HS 품목",
+            ),
+            "- 관측기간: {}~{} · 최신 관측월 {}".format(
+                summary.observation_start,
+                summary.observation_end,
+                summary.latest_period,
+            ),
+            "- 최근 12개월 한국 수출: {} · 직전 기간 대비 {}".format(
+                money(summary.latest_12m_export_usd),
+                percentage(
+                    summary.export_yoy_pct,
+                    summary.export_comparison_status,
+                ),
+            ),
+            "- 최근 12개월 한국 수입: {} · 직전 기간 대비 {}".format(
+                money(summary.latest_12m_import_usd),
+                percentage(
+                    summary.import_yoy_pct,
+                    summary.import_comparison_status,
+                ),
+            ),
+            "- 최근 12개월 무역수지: {}".format(
+                money(summary.latest_12m_balance_usd)
+            ),
+            "- HS Code 상태: {}".format(hs_status),
+            *interpretation_lines,
+            "- 공식 출처: {}".format(source_line),
+            "- 통계 기준: 수출 FOB · 수입 CIF · 금액 USD",
+        ]
+    )
+
+
 def rationale_display_text(
     item: ConsultationRationaleItem,
 ) -> str:
@@ -519,6 +762,15 @@ def _markdown(packet: ConsultationPacket) -> str:
     country_environment_lines = _country_environment_lines(
         packet.country_environment
     )
+    country_economic_interpretation_lines = (
+        _country_economic_interpretation_lines(
+            packet.country_economic_interpretation
+        )
+    )
+    trade_statistics_lines = _trade_statistics_lines(
+        packet.trade_statistics,
+        packet.trade_statistics_interpretation,
+    )
     schedule_lines = (
         "\n".join(
             "- {}회차: {} · 예정일 {} · 조건 {}".format(
@@ -540,85 +792,127 @@ def _markdown(packet: ConsultationPacket) -> str:
         or "- 문서에서 구조화된 분할 결제 schedule이 없습니다."
     )
     priority_sections: List[str] = []
-    for priority in packet.consultation_priorities:
+    for review_area in packet.consultation_review_areas:
         rationale_lines = "\n".join(
-            "  - {}: {}  \n"
-            "    source path: `{}`".format(
+            "  - {}: {}".format(
                 item.label,
                 rationale_display_text(item),
-                "`, `".join(item.source_paths),
             )
-            for item in priority.numeric_rationale
+            for item in review_area.evidence_items
         ) or "  - 추가 수치 근거 없음"
         priority_missing = (
             "\n".join(
                 "  - {}".format(item)
-                for item in priority.missing_information
+                for item in review_area.missing_information
             )
             or "  - 이 카드에 별도로 등록된 미확인 항목 없음"
         )
-        priority_candidates = (
-            "\n".join(
-                "  - {} · {} · [공식 출처]({}) · 확인일 {}  \n"
-                "    연결 이유: {}  \n"
-                "    eligibility=UNKNOWN · "
-                "approval=CONSULTATION_REQUIRED".format(
-                    item.name,
-                    item.institution,
-                    item.source.url,
-                    item.source.verified_at,
-                    item.strategy_connection_reason,
-                )
-                for item in priority.official_candidates
-            )
-            or (
-                "  - 현재 검증된 공식 후보가 없습니다. 최신 상담 가능 "
-                "구조는 KB 영업점 또는 기업금융·외환 상담에서 확인하세요."
-            )
-        )
         priority_sections.append(
-            """### {rank}순위 · {title}
+            """### {rank}순위 · {display_name}
 
-- 검토 순서 근거: {priority_reason}
-- primary trigger: {triggered_by}
-- 결정 규칙: `{rule_code}` · tie-break `{tie_break}`
-- 숫자·조건 근거:
+- 선정 이유: {summary}
+- 선정 근거:
 {rationale_lines}
-- 아직 확인할 정보:
+- 확인이 필요한 정보:
 {missing_lines}
 - 상담에서 기대하는 결정: {expected_decision}
 - 다음 행동: {next_action}
-- 연결된 공식 후보:
-{candidate_lines}
 
 {disclaimer}
 """.format(
-                rank=priority.rank,
-                title=priority.title,
-                priority_reason=priority.priority_reason,
-                triggered_by=(
-                    ", ".join(priority.triggered_by) or "HUMAN_REVIEW"
-                ),
-                rule_code=priority.priority_rule_code,
-                tie_break=priority.category_tie_break,
+                rank=review_area.rank,
+                display_name=review_area.display_name,
+                summary=review_area.summary,
                 rationale_lines=rationale_lines,
                 missing_lines=priority_missing,
-                expected_decision=priority.expected_decision,
-                next_action=priority.next_action,
-                candidate_lines=priority_candidates,
-                disclaimer=priority.disclaimer,
+                expected_decision=review_area.expected_decision,
+                next_action=review_area.next_action,
+                disclaimer=review_area.disclaimer,
             )
         )
+    if (
+        not priority_sections
+        and not packet.consultation_supporting_checks
+    ):
+        for priority in packet.consultation_priorities:
+            priority_sections.append(
+                """### {rank}순위 · {title}
+
+- 선정 이유: {summary}
+- 상담에서 기대하는 결정: {expected_decision}
+- 다음 행동: {next_action}
+
+{disclaimer}
+""".format(
+                    rank=priority.rank,
+                    title=priority.title,
+                    summary=priority.priority_reason,
+                    expected_decision=priority.expected_decision,
+                    next_action=priority.next_action,
+                    disclaimer=priority.disclaimer,
+                )
+            )
     priority_lines = (
         "\n".join(priority_sections)
         or "현재 입력에서 생성된 우선 상담 카드가 없습니다."
     )
+    supporting_sections: List[str] = []
+    for supporting_check in packet.consultation_supporting_checks:
+        rationale_lines = "\n".join(
+            "  - {}: {}".format(
+                item.label,
+                rationale_display_text(item),
+            )
+            for item in supporting_check.evidence_items
+        ) or "  - 추가 수치 근거 없음"
+        missing_lines = (
+            "\n".join(
+                "  - {}".format(item)
+                for item in supporting_check.missing_information
+            )
+            or "  - 이 항목에 별도로 등록된 미확인 정보 없음"
+        )
+        supporting_sections.append(
+            """### {display_name}
+
+- 확인 이유: {summary}
+- 확인 근거:
+{rationale_lines}
+- 필요한 확인 정보:
+{missing_lines}
+- 다음 행동: {next_action}
+""".format(
+                display_name=supporting_check.display_name,
+                summary=supporting_check.summary,
+                rationale_lines=rationale_lines,
+                missing_lines=missing_lines,
+                next_action=supporting_check.next_action,
+            )
+        )
+    supporting_section = (
+        "\n## 2A. 추가 확인사항\n\n{}\n".format(
+            "\n".join(supporting_sections)
+        )
+        if supporting_sections
+        else ""
+    )
     topic_lines = "\n".join(
         "- **{}**: {} 최종 판단은 사용자와 KB 담당자가 합니다.".format(
-            item.title,
-            item.explanation,
+            item.display_name,
+            item.summary,
         )
-        for item in packet.consultation_topics
+        for item in packet.consultation_review_areas
+    ) or "- 현재 Top 3에 금융상담 검토 분야가 없습니다."
+    supporting_topic_lines = "\n".join(
+        "- **{}**: {}".format(item.display_name, item.summary)
+        for item in packet.consultation_supporting_checks
+    )
+    supporting_topic_section = (
+        "\n## 5A. 추가 확인사항\n\n{}\n".format(
+            supporting_topic_lines
+        )
+        if supporting_topic_lines
+        else ""
     )
     if packet.official_candidate_shortlist is None:
         official_candidate_lines = (
@@ -643,6 +937,27 @@ def _markdown(packet: ConsultationPacket) -> str:
                 candidate.strategy_connection_reason,
             )
             for candidate in packet.official_candidate_shortlist.candidates
+        )
+    auxiliary_service_section = ""
+    if (
+        packet.auxiliary_service_candidates is not None
+        and packet.auxiliary_service_candidates.candidates
+    ):
+        auxiliary_lines = "\n".join(
+            "- **{}** · {} · [{}]({})  \n"
+            "  성격: 금융상품·보험·보증과 분리된 보조서비스 검토 항목".format(
+                candidate.display_name or candidate.name,
+                candidate.institution,
+                candidate.source.title,
+                candidate.source.url,
+            )
+            for candidate in packet.auxiliary_service_candidates.candidates
+        )
+        auxiliary_service_section = (
+            "\n## 6A. 추가 확인 서비스\n\n{}\n\n"
+            "보조서비스는 공식 금융지원 후보 순위와 별개입니다.\n".format(
+                auxiliary_lines
+            )
         )
     missing_lines = (
         "\n".join("- {}".format(item) for item in packet.missing_information)
@@ -693,9 +1008,10 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 {schedule_lines}
 
-## 2. 상담 Top 3
+## 2. 상담 우선순위
 
 {priority_lines}
+{supporting_section}
 
 ## 3. 보호수단 현황
 
@@ -716,6 +1032,7 @@ def _markdown(packet: ConsultationPacket) -> str:
 ## 6. 공식 출처 상담 후보
 
 {official_candidate_lines}
+{auxiliary_service_section}
 
 후보는 최대 3개이며, 자격·승인·가격·한도는 제공 기관에서 다시 확인해야 합니다.
 
@@ -766,13 +1083,22 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 {country_environment_lines}
 
-## 5. 검토할 금융 대응
+### 거래국 경제환경 해석
+
+{country_economic_interpretation_lines}
+
+## 4B. 거래국 무역 통계
+
+{trade_statistics_lines}
+
+## 5. 금융상담 검토 분야
 
 {topic_lines}
 
 위 항목은 금융상품 추천이나 승인 결과가 아니라 상담 범주입니다.
+{supporting_topic_section}
 
-## 5A. 기타 확인사항
+## 5B. Top 3 외 기타 확인사항
 
 {other_topic_lines}
 
@@ -829,10 +1155,17 @@ def _markdown(packet: ConsultationPacket) -> str:
         trade_risk_lines=trade_risk_lines,
         trade_risk_assumptions=trade_risk_assumptions,
         country_environment_lines=country_environment_lines,
+        country_economic_interpretation_lines=(
+            country_economic_interpretation_lines
+        ),
+        trade_statistics_lines=trade_statistics_lines,
         priority_lines=priority_lines,
+        supporting_section=supporting_section,
         topic_lines=topic_lines,
+        supporting_topic_section=supporting_topic_section,
         other_topic_lines=other_topic_lines,
         official_candidate_lines=official_candidate_lines,
+        auxiliary_service_section=auxiliary_service_section,
         missing_lines=missing_lines,
         document_lines=document_lines,
         question_lines=question_lines,
@@ -880,8 +1213,21 @@ def build_consultation_packet(
     country_environment: Optional[
         CountryTradeEnvironmentAssessment
     ] = None,
+    country_economic_interpretation: Optional[
+        CountryEconomicInterpretationResult
+    ] = None,
+    trade_statistics: Optional[TradeStatisticsResult] = None,
+    trade_statistics_interpretation: Optional[
+        TradeStatisticsInterpretationResult
+    ] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
+    ] = None,
+    official_candidate_input_profile: Optional[
+        OfficialCandidateInputProfile
+    ] = None,
+    auxiliary_service_candidates: Optional[
+        AuxiliaryServiceCandidates
     ] = None,
     installment_payment_statuses: Optional[
         List[InstallmentPaymentStatus]
@@ -924,6 +1270,82 @@ def build_consultation_packet(
                 "상담 패킷 금액이 canonical confirmed amount_due와 "
                 "일치하지 않습니다."
             )
+    if trade_statistics is not None:
+        if confirmed_transaction is None:
+            raise ValueError(
+                "무역통계는 canonical confirmed transaction에만 "
+                "연결할 수 있습니다."
+            )
+        expected_partner = (
+            confirmed_transaction.buyer_country
+            if confirmed_transaction.trade_type == "EXPORT"
+            else confirmed_transaction.seller_country
+        )
+        statistics_request = trade_statistics.request
+        if (
+            statistics_request.confirmed_transaction_fingerprint
+            != confirmed_transaction.input_fingerprint
+            or statistics_request.reporter_country
+            != confirmed_transaction.company_country
+            or statistics_request.partner_country != expected_partner
+            or statistics_request.trade_direction
+            != confirmed_transaction.trade_type
+        ):
+            raise ValueError(
+                "무역통계 결과가 canonical confirmed transaction과 "
+                "일치하지 않습니다."
+            )
+    if trade_statistics_interpretation is not None:
+        if trade_statistics is None or confirmed_transaction is None:
+            raise ValueError(
+                "무역통계 해석은 검증된 통계와 확정 거래에만 연결할 수 "
+                "있습니다."
+            )
+        snapshot_fingerprint = (
+            trade_statistics.snapshot.normalized_sha256
+            if trade_statistics.snapshot is not None
+            else TRADE_STATISTICS_ZERO_HASH
+        )
+        if (
+            trade_statistics.request.scope != "COUNTRY_TOTAL"
+            or
+            trade_statistics_interpretation.source_result_fingerprint
+            != trade_statistics_result_fingerprint(trade_statistics)
+            or trade_statistics_interpretation.normalized_snapshot_fingerprint
+            != snapshot_fingerprint
+            or trade_statistics_interpretation.confirmed_transaction_fingerprint
+            != confirmed_transaction.input_fingerprint
+            or trade_statistics_interpretation.reporting_country_code
+            != trade_statistics.request.reporter_country
+            or trade_statistics_interpretation.partner_country_code
+            != trade_statistics.request.partner_country
+            or trade_statistics_interpretation.trade_direction
+            != trade_statistics.request.trade_direction
+        ):
+            raise ValueError(
+                "무역통계 해석이 최신 검증 결과 또는 확정 거래와 일치하지 "
+                "않습니다."
+            )
+    if country_economic_interpretation is not None:
+        if country_environment is None or confirmed_transaction is None:
+            raise ValueError(
+                "국가 경제환경 해석은 검증된 국가환경과 확정 거래에만 "
+                "연결할 수 있습니다."
+            )
+        if (
+            country_economic_interpretation.source_assessment_fingerprint
+            != country_environment.input_fingerprint
+            or country_economic_interpretation.confirmed_transaction_fingerprint
+            != confirmed_transaction.input_fingerprint
+            or country_economic_interpretation.country_code
+            != country_environment.country
+            or country_economic_interpretation.trade_direction
+            != country_environment.trade_type
+        ):
+            raise ValueError(
+                "국가 경제환경 해석이 최신 공식 assessment 또는 확정 "
+                "거래와 일치하지 않습니다."
+            )
     priority_extraction = _confirmed_extraction_projection(
         extraction=extraction,
         confirmed_transaction=confirmed_transaction,
@@ -959,6 +1381,10 @@ def build_consultation_packet(
         official_candidate_shortlist=official_candidate_shortlist,
         installment_payment_statuses=installment_payment_statuses,
     )
+    presentation = project_consultation_presentation(
+        priorities=consultation_priorities,
+        priority_fingerprint=priority_fingerprint,
+    )
     priority_missing = [
         value
         for priority in consultation_priorities
@@ -987,6 +1413,18 @@ def build_consultation_packet(
         gaps = list(
             dict.fromkeys(gaps + country_environment.reasons)
         )
+    if trade_statistics is not None:
+        gaps = list(
+            dict.fromkeys(
+                gaps
+                + trade_statistics.missing_information
+                + (
+                    [trade_statistics.user_message]
+                    if trade_statistics.summary is None
+                    else []
+                )
+            )
+        )
     calculation_versions = [
         stage2_result.calculation_version,
         assessment.calculation_version,
@@ -997,6 +1435,8 @@ def build_consultation_packet(
         )
     if country_environment is not None:
         calculation_versions.append(country_environment.rule_version)
+    if trade_statistics is not None:
+        calculation_versions.append("trade-statistics-summary-1.0")
     packet = ConsultationPacket(
         case_id=case_id,
         calculation_version="+".join(calculation_versions),
@@ -1007,11 +1447,27 @@ def build_consultation_packet(
             stage2_input=stage2_input,
             trade_settlement_risk=trade_settlement_risk,
             country_environment=country_environment,
+            country_economic_interpretation=(
+                country_economic_interpretation
+            ),
+            trade_statistics=trade_statistics,
+            trade_statistics_interpretation=(
+                trade_statistics_interpretation
+            ),
             official_candidate_shortlist=official_candidate_shortlist,
+            official_candidate_input_profile=(
+                official_candidate_input_profile
+            ),
+            auxiliary_service_candidates=auxiliary_service_candidates,
             installment_payment_statuses=(
                 materialized_payment_statuses
             ),
             confirmed_transaction=confirmed_transaction,
+        ),
+        confirmed_transaction_fingerprint=(
+            confirmed_transaction.input_fingerprint
+            if confirmed_transaction is not None
+            else None
         ),
         exchange_rate_as_of=stage1.as_of,
         scenario_ids=[
@@ -1086,12 +1542,23 @@ def build_consultation_packet(
         risk_findings=assessment.findings,
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
+        country_economic_interpretation=(
+            country_economic_interpretation
+        ),
+        trade_statistics=trade_statistics,
+        trade_statistics_interpretation=(
+            trade_statistics_interpretation
+        ),
         consultation_topics=consultation_topics,
         consultation_priorities=consultation_priorities,
+        consultation_review_areas=presentation.review_areas,
+        consultation_supporting_checks=presentation.supporting_checks,
         other_consultation_topics=other_consultation_topics,
         consultation_priority_fingerprint=priority_fingerprint,
         installment_payment_statuses=materialized_payment_statuses,
         official_candidate_shortlist=official_candidate_shortlist,
+        official_candidate_input_profile=official_candidate_input_profile,
+        auxiliary_service_candidates=auxiliary_service_candidates,
         missing_information=gaps,
         required_documents=_required_documents(
             consultation_topics,

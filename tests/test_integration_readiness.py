@@ -451,9 +451,9 @@ class IntegrationReadinessStreamlitTests(unittest.TestCase):
         self.assertIn("분석 환경 및 고급 설정", [
             item.label for item in app.expander
         ])
-        self.assertIn("forecast freshness", visible)
+        self.assertIn("환율 전망 최신성", visible)
         self.assertIn("API key 값은 표시하지 않습니다", visible)
-        self.assertIn("기존 Stage 3", visible)
+        self.assertIn("기존 환헤지 결과", visible)
 
 
 if __name__ == "__main__":

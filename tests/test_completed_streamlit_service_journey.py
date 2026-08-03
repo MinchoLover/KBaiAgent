@@ -20,7 +20,10 @@ from src.stage2.binding import (
     document_input_from_confirmed_transaction,
 )
 from src.stage2.engine import run_stage2
+from src.domain.stage3_models import Stage3Result
 from src.ui.state import PIPELINE_KEYS
+from src.workflow.result import StageResult, StageStatus
+from src.workflow.state import WorkflowState
 from tests.golden_consultation_fixture import (
     build_golden_consultation_fixture,
 )
@@ -66,6 +69,62 @@ class ConfirmedTransactionProductionTests(unittest.TestCase):
         self.assertEqual(result.extraction.explicit_due_date, "2026-08-20")
         self.assertEqual(result.extraction.amount_due, "100000.00")
         self.assertFalse(result.validation.stage2_allowed)
+
+    def test_registered_document_corrects_wrong_default_role_from_source(self):
+        registered = presentation_document()
+        result = extract_registered_document(
+            file_bytes=registered.file_bytes,
+            filename=registered.filename,
+            mime_type=registered.mime_type,
+            company_role="BUYER",
+            company_country="KR",
+            settings=Settings(
+                app_env="presentation",
+                openai_api_key=None,
+                enable_live_document_extraction=False,
+            ),
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.auto_matched_company_role, "SELLER")
+        self.assertEqual(result.extraction.company_role, "SELLER")
+        self.assertEqual(result.extraction.trade_type, "EXPORT")
+        self.assertNotIn(
+            "COMPANY_COUNTRY_ROLE_MISMATCH",
+            {item.code for item in result.validation.issues},
+        )
+
+    def test_registered_document_is_available_only_in_demo_boundaries(self):
+        registered = presentation_document()
+        development_result = extract_registered_document(
+            file_bytes=registered.file_bytes,
+            filename=registered.filename,
+            mime_type=registered.mime_type,
+            company_role="SELLER",
+            company_country="KR",
+            settings=Settings(
+                app_env="development",
+                demo_mode=True,
+                openai_api_key=None,
+                enable_live_document_extraction=False,
+            ),
+        )
+        production_result = extract_registered_document(
+            file_bytes=registered.file_bytes,
+            filename=registered.filename,
+            mime_type=registered.mime_type,
+            company_role="SELLER",
+            company_country="KR",
+            settings=Settings(
+                app_env="production",
+                demo_mode=False,
+                openai_api_key=None,
+                enable_live_document_extraction=False,
+            ),
+        )
+
+        self.assertIsNotNone(development_result)
+        self.assertIsNone(production_result)
 
     def test_snapshot_is_the_stage_contract_and_keeps_dates_separate(self):
         snapshot = confirmed_transaction_from_confirmation(
@@ -215,7 +274,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             app.button,
             (
                 "FormSubmitter:critical_confirmation-"
-                "원문과 확인하고 금융분석 시작"
+                "거래 기본정보 확정"
             ),
         ).click().run(timeout=30)
 
@@ -266,48 +325,27 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             app.button,
             (
                 "FormSubmitter:trade_risk_confirmation_form-"
-                "결제·회수 위험 확인"
+                "대금 회수조건 확인"
             ),
         ).click().run(timeout=30)
 
     @staticmethod
     def _run_golden_cashflow(app):
-        values = {
-            "stage2_current_cash_widget": "20000000.00",
-            "stage2_minimum_buffer_widget": "10000000.00",
+        expected_text_defaults = {
+            "stage2_current_cash_widget": "20,000,000.00",
+            "stage2_minimum_buffer_widget": "10,000,000.00",
             "stage2_credit_limit_widget": "0.00",
-            "stage2_acceptable_loss_widget": "5000000.00",
+            "stage2_acceptable_loss_widget": "5,000,000.00",
             "stage2_usable_fx_widget": "0.00",
-            "stage2_same_flow_amount_widget": "0",
-            "stage2_hedge_amount_widget": "0",
-            "stage2_locked_rate_widget": "1400",
-            "stage2_hedge_fee_widget": "0",
             "stage2_bank_spread_widget": "0",
             "stage2_bank_fee_widget": "0.00",
         }
-        for key, value in values.items():
-            _by_key(app.text_input, key).set_value(value)
-        _by_key(
+        for key, value in expected_text_defaults.items():
+            assert _by_key(app.text_input, key).value == value
+        assert _by_key(
             app.date_input,
             "stage2_as_of_widget",
-        ).set_value(date(2026, 7, 29))
-        _by_key(
-            app.date_input,
-            "stage2_same_flow_date_widget",
-        ).set_value(date(2026, 7, 29))
-        app.session_state["krw_cashflow_editor"] = {
-            "edited_rows": {},
-            "added_rows": [
-                {
-                    "date": "2026-08-20",
-                    "amount": "145000000.00",
-                    "direction": "OUTFLOW",
-                    "category": "COST",
-                    "description": "수출대금으로 충당할 합성 운영비",
-                }
-            ],
-            "deleted_rows": [],
-        }
+        ).value == date(2026, 7, 29)
         _by_key(
             app.button,
             (
@@ -315,6 +353,49 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 "환율·자금 위험 계산하기"
             ),
         ).click().run(timeout=30)
+
+    def test_financial_support_page_is_not_blank_before_hedge(self):
+        from streamlit.testing.v1 import AppTest
+
+        environment = {
+            "APP_ENV": "presentation",
+            "OPENAI_API_KEY": "",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "STAGE1_MODE": "manual",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=30,
+            ).run(timeout=30)
+            self._confirm_document(app)
+            self._run_stage1_and_trade_risk(app)
+            self._run_golden_cashflow(app)
+
+            self.assertIsNone(_state(app, "stage3_result"))
+            _by_key(
+                app.button,
+                "go_to_consultation_from_summary",
+            ).click().run(timeout=30)
+            self.assertEqual(_state(app, "active_page"), "consultation")
+            self.assertIn(
+                "금융지원 후보 준비를 한 번만 완료해 주세요",
+                " ".join(item.value for item in app.markdown),
+            )
+            prepare = _by_key(
+                app.button,
+                "prepare_hedge_for_financial_support",
+            )
+            self.assertFalse(prepare.disabled)
+
+            prepare.click().run(timeout=30)
+            self.assertIsNotNone(_state(app, "stage3_result"))
+            self.assertIn(
+                "search_stage4",
+                {item.key for item in app.button},
+            )
 
     def test_click_journey_reaches_report_then_invalidates_and_resets(self):
         from streamlit.testing.v1 import AppTest
@@ -340,7 +421,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 "registered_api_free_fixture",
             )
             snapshot = _state(app, "confirmed_transaction")
-            self.assertEqual(_state(app, "active_page"), "analysis")
+            self.assertEqual(_state(app, "active_page"), "transaction")
             self.assertEqual(snapshot["contract_date"], "2026-07-29")
             self.assertEqual(snapshot["shipment_date"], "2026-08-05")
             self.assertEqual(snapshot["due_date"], "2026-08-20")
@@ -371,6 +452,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             stage2_input = _state(app, "stage2_input")
             stage2 = _state(app, "stage2_result")
             packet = _state(app, "consultation_packet")["packet"]
+            trade_statistics = _state(app, "trade_statistics_result")
             self.assertEqual(
                 stage2_input["exposures"][0]["settlement_date"],
                 "2026-08-20",
@@ -411,20 +493,46 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             )
             self.assertEqual(
                 [
-                    item["title"]
-                    for item in packet["consultation_priorities"]
+                    item["display_name"]
+                    for item in packet["consultation_review_areas"]
                 ],
                 [
-                    "수출대금 회수 보호 상담",
-                    "환율 관리 상담",
-                    "운영자금 버퍼·수출대금 회수시점 상담",
+                    "수출대금 회수 보호",
+                    "환율 관리",
+                    "무역금융·운영자금",
                 ],
+            )
+            self.assertNotIn(
+                "consultation_supporting_checks",
+                packet,
             )
             self.assertEqual(
                 packet["protection_summary"][
                     "advance_payment_receipt"
                 ],
                 "UNKNOWN",
+            )
+            self.assertEqual(
+                trade_statistics["status"],
+                "OFFICIAL_FIXTURE",
+            )
+            self.assertEqual(
+                trade_statistics["summary"]["scope"],
+                "COUNTRY_TOTAL",
+            )
+            self.assertEqual(
+                trade_statistics["summary"][
+                    "latest_12m_export_usd"
+                ],
+                "8282425000",
+            )
+            self.assertEqual(
+                packet["trade_statistics"]["request_fingerprint"],
+                trade_statistics["request_fingerprint"],
+            )
+            self.assertEqual(
+                packet["trade_statistics_interpretation"]["status"],
+                "DETERMINISTIC_FALLBACK",
             )
             result_cards = [
                 item.value
@@ -434,16 +542,65 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             self.assertEqual(len(result_cards), 1)
             for expected in (
                 "환율 -5% 시 원화 수취액 7,000,000원 감소",
-                "허용손실 5,000,000원 초과",
+                "기준 원화 수취액",
+                "140,000,000원",
+                "환율 -5% 원화 수취액",
+                "133,000,000원",
+                "감당 가능한 최대 환율손실 5,000,000원 초과",
                 "스트레스 후 예상 현금 8,000,000원",
-                "목표 버퍼 10,000,000원",
-                "버퍼 부족 2,000,000원",
-                "현금 적자 0원",
-                "지급 또는 post-credit 부족 0원",
+                "최소 유지 운영자금 10,000,000원",
+                "최소 운영자금 대비 부족액 2,000,000원",
+                "실제 현금 적자 0원",
+                "대출한도 반영 후 부족액 0원",
                 "USD 80,000",
                 "Open Account / T/T",
             ):
                 self.assertIn(expected, result_cards[0])
+            financial_page_text = " ".join(
+                [item.value for item in app.markdown]
+                + [item.value for item in app.caption]
+                + [item.value for item in app.info]
+                + [
+                    "{} {} {}".format(
+                        item.label,
+                        item.value,
+                        item.delta or "",
+                    )
+                    for item in app.metric
+                ]
+            )
+            for expected in (
+                "거래국 무역 통계",
+                "한국–브라질 교역 동향",
+                "국가 전체 교역",
+                "USD 8,282,425,000",
+                "USD 6,154,122,000",
+                "USD 2,128,302,000",
+                "수출 증감률",
+                "+56.4%",
+                "2024-07~2026-06",
+                "이전 비교기간보다 증가했습니다",
+                "개별 거래처의 신용도나 대금 회수 가능성을 의미하지 않습니다",
+                "HS Code가 없어 국가 전체 교역 통계만",
+                "수출 FOB / 수입 CIF",
+            ):
+                self.assertIn(expected, financial_page_text)
+            self.assertNotIn(
+                "출처 및 기술정보",
+                [item.label for item in app.expander],
+            )
+            self.assertIn(
+                "품목별 통계 조회 (선택)",
+                [item.label for item in app.expander],
+            )
+            self.assertIn(
+                "월별 상세 추이 보기",
+                [item.label for item in app.expander],
+            )
+            self.assertGreaterEqual(
+                len(app.get("arrow_vega_lite_chart")),
+                1,
+            )
             consultation_cards = [
                 item.value
                 for item in app.markdown
@@ -453,13 +610,14 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             for card, title in zip(
                 consultation_cards,
                 [
-                    "수출대금 회수 보호 상담",
-                    "환율 관리 상담",
-                    "운영자금 버퍼·수출대금 회수시점 상담",
+                    "수출대금 회수 보호",
+                    "환율 관리",
+                    "무역금융·운영자금",
                 ],
             ):
                 self.assertIn(title, card)
-                self.assertIn("상담에서 결정할 사항", card)
+                self.assertIn("상담 목적", card)
+                self.assertIn("핵심 이유", card)
                 self.assertIn("다음 행동", card)
 
             _by_key(
@@ -508,6 +666,20 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 len(identities),
                 len(shortlist["candidates"]),
             )
+            self.assertEqual(
+                [
+                    (item["institution"], item["name"])
+                    for item in shortlist["candidates"]
+                ],
+                [
+                    ("한국무역보험공사", "단기수출보험 검토"),
+                    (
+                        "KB국민은행",
+                        "KB Star FX 선물환·외환스왑 상담",
+                    ),
+                    ("한국무역보험공사", "환변동보험 검토"),
+                ],
+            )
             _by_key(
                 app.button,
                 "generate_report",
@@ -533,9 +705,9 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             labels = {
                 item.label for item in app.get("download_button")
             }
-            self.assertIn("상담 준비서 다운로드", labels)
-            self.assertIn("JSON 데이터 다운로드", labels)
-            self.assertIn("통합 상담 리포트 다운로드", labels)
+            self.assertIn("상담 준비서 PDF 다운로드", labels)
+            self.assertNotIn("JSON 다운로드", labels)
+            self.assertIn("통합 보고서 다운로드", labels)
 
             _by_key(
                 app.text_input,
@@ -563,3 +735,279 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             }
             self.assertEqual(remaining, set())
             self.assertEqual(len(app.exception), 0)
+
+    def test_profile_submit_refreshes_recommendations_in_one_user_action(self):
+        from streamlit.testing.v1 import AppTest
+
+        environment = {
+            "APP_ENV": "presentation",
+            "OPENAI_API_KEY": "",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "STAGE1_MODE": "manual",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=30,
+            ).run(timeout=30)
+            self._confirm_document(app)
+            self._run_stage1_and_trade_risk(app)
+            self._run_golden_cashflow(app)
+            _by_key(
+                app.button,
+                "go_to_consultation_from_summary",
+            ).click().run(timeout=30)
+            _by_key(app.button, "optimize_stage3").click().run(timeout=30)
+            _by_key(app.button, "search_stage4").click().run(timeout=30)
+            _by_key(app.button, "generate_report").click().run(timeout=30)
+
+            stage1_before = _state(app, "stage1_load")
+            stage2_before = _state(app, "stage2_result")
+            stage3_before = _state(app, "stage3_result")
+            self.assertIsNotNone(_state(app, "report_result"))
+
+            values = {
+                "shipment_status": "PRE_SHIPMENT",
+                "receivable_status": "NOT_YET",
+                "trade_form": "PROCESSING_TRADE",
+                "customs_clearance": "NO",
+                "relationship_scope": "SINGLE_ONE_OFF",
+                "credit_information_status": "SUFFICIENT",
+                "credit_investigation_intent": "NO",
+                "funding_purposes": "MANUFACTURING",
+                "receivable_financing_intent": "NONE",
+                "early_cash_conversion_intent": "NOT_APPLICABLE",
+                "bank_financing_intent": "YES",
+                "repayment_responsibility_acknowledgement": (
+                    "NOT_APPLICABLE"
+                ),
+                "short_term_export_insurance_linkage_review": (
+                    "NOT_APPLICABLE"
+                ),
+                "sme_status": "CONFIRMED",
+                "annual_export_band": "AT_LEAST_USD_100K",
+                "market_entry_purpose": "YES",
+                "policy_finance_need": "YES",
+                "production_or_working_capital_need": "YES",
+            }
+            for field_name, value in values.items():
+                _by_key(
+                    app.selectbox,
+                    "official_profile_{}_widget".format(field_name),
+                ).set_value(value)
+
+            _by_key(
+                app.button,
+                (
+                    "FormSubmitter:official_candidate_input_profile_form-"
+                    "선택 내용 반영해 추천 업데이트"
+                ),
+            ).click().run(timeout=30)
+
+            self.assertEqual(len(app.exception), 0)
+            self.assertEqual(_state(app, "stage1_load"), stage1_before)
+            self.assertEqual(_state(app, "stage2_result"), stage2_before)
+            self.assertEqual(_state(app, "stage3_result"), stage3_before)
+            shortlist = _state(app, "official_candidate_shortlist")
+            self.assertEqual(
+                [item["product_id"] for item in shortlist["candidates"]],
+                [
+                    "ksure_export_credit_guarantee_pre_shipment",
+                    "kosmes_export_funding",
+                    "kb_star_fx_forward",
+                ],
+            )
+            self.assertNotIn("report_result", app.session_state)
+            self.assertNotIn("report_download_payload", app.session_state)
+            self.assertNotIn(
+                "official_candidate_auto_refresh",
+                app.session_state,
+            )
+            self.assertTrue(
+                any(
+                    "선택한 조건을 반영해 상담 후보를 업데이트했습니다."
+                    in item.value
+                    for item in app.success
+                )
+            )
+
+    def test_conflicting_profile_hides_previous_recommendation_artifacts(self):
+        from streamlit.testing.v1 import AppTest
+
+        environment = {
+            "APP_ENV": "presentation",
+            "OPENAI_API_KEY": "",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "STAGE1_MODE": "manual",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=30,
+            ).run(timeout=30)
+            self._confirm_document(app)
+            self._run_stage1_and_trade_risk(app)
+            self._run_golden_cashflow(app)
+            _by_key(
+                app.button,
+                "go_to_consultation_from_summary",
+            ).click().run(timeout=30)
+            _by_key(app.button, "optimize_stage3").click().run(timeout=30)
+            _by_key(app.button, "search_stage4").click().run(timeout=30)
+            _by_key(app.button, "generate_report").click().run(timeout=30)
+
+            valid_profile_values = {
+                "shipment_status": "COMPLETED",
+                "receivable_status": "EXISTS",
+                "trade_form": "GENERAL_EXPORT",
+                "customs_clearance": "YES",
+                "relationship_scope": "SINGLE_ONE_OFF",
+                "credit_information_status": "SUFFICIENT",
+                "credit_investigation_intent": "NO",
+                "funding_purposes": "RECEIVABLE_EARLY_CASH_CONVERSION",
+                "receivable_financing_intent": "NEGO_OR_PURCHASE",
+                "early_cash_conversion_intent": "YES",
+                "bank_financing_intent": "YES",
+                "repayment_responsibility_acknowledgement": "ACKNOWLEDGED",
+                "short_term_export_insurance_linkage_review": (
+                    "AGREED_TO_REVIEW"
+                ),
+                "sme_status": "UNKNOWN",
+                "annual_export_band": "UNKNOWN",
+                "market_entry_purpose": "NO",
+                "policy_finance_need": "NO",
+                "production_or_working_capital_need": "NO",
+            }
+            for field_name, value in valid_profile_values.items():
+                _by_key(
+                    app.selectbox,
+                    "official_profile_{}_widget".format(field_name),
+                ).set_value(value)
+            _by_key(
+                app.button,
+                (
+                    "FormSubmitter:official_candidate_input_profile_form-"
+                    "선택 내용 반영해 추천 업데이트"
+                ),
+            ).click().run(timeout=30)
+            _by_key(
+                app.button,
+                "workflow_nav_download",
+            ).click().run(timeout=30)
+            _by_key(app.button, "generate_report").click().run(timeout=30)
+
+            stage1_before = _state(app, "stage1_load")
+            stage2_before = _state(app, "stage2_result")
+            stage3_before = _state(app, "stage3_result")
+            self.assertIsNotNone(_state(app, "official_candidate_shortlist"))
+            self.assertIsNotNone(_state(app, "consultation_packet"))
+            self.assertIsNotNone(_state(app, "report_result"))
+
+            conflicting_values = {
+                "shipment_status": "PRE_SHIPMENT",
+                "receivable_status": "NOT_YET",
+                "customs_clearance": "YES",
+                "credit_information_status": "INSUFFICIENT",
+                "credit_investigation_intent": "NO",
+            }
+            for field_name, value in conflicting_values.items():
+                _by_key(
+                    app.selectbox,
+                    "official_profile_{}_widget".format(field_name),
+                ).set_value(value)
+
+            _by_key(
+                app.button,
+                (
+                    "FormSubmitter:official_candidate_input_profile_form-"
+                    "선택 내용 반영해 추천 업데이트"
+                ),
+            ).click().run(timeout=30)
+
+            self.assertEqual(len(app.exception), 0)
+            self.assertTrue(
+                any("현재 매입할 수출채권이 없는데" in item.value for item in app.error)
+            )
+            visible_warnings = " ".join(item.value for item in app.warning)
+            self.assertIn("선적 전인데 수출 통관", visible_warnings)
+            self.assertIn("신용정보는 부족", visible_warnings)
+            self.assertEqual(_state(app, "stage1_load"), stage1_before)
+            self.assertEqual(_state(app, "stage2_result"), stage2_before)
+            self.assertEqual(_state(app, "stage3_result"), stage3_before)
+            for stale_key in (
+                "official_candidate_shortlist",
+                "auxiliary_service_candidates",
+                "consultation_packet",
+                "report_result",
+                "report_download_payload",
+            ):
+                self.assertNotIn(stale_key, app.session_state)
+
+            visible_text = " ".join(item.value for item in app.markdown)
+            self.assertNotIn("단기수출보험 검토", visible_text)
+            self.assertNotIn("KB Star FX 선물환·외환스왑 상담", visible_text)
+            self.assertNotIn(
+                "상담 준비서 PDF 다운로드",
+                [
+                    item.label
+                    for item in app.get("download_button")
+                ],
+            )
+
+    def test_stage3_internal_failure_is_persistent_and_actionable(self):
+        from streamlit.testing.v1 import AppTest
+
+        environment = {
+            "APP_ENV": "presentation",
+            "OPENAI_API_KEY": "",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "STAGE1_MODE": "manual",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=30,
+            ).run(timeout=30)
+            self._confirm_document(app)
+            self._run_stage1_and_trade_risk(app)
+            self._run_golden_cashflow(app)
+
+            workflow = WorkflowState.model_validate(
+                app.session_state["workflow_state"]
+            )
+            workflow.hedge = StageResult[Stage3Result](
+                status=StageStatus.FAILED,
+                errors=["hedge 단계 실패 (RuntimeError)"],
+                provider="grid_hedge_optimizer",
+            )
+            workflow.product_search = None
+            workflow.report = None
+            workflow.final_report = None
+            app.session_state["workflow_state"] = workflow.model_dump()
+            app.session_state["active_page"] = "consultation"
+            if "stage3_result" in app.session_state:
+                del app.session_state["stage3_result"]
+            app.run(timeout=30)
+
+            self.assertEqual(len(app.exception), 0)
+            visible_errors = " ".join(
+                item.value for item in app.error
+            )
+            self.assertIn("시스템 오류", visible_errors)
+            self.assertIn("헤지 대응안 비교", visible_errors)
+            technical = " ".join(
+                item.value for item in app.markdown
+            )
+            self.assertNotIn("STAGE3_UNEXPECTED_ERROR", technical)
+            self.assertNotIn("stage3.hedge", technical)
+            self.assertNotIn(
+                workflow.confirmed_transaction.input_fingerprint,
+                technical,
+            )
+            self.assertNotIn("Traceback", technical)

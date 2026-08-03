@@ -56,6 +56,7 @@ def _env_csv(name: str, default: Tuple[str, ...]) -> Tuple[str, ...]:
 @dataclass(frozen=True)
 class Settings:
     app_env: str = "development"
+    show_internal_debug: bool = False
     openai_api_key: Optional[str] = field(default=None, repr=False)
     openai_model: str = "gpt-4o-mini"
     openai_fallback_model: str = "gpt-4o"
@@ -68,6 +69,8 @@ class Settings:
     enable_kb_macro_hedge_reference: bool = False
     enable_product_rag: bool = True
     enable_llm_report: bool = True
+    enable_country_economic_interpretation: bool = False
+    enable_trade_statistics_interpretation: bool = False
     stage1_mode: str = "manual"
     stage1_provider: str = "http"
     stage1_base_url: str = "http://127.0.0.1:8765"
@@ -112,6 +115,15 @@ class Settings:
     koreaexim_key: Optional[str] = field(default=None, repr=False)
     ecos_key: Optional[str] = field(default=None, repr=False)
     credit_key: Optional[str] = field(default=None, repr=False)
+    customs_trade_api_key: Optional[str] = field(
+        default=None,
+        repr=False,
+    )
+    trade_statistics_provider: str = "auto"
+    trade_statistics_timeout_seconds: float = 10.0
+    trade_statistics_snapshot_version: str = (
+        "2026.08.01-kr-br-country-v1"
+    )
     official_search_cache_ttl_hours: int = 24
     official_domains: Tuple[str, ...] = DEFAULT_OFFICIAL_DOMAINS
 
@@ -119,6 +131,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             app_env=os.getenv("APP_ENV", "development").strip().lower(),
+            show_internal_debug=_env_bool("SHOW_INTERNAL_DEBUG", False),
             openai_api_key=(
                 os.getenv("OPENAI_API_KEY")
                 or os.getenv("OPEN_AI_API_KEY")
@@ -161,6 +174,14 @@ class Settings:
             enable_llm_report=_env_bool(
                 "ENABLE_LLM_REPORT",
                 True,
+            ),
+            enable_country_economic_interpretation=_env_bool(
+                "ENABLE_COUNTRY_ECONOMIC_INTERPRETATION",
+                False,
+            ),
+            enable_trade_statistics_interpretation=_env_bool(
+                "ENABLE_TRADE_STATISTICS_INTERPRETATION",
+                False,
             ),
             stage1_mode=os.getenv("STAGE1_MODE", "manual").strip().lower(),
             stage1_provider=os.getenv(
@@ -287,6 +308,21 @@ class Settings:
             koreaexim_key=os.getenv("KOREAEXIM_KEY") or None,
             ecos_key=os.getenv("ECOS_KEY") or None,
             credit_key=os.getenv("CREDIT_KEY") or None,
+            customs_trade_api_key=(
+                os.getenv("CUSTOMS_TRADE_API_KEY") or None
+            ),
+            trade_statistics_provider=os.getenv(
+                "TRADE_STATISTICS_PROVIDER",
+                "auto",
+            ).strip().lower(),
+            trade_statistics_timeout_seconds=_env_float(
+                "TRADE_STATISTICS_TIMEOUT_SECONDS",
+                10.0,
+            ),
+            trade_statistics_snapshot_version=os.getenv(
+                "TRADE_STATISTICS_SNAPSHOT_VERSION",
+                "2026.08.01-kr-br-country-v1",
+            ).strip(),
             official_search_cache_ttl_hours=_env_int(
                 "OFFICIAL_SEARCH_CACHE_TTL_HOURS",
                 24,

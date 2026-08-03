@@ -436,7 +436,10 @@ class EndToEndTests(unittest.TestCase):
         export_demo.click().run()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(app.session_state["active_page"], "analysis")
-        self.assertEqual([tab.label for tab in app.tabs], [])
+        self.assertEqual(
+            [tab.label for tab in app.tabs],
+            ["시장 뉴스", "국가·경제환경", "무역통계"],
+        )
         self.assertEqual(
             next(
                 radio.value

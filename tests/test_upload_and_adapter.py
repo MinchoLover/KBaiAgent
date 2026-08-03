@@ -9,6 +9,7 @@ from PIL import Image
 from openai import OpenAI
 
 from sample_data import sample_extraction
+from schemas import TradeDocumentExtraction
 from src.config import Settings
 from src.document_intake.openai_adapter import (
     AdapterExtractionResult,
@@ -150,10 +151,13 @@ class _FakeParse:
 
 
 class _FixedExtractionAdapter:
+    def __init__(self, extraction=None):
+        self.extraction = extraction or sample_extraction()
+
     def extract(self, **kwargs):
         del kwargs
         return AdapterExtractionResult(
-            extraction=sample_extraction(),
+            extraction=self.extraction,
             usage=ExtractionUsage(
                 model="test-model",
                 prompt_version="test",
@@ -316,6 +320,35 @@ class AdapterTests(unittest.TestCase):
         )
         self.assertIn(
             "OCR_REQUIRED",
+            {item.code for item in run.validation.issues},
+        )
+
+    def test_text_pdf_auto_matches_company_to_verified_seller(self):
+        pdf_path = ROOT / "dataset" / "golden_demo" / (
+            "golden_export_contract.pdf"
+        )
+        extraction_path = ROOT / "dataset" / "golden_demo" / (
+            "expected_extraction.json"
+        )
+        raw_extraction = TradeDocumentExtraction.model_validate_json(
+            extraction_path.read_text(encoding="utf-8")
+        )
+
+        run = extract_trade_document_with_metadata(
+            file_bytes=pdf_path.read_bytes(),
+            filename=pdf_path.name,
+            mime_type="application/pdf",
+            company_role="BUYER",
+            company_country="KR",
+            settings=Settings(),
+            adapter=_FixedExtractionAdapter(raw_extraction),
+        )
+
+        self.assertEqual(run.auto_matched_company_role, "SELLER")
+        self.assertEqual(run.extraction.company_role, "SELLER")
+        self.assertEqual(run.extraction.trade_type, "EXPORT")
+        self.assertNotIn(
+            "COMPANY_COUNTRY_ROLE_MISMATCH",
             {item.code for item in run.validation.issues},
         )
 

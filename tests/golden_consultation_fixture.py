@@ -13,6 +13,10 @@ from src.application.stage2_input_service import (
     build_stage2_input_from_form,
     validate_stage2_as_of_date,
 )
+from src.application.trade_statistics_service import (
+    build_trade_statistics_request,
+    retrieve_trade_statistics,
+)
 from src.consultation.trade_settlement_risk import (
     assess_trade_settlement_risk,
     create_trade_risk_confirmation,
@@ -142,11 +146,19 @@ def build_golden_consultation_fixture(
         confirmed_at="2026-07-29T09:00:00+09:00",
     )
     trade_risk = assess_trade_settlement_risk(trade_confirmation)
+    country_environment_input = build_country_environment_input(
+        extraction=extraction,
+        trade_risk_confirmation=trade_confirmation,
+    )
     country_environment = assess_country_trade_environment(
-        build_country_environment_input(
-            extraction=extraction,
-            trade_risk_confirmation=trade_confirmation,
-        )
+        country_environment_input
+    )
+    trade_statistics_request = build_trade_statistics_request(
+        confirmed_transaction=confirmed_transaction,
+        source_preference="OFFICIAL_FIXTURE",
+    )
+    trade_statistics = retrieve_trade_statistics(
+        trade_statistics_request
     )
     decision = build_decision_support(
         case_id="golden_export_br_001",
@@ -157,6 +169,7 @@ def build_golden_consultation_fixture(
         stage2_result=stage2,
         trade_settlement_risk=trade_risk,
         country_environment=country_environment,
+        trade_statistics=trade_statistics,
         installment_payment_statuses=(
             [payment_status] if payment_status is not None else None
         ),
@@ -174,6 +187,9 @@ def build_golden_consultation_fixture(
         "stage2_input": stage2_input,
         "stage2": stage2,
         "trade_risk": trade_risk,
+        "country_environment_input": country_environment_input,
         "country_environment": country_environment,
+        "trade_statistics_request": trade_statistics_request,
+        "trade_statistics": trade_statistics,
         "decision": decision,
     }

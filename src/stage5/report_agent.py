@@ -1,7 +1,8 @@
 import json
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from openai import OpenAI
+from pydantic import ValidationError
 
 from schemas import TradeDocumentExtraction
 from src.config import Settings
@@ -11,7 +12,10 @@ from src.domain.confirmed_transaction_models import (
     ConfirmedTransactionSnapshot,
 )
 from src.domain.product_models import Stage4Result
-from src.domain.report_models import ReportResult
+from src.domain.report_models import (
+    ReportResult,
+    Stage5NarrativeDraft,
+)
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage1_web_models import MarketIntegrationResult
 from src.domain.stage2_models import Stage2Result
@@ -21,44 +25,56 @@ from src.stage5.deterministic_fallback import (
     build_report_source_bundle,
     generate_deterministic_report,
 )
+from src.stage5.grounding import (
+    Stage5NarrativeValidationError,
+    build_grounding_registry,
+    build_narrative_prompt,
+    render_grounded_narratives,
+    validate_narrative_draft,
+)
 
 
 REPORT_INSTRUCTIONS = """
-제공된 JSON의 숫자를 절대 재계산하거나 수정하지 말고 한국어 보고서를 작성하라.
-각 핵심 숫자 뒤에 [source: JSON.path]를 표시하라.
-STRESS를 예측이라 부르지 말고, probability_valid=false이면 확률을 만들지 마라.
-q90은 90% 발생확률이 아니라 모델 예측분포의 상위 경로위험 분위수다.
-HORIZON_MISMATCH이면 모델 분위수를 결제기간 예측처럼 표현하지 마라.
-뉴스는 시장 설명용이며 환율·손실 숫자를 변경한 것처럼 쓰지 마라.
-consultation이 있으면 거래·결제 위험과 상담 항목은 그 경로만 근거로 사용하라.
-consultation.consultation_priorities가 있으면 rank·title·priority_reason·
-numeric_rationale·missing_information·expected_decision·next_action·
-official_candidates·disclaimer를 순서와 값 그대로 유지하라.
-상담 priority를 LLM이 생성·재정렬하거나 승인등급·보험 인수등급·대출등급으로
-바꾸지 마라.
-buffer shortfall과 cash deficit·payment deficit를 구분하고, 뒤 두 값이 0이면
-지급불능이나 대출 필요성으로 표현하지 마라.
-예정 결제 노출액을 실제 현재 미수·미지급잔액으로 표현하지 마라.
-Stage 3 후보를 최적 추천으로 표현하지 마라.
-Markdown 다운로드를 실제 RM 전송·상담 예약·신청 완료로 표현하지 마라.
-consultation.country_environment가 있으면 OECD 지급·이전, World Bank 거시환경,
-WTO 무역·시장접근을 분리하고 공식 URL·자료기간·원값·해석·한계를 표시하라.
-Brazil OECD 4는 공식 원자료 분류로만 쓰고 KBaiAgent 국가등급으로 쓰지 마라.
-미국 고소득 OECD 미분류는 0·LOW·안전·자료 없음으로 바꾸지 마라.
-세 국가 신호를 0~100 점수·가중평균·국가 신용등급·부도확률로 만들지 마라.
-서로 다른 World Bank 관측연도를 같은 시점 자료처럼 표현하지 마라.
-국가 신호로 Stage 2 현금흐름이나 Stage 3 환헤지 비율을 변경하지 마라.
-consultation이 있으면 상품은 consultation.official_candidate_shortlist.candidates만
-후보/상담 필요로 표현하고 stage4 원시 검색 목록을 사용자용 후보로 쓰지 마라.
-shortlist가 없거나 비어 있으면 상품명이나 기관을 만들지 말고 공식 후보가 없다고 밝혀라.
-거래·결제 위험을 공식 심사등급·부도확률·보험 인수판단으로 표현하지 마라.
-결제·회수 위험 때문에 환헤지 비율을 직접 높이거나 낮추지 마라.
-승인·수익·손실회피를 보장하지 마라.
-보고서 섹션은 거래 요약, 데이터 출처, 시나리오 성격, 현금흐름 영향,
-환율·유동성 위험, 거래·결제조건 위험, 국가·무역환경 검토,
-환헤지 시뮬레이션, 검토할 금융 대응,
-공식 후보와 출처, 추가 정보, 상담 질문, 면책 순서다.
+당신은 KBaiAgent 결정론 보고서에 삽입할 짧은 한국어 설명만 작성한다.
+응답은 Stage5NarrativeDraft 구조를 정확히 따른다.
+사용자 입력의 required_source_id_order에 있는 source_id를 같은 순서로 정확히 한 번씩
+사용하고, 목록에 없는 source_id를 만들지 않는다.
+숫자, 날짜, 통화, 비율, 순위, 국가코드, JSON path, source tag, Markdown을 쓰지 않는다.
+상담 분야명, priority category, 상품명, 기관명, catalogue ID, URL을 쓰지 않는다.
+승인·가입·대출·보험 인수 가능성, 최적 상품, 위험국가, 부도 가능성을 단정하지 않는다.
+각 explanation은 제공된 scope의 의미와 상담에서 확인할 점을 한두 문장으로만 설명한다.
+결정론 값·순위·상품·섹션은 코드가 렌더링하므로 이를 반복하거나 바꾸지 않는다.
 """.strip()
+
+
+def _critic_fallback(
+    *,
+    fallback: ReportResult,
+    revision_count: int,
+) -> ReportResult:
+    return fallback.model_copy(
+        update={
+            "warnings": fallback.warnings
+            + ["LLM 설명 계약 또는 최종 critic 검증 실패로 fallback했습니다."],
+            "revision_count": revision_count,
+            "fallback_reason": "CRITIC_REJECTED",
+        }
+    )
+
+
+def _api_fallback(
+    *,
+    fallback: ReportResult,
+    revision_count: int,
+) -> ReportResult:
+    return fallback.model_copy(
+        update={
+            "warnings": fallback.warnings
+            + ["LLM 보고서 호출 실패로 fallback했습니다."],
+            "revision_count": revision_count,
+            "fallback_reason": "API_FAILURE",
+        }
+    )
 
 
 def generate_report(
@@ -111,8 +127,7 @@ def generate_report(
                 "warnings": fallback.warnings
                 + [
                     "상담 항목과 직접 연결된 공식 후보가 없어 LLM 상품 "
-                    "생성을 차단하고 "
-                    "결정론 보고서를 사용했습니다."
+                    "생성을 차단하고 결정론 보고서를 사용했습니다."
                 ],
                 "fallback_reason": "DETERMINISTIC_POLICY",
                 "revision_count": 0,
@@ -146,95 +161,98 @@ def generate_report(
         consultation_packet=consultation_packet,
         confirmed_transaction=confirmed_transaction,
     )
+    registry = build_grounding_registry(bundle)
+    openai_client = client or OpenAI(
+        api_key=effective_settings.openai_api_key,
+        timeout=effective_settings.openai_timeout_seconds,
+        max_retries=0,
+    )
+    validation_feedback: List[str] = []
     revision_count = 0
-    try:
-        openai_client = client or OpenAI(
-            api_key=effective_settings.openai_api_key,
-            timeout=effective_settings.openai_timeout_seconds,
-            max_retries=0,
-        )
-        response = openai_client.responses.create(
-            model=effective_settings.openai_report_model,
-            instructions=REPORT_INSTRUCTIONS,
-            input=json.dumps(bundle, ensure_ascii=False),
-            store=False,
-        )
-        markdown = str(response.output_text)
-        critique = critique_report(
-            markdown=markdown,
-            source_bundle=bundle,
-            scenario_kind=stage1.kind,
-            probability_valid=stage1.probability_valid,
-        )
-        if critique.passed:
-            return ReportResult(
-                status="LLM_PASS",
-                markdown=markdown,
-                report_json=bundle,
-                critique=critique,
-                generation_provider="OPENAI",
-                revision_count=0,
-                fallback_reason=None,
+    for attempt in range(max_revisions + 1):
+        try:
+            response = openai_client.responses.parse(
+                model=effective_settings.openai_report_model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": REPORT_INSTRUCTIONS,
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            build_narrative_prompt(
+                                registry,
+                                validation_feedback,
+                            ),
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                text_format=Stage5NarrativeDraft,
+                store=False,
+                timeout=effective_settings.openai_timeout_seconds,
             )
-
-        if max_revisions == 0:
-            return fallback.model_copy(
-                update={
-                    "warnings": fallback.warnings
-                    + ["critic 실패 후 재작성 정책이 0회라 fallback했습니다."],
-                    "revision_count": 0,
-                    "fallback_reason": "CRITIC_REJECTED",
-                }
-            )
-
-        revision_count = 1
-        revision = openai_client.responses.create(
-            model=effective_settings.openai_report_model,
-            instructions=REPORT_INSTRUCTIONS,
-            input=(
-                "다음 초안과 critic 수정 지시를 고쳐라. 숫자는 JSON에 있는 "
-                "값만 사용하라.\n수정 지시: {}\n초안:\n{}\n근거 JSON:\n{}"
-            ).format(
-                json.dumps(
-                    critique.revision_instructions,
-                    ensure_ascii=False,
-                ),
-                markdown,
-                json.dumps(bundle, ensure_ascii=False),
-            ),
-            store=False,
-        )
-        revised_markdown = str(revision.output_text)
-        revised_critique = critique_report(
-            markdown=revised_markdown,
-            source_bundle=bundle,
-            scenario_kind=stage1.kind,
-            probability_valid=stage1.probability_valid,
-        )
-        if revised_critique.passed:
-            return ReportResult(
-                status="LLM_REVISED_PASS",
-                markdown=revised_markdown,
-                report_json=bundle,
-                critique=revised_critique,
-                generation_provider="OPENAI",
+        except Exception:
+            return _api_fallback(
+                fallback=fallback,
                 revision_count=revision_count,
-                fallback_reason=None,
             )
-        return fallback.model_copy(
-            update={
-                "warnings": fallback.warnings
-                + ["LLM 보고서가 재검수에 실패해 fallback했습니다."],
-                "revision_count": revision_count,
-                "fallback_reason": "CRITIC_REJECTED",
-            }
-        )
-    except Exception:
-        return fallback.model_copy(
-            update={
-                "warnings": fallback.warnings
-                + ["LLM 보고서 호출 실패로 fallback했습니다."],
-                "revision_count": revision_count,
-                "fallback_reason": "API_FAILURE",
-            }
-        )
+
+        parsed = response.output_parsed
+        try:
+            if parsed is None:
+                raise Stage5NarrativeValidationError(
+                    "구조화 설명 응답이 비어 있습니다."
+                )
+            draft = (
+                parsed
+                if isinstance(parsed, Stage5NarrativeDraft)
+                else Stage5NarrativeDraft.model_validate(parsed)
+            )
+            validate_narrative_draft(
+                draft=draft,
+                registry=registry,
+                source_bundle=bundle,
+            )
+            markdown = render_grounded_narratives(
+                deterministic_markdown=fallback.markdown,
+                draft=draft,
+                registry=registry,
+            )
+            critique = critique_report(
+                markdown=markdown,
+                source_bundle=bundle,
+                scenario_kind=stage1.kind,
+                probability_valid=stage1.probability_valid,
+            )
+        except (Stage5NarrativeValidationError, ValidationError, ValueError) as exc:
+            validation_feedback = [str(exc)]
+        else:
+            if critique.passed:
+                return ReportResult(
+                    status=(
+                        "LLM_PASS"
+                        if attempt == 0
+                        else "LLM_REVISED_PASS"
+                    ),
+                    markdown=markdown,
+                    report_json=bundle,
+                    critique=critique,
+                    generation_provider="OPENAI",
+                    revision_count=attempt,
+                    fallback_reason=None,
+                )
+            validation_feedback = critique.revision_instructions
+
+        if attempt >= max_revisions:
+            return _critic_fallback(
+                fallback=fallback,
+                revision_count=revision_count,
+            )
+        revision_count = 1
+
+    return _critic_fallback(
+        fallback=fallback,
+        revision_count=revision_count,
+    )

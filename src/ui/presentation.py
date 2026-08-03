@@ -90,15 +90,15 @@ def _payment_method_from_terms(value: Optional[str]) -> str:
     upper = value.upper()
     methods: List[str] = []
     if "OPEN ACCOUNT" in upper:
-        methods.append("Open Account")
+        methods.append("외상거래(Open Account)")
     if "T/T" in upper or "TELEGRAPHIC TRANSFER" in upper:
-        methods.append("T/T")
+        methods.append("전신송금(T/T)")
     if "L/C" in upper or "LETTER OF CREDIT" in upper:
-        methods.append("L/C")
+        methods.append("신용장(L/C)")
     if "D/P" in upper:
-        methods.append("D/P")
+        methods.append("지급인도조건(D/P)")
     if "D/A" in upper:
-        methods.append("D/A")
+        methods.append("인수인도조건(D/A)")
     if methods:
         return " / ".join(dict.fromkeys(methods))
     return value

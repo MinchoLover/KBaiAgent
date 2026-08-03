@@ -1,12 +1,13 @@
 # 미국·브라질 합성 무역문서 검증 세트
 
 실제 개인정보·기업정보·계좌·식별번호·로고·서명·도장을 사용하지 않은 평가 전용
-문서 8건입니다. 모든 회사명은 `Synthetic`, `Test`, `Fictional`, `Sandbox` 중
+문서 9건입니다. 모든 회사명은 `Synthetic`, `Test`, `Fictional`, `Sandbox` 중
 하나를 포함하며 문서 상단에 법적 효력이 없다는 영문·한글 경고가 있습니다.
-브라질 문서에는 포르투갈어 경고도 있습니다.
+브라질 문서에는 포르투갈어 경고도 있습니다. 9번 텍스트 레이어 문서는 영문
+비식별 경고와 상세 비식별 선언을 포함합니다.
 
 이 세트는 기존 `dataset/manifest.jsonl` 17건과 회귀 기준선을 변경하지 않도록
-별도 manifest로 격리했습니다. 8건 모두 `split=test`,
+별도 manifest로 격리했습니다. 9건 모두 `split=test`,
 `human_approved=false`, `user_confirmed=false`,
 `fine_tuning_eligible=false`이며 파인튜닝 후보에서 영구 제외됩니다.
 
@@ -22,6 +23,7 @@
 | `br_export_mixed_split_scan_006` | 브라질 수출 | 이미지형 PDF | 두 번째 분할일 미확정 | 차단 |
 | `us_import_missing_currency_photo_007` | 미국 수입 | JPG 사진 | 숫자만 있고 통화 누락 | 차단 |
 | `br_export_occluded_due_photo_008` | 브라질 수출 | JPG 사진 | 금액은 판독, 결제일만 가림 | 차단 |
+| `us_export_net60_text_009` | 미국 수출 | 텍스트 PDF | 실제 text layer 기반 field evidence 대조 | 조건부 검토 |
 
 `expected_validation_status`는 시나리오 설계 상태입니다. 4번은 문서 자체가 잘못된
 것이 아니라 B/L date를 사람이 보완하면 진행 가능한 조건부 사례입니다. 다만 현재
@@ -39,10 +41,34 @@ dataset/country_validation/
   README.md
 ```
 
-PDF 4건은 텍스트 레이어가 없는 단일 페이지 스캔 PDF입니다. label의
+기존 PDF 4건은 텍스트 레이어가 없는 단일 페이지 스캔 PDF입니다. 9번은 Golden 및
+등록 adapter와 분리된 단일 페이지 텍스트 PDF입니다. label의
 `FieldEvidence.source_text`는 생성 원문과 문자 단위로 맞춘 합성 ground truth이지,
 production OCR이 자동 검증했다는 뜻이 아닙니다. 현재 Stage 0 정책대로 이미지·스캔
 문서는 `OCR_REQUIRED` 또는 필드별 사용자 확인 없이 계산 단계로 전달하면 안 됩니다.
+
+## 단일 문서 live smoke
+
+일반 `streamlit run app.py`는 기존처럼 `.env`를 로드합니다. 반면
+`scripts/live_smoke_test.py` 직접 실행은 `.env` 자동 로드를 보장하지 않으므로,
+macOS/zsh에서는 key 값을 명령행에 쓰지 말고 먼저 현재 shell에 안전하게 export한
+뒤 실행합니다.
+
+```bash
+set -a
+source .env
+set +a
+PYTHONPYCACHEPREFIX=/tmp/kbai-live-pycache \
+  python scripts/live_smoke_test.py \
+  dataset/country_validation/documents/us_export_net60_text_009.pdf \
+  --company-role SELLER \
+  --company-country KR
+```
+
+`.env`를 출력하거나 key 값을 shell history에 직접 적지 마세요. 실제 고객 문서가
+아닌 비식별 합성 문서만 사용해야 하며, 실행에는 OpenAI 비용이 발생할 수 있습니다.
+추출 결과는 결정론 검증을 거친 뒤에도 사용자가 확인하기 전에는 자동 확정되거나
+금융 계산으로 전달되지 않습니다.
 
 ## 재생성
 

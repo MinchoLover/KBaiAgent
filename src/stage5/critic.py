@@ -1,8 +1,14 @@
 import json
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any, List, Set, Tuple
 
+from src.consultation.review_area import (
+    project_consultation_presentation,
+)
+from src.domain.consultation_models import ConsultationPriorityView
 from src.domain.report_models import ReportCritique
+from src.stage4.local_kb import active_official_catalogue_by_id
 
 
 NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_])[-+]?\d[\d,]*(?:\.\d+)?%?")
@@ -40,6 +46,10 @@ COUNTRY_REVIEW_PRIORITY_LABELS = {
     "HIGH_REVIEW": "우선 검토",
     "INSUFFICIENT_INFORMATION": "정보 부족",
 }
+TRADE_STATISTICS_DISPLAY_PERCENT_PATHS = {
+    "consultation.trade_statistics.summary.export_yoy_pct",
+    "consultation.trade_statistics.summary.import_yoy_pct",
+}
 
 
 def _normalized_number(token: str) -> str:
@@ -73,6 +83,22 @@ def _resolve_path(source_bundle: Any, path: str) -> Any:
     return current
 
 
+def _display_numbers_for_path(
+    source_bundle: Any,
+    path: str,
+) -> Set[str]:
+    if path not in TRADE_STATISTICS_DISPLAY_PERCENT_PATHS:
+        return set()
+    try:
+        value = _resolve_path(source_bundle, path)
+        if value is None:
+            return set()
+        rendered = "{:+,.1f}%".format(Decimal(str(value)))
+    except (InvalidOperation, KeyError, TypeError, ValueError):
+        return set()
+    return {_normalized_number(rendered)}
+
+
 def _missing_sections(
     markdown: str,
     source_bundle: Any,
@@ -90,11 +116,22 @@ def _missing_sections(
                     ("거래·결제조건 위험", "결제·회수 위험"),
                 ),
                 (
-                    "검토할 금융 대응",
-                    ("검토할 금융 대응", "금융 대응"),
+                    "상담 우선순위",
+                    (
+                        "상담 우선순위",
+                        "검토할 금융 대응",
+                        "금융 대응",
+                    ),
                 ),
             ]
         )
+        if consultation.get("consultation_supporting_checks"):
+            required.append(
+                (
+                    "추가 확인사항",
+                    ("추가 확인사항",),
+                )
+            )
         if isinstance(
             consultation.get("country_environment"),
             dict,
@@ -103,6 +140,13 @@ def _missing_sections(
                 (
                     "국가·무역환경 검토",
                     ("국가·무역환경 검토",),
+                )
+            )
+        if isinstance(consultation.get("trade_statistics"), dict):
+            required.append(
+                (
+                    "거래국 무역 통계",
+                    ("거래국 무역 통계",),
                 )
             )
     return [
@@ -156,7 +200,24 @@ def _product_grounding_issues(
         markdown,
     )
     if product_section:
-        for line in product_section.group(1).splitlines():
+        section_text = product_section.group(1)
+        candidate_positions: List[int] = []
+        for index in range(len(candidates)):
+            source_path = "{}.{}".format(source_prefix, index)
+            position = section_text.find(
+                "[source: {}]".format(source_path)
+            )
+            if position < 0:
+                issues.append(
+                    "packet shortlist의 공식 후보가 보고서에서 누락됐습니다."
+                )
+            else:
+                candidate_positions.append(position)
+        if candidate_positions != sorted(candidate_positions):
+            issues.append(
+                "공식 후보 순서가 packet shortlist와 다르게 변경됐습니다."
+            )
+        for line in section_text.splitlines():
             stripped = line.strip()
             if not stripped.startswith("-") or "없습니다" in stripped:
                 continue
@@ -320,10 +381,360 @@ def _consultation_grounding_issues(
         )
 
     response_section = re.search(
-        r"(?is)##[^\n]*검토할 금융 대응[^\n]*\n"
+        r"(?is)##[^\n]*(?:상담 우선순위|검토할 금융 대응)[^\n]*\n"
         r"(.*?)(?=\n##|\Z)",
         markdown,
     )
+    supporting_section = re.search(
+        r"(?is)##[^\n]*추가 확인사항[^\n]*\n"
+        r"(.*?)(?=\n##|\Z)",
+        markdown,
+    )
+    review_areas = consultation.get("consultation_review_areas", [])
+    supporting_checks = consultation.get(
+        "consultation_supporting_checks",
+        [],
+    )
+    if (
+        isinstance(review_areas, list)
+        and isinstance(supporting_checks, list)
+        and (review_areas or supporting_checks)
+    ):
+        priority_payloads = consultation.get(
+            "consultation_priorities",
+            [],
+        )
+        priority_fingerprint = str(
+            consultation.get("consultation_priority_fingerprint", "")
+        )
+        try:
+            expected_presentation = project_consultation_presentation(
+                priorities=[
+                    ConsultationPriorityView.model_validate(item)
+                    for item in priority_payloads
+                ],
+                priority_fingerprint=priority_fingerprint,
+            )
+        except (TypeError, ValueError):
+            issues.append(
+                "상담 검토 분야를 기존 priority에 결정론적으로 연결할 수 "
+                "없습니다."
+            )
+        else:
+            if [
+                item.model_dump()
+                for item in expected_presentation.review_areas
+            ] != review_areas:
+                issues.append(
+                    "상담 검토 분야 projection이 기존 priority와 "
+                    "일치하지 않습니다."
+                )
+            if [
+                item.model_dump()
+                for item in expected_presentation.supporting_checks
+            ] != supporting_checks:
+                issues.append(
+                    "추가 확인사항 projection이 기존 priority와 "
+                    "일치하지 않습니다."
+                )
+        represented_categories: List[str] = []
+        for item in review_areas + supporting_checks:
+            if isinstance(item, dict):
+                categories = item.get("source_priority_categories", [])
+                if isinstance(categories, list):
+                    represented_categories.extend(
+                        str(category) for category in categories
+                    )
+        priority_categories = [
+            str(item.get("category", ""))
+            for item in priority_payloads
+            if isinstance(item, dict)
+        ]
+        if (
+            len(represented_categories) != len(priority_categories)
+            or sorted(represented_categories)
+            != sorted(priority_categories)
+        ):
+            issues.append(
+                "기존 priority가 상담 검토 분야와 추가 확인사항 중 "
+                "정확히 한 곳에 분류되지 않았습니다."
+            )
+        if any(
+            isinstance(item, dict)
+            and item.get("review_area_id") == "POLICY_FINANCE"
+            for item in review_areas
+        ):
+            issues.append(
+                "명시적 policy finance category 없이 정책자금 검토가 "
+                "생성됐습니다."
+            )
+        if review_areas and response_section is None:
+            issues.append("상담 검토 분야 섹션이 없습니다.")
+        response_text = (
+            response_section.group(1)
+            if response_section is not None
+            else ""
+        )
+        expected_paths = [
+            "consultation.consultation_review_areas.{}".format(index)
+            for index in range(len(review_areas))
+        ]
+        actual_paths = [
+            item
+            for item in SOURCE_TAG_RE.findall(response_text)
+            if item.startswith(
+                "consultation.consultation_review_areas."
+            )
+        ]
+        if actual_paths != expected_paths:
+            issues.append(
+                "상담 검토 분야 개수 또는 순서가 구조화 결과와 "
+                "일치하지 않습니다."
+            )
+        rendered_priority_count = len(
+            re.findall(
+                r"(?:^|\n)\s*-\s*\*\*\d+순위\s+",
+                response_text,
+            )
+        )
+        if rendered_priority_count != len(review_areas):
+            issues.append(
+                "존재하지 않는 상담 검토 분야가 추가됐거나 기존 분야가 "
+                "삭제됐습니다."
+            )
+        positions: List[int] = []
+        for index, review_area in enumerate(review_areas):
+            if not isinstance(review_area, dict):
+                continue
+            source_path = expected_paths[index]
+            source_tag = "[source: {}]".format(source_path)
+            position = response_text.find(source_tag)
+            if position < 0:
+                issues.append(
+                    "상담 검토 분야에 구조화된 projection 근거가 없습니다."
+                )
+                continue
+            positions.append(position)
+            sourced_text = " ".join(
+                line
+                for line in response_text.splitlines()
+                if source_tag in line
+            )
+            display_name = str(
+                review_area.get("display_name", "")
+            ).strip()
+            rank = review_area.get("rank")
+            expected_heading = (
+                "**{}순위 {}**".format(rank, display_name)
+                if rank is not None and display_name
+                else ""
+            )
+            if expected_heading and expected_heading not in sourced_text:
+                issues.append(
+                    "상담 검토 분야 표시명이 구조화 결과와 일치하지 않습니다."
+                )
+            if rank is not None and "{}순위".format(rank) not in sourced_text:
+                issues.append(
+                    "상담 검토 분야 rank가 기존 priority rank와 "
+                    "일치하지 않습니다."
+                )
+            for field, issue in (
+                (
+                    "summary",
+                    "상담 검토 분야 선정 이유가 누락되거나 변경됐습니다.",
+                ),
+                (
+                    "expected_decision",
+                    "상담 검토 분야 expected decision이 누락되거나 변경됐습니다.",
+                ),
+                (
+                    "next_action",
+                    "상담 검토 분야 next action이 누락되거나 변경됐습니다.",
+                ),
+                (
+                    "disclaimer",
+                    "상담 검토 분야 고지문이 누락되거나 변경됐습니다.",
+                ),
+            ):
+                expected = str(review_area.get(field, "")).strip()
+                if expected and expected not in sourced_text:
+                    issues.append(issue)
+            evidence_items = review_area.get("evidence_items", [])
+            if isinstance(evidence_items, list):
+                for evidence in evidence_items:
+                    if not isinstance(evidence, dict):
+                        continue
+                    label = str(evidence.get("label", "")).strip()
+                    value = str(evidence.get("value", "")).strip()
+                    if (
+                        (label and label not in sourced_text)
+                        or (value and value not in sourced_text)
+                    ):
+                        issues.append(
+                            "상담 검토 분야의 기존 evidence가 누락되거나 "
+                            "변경됐습니다."
+                        )
+                        break
+            missing_information = review_area.get(
+                "missing_information",
+                [],
+            )
+            if isinstance(missing_information, list) and any(
+                str(item).strip()
+                and str(item).strip() not in sourced_text
+                for item in missing_information
+            ):
+                issues.append(
+                    "상담 검토 분야의 확인 필요 정보가 누락되거나 변경됐습니다."
+                )
+        if positions != sorted(positions):
+            issues.append(
+                "상담 검토 분야가 기존 priority rank와 다르게 재정렬됐습니다."
+            )
+        if supporting_checks and supporting_section is None:
+            issues.append("추가 확인사항 섹션이 없습니다.")
+        if not supporting_checks and supporting_section is not None:
+            issues.append(
+                "존재하지 않는 추가 확인사항이 보고서에 생성됐습니다."
+            )
+        supporting_text = (
+            supporting_section.group(1)
+            if supporting_section is not None
+            else ""
+        )
+        expected_supporting_paths = [
+            "consultation.consultation_supporting_checks.{}".format(
+                index
+            )
+            for index in range(len(supporting_checks))
+        ]
+        actual_supporting_paths = [
+            item
+            for item in SOURCE_TAG_RE.findall(supporting_text)
+            if item.startswith(
+                "consultation.consultation_supporting_checks."
+            )
+        ]
+        if actual_supporting_paths != expected_supporting_paths:
+            issues.append(
+                "추가 확인사항 개수 또는 순서가 구조화 결과와 "
+                "일치하지 않습니다."
+            )
+        supporting_positions: List[int] = []
+        for index, supporting_check in enumerate(supporting_checks):
+            if not isinstance(supporting_check, dict):
+                continue
+            source_path = expected_supporting_paths[index]
+            source_tag = "[source: {}]".format(source_path)
+            position = supporting_text.find(source_tag)
+            if position < 0:
+                issues.append(
+                    "추가 확인사항에 구조화된 projection 근거가 없습니다."
+                )
+                continue
+            supporting_positions.append(position)
+            sourced_text = " ".join(
+                line
+                for line in supporting_text.splitlines()
+                if source_tag in line
+            )
+            display_name = str(
+                supporting_check.get("display_name", "")
+            ).strip()
+            if display_name and "**{}**".format(
+                display_name
+            ) not in sourced_text:
+                issues.append(
+                    "추가 확인사항 표시명이 구조화 결과와 일치하지 않습니다."
+                )
+            source_rank = supporting_check.get("source_rank")
+            if (
+                source_rank is not None
+                and "원본 priority rank: {}".format(source_rank)
+                not in sourced_text
+            ):
+                issues.append(
+                    "추가 확인사항 source rank가 기존 priority rank와 "
+                    "일치하지 않습니다."
+                )
+            for field, issue in (
+                (
+                    "summary",
+                    "추가 확인사항의 기존 이유가 누락되거나 변경됐습니다.",
+                ),
+                (
+                    "next_action",
+                    "추가 확인사항 next action이 누락되거나 변경됐습니다.",
+                ),
+                (
+                    "disclaimer",
+                    "추가 확인사항 고지문이 누락되거나 변경됐습니다.",
+                ),
+            ):
+                expected = str(
+                    supporting_check.get(field, "")
+                ).strip()
+                if expected and expected not in sourced_text:
+                    issues.append(issue)
+            evidence_items = supporting_check.get("evidence_items", [])
+            if isinstance(evidence_items, list):
+                for evidence in evidence_items:
+                    if not isinstance(evidence, dict):
+                        continue
+                    label = str(evidence.get("label", "")).strip()
+                    value = str(evidence.get("value", "")).strip()
+                    if (
+                        (label and label not in sourced_text)
+                        or (value and value not in sourced_text)
+                    ):
+                        issues.append(
+                            "추가 확인사항의 기존 evidence가 누락되거나 "
+                            "변경됐습니다."
+                        )
+                        break
+            missing_information = supporting_check.get(
+                "missing_information",
+                [],
+            )
+            if isinstance(missing_information, list) and any(
+                str(item).strip()
+                and str(item).strip() not in sourced_text
+                for item in missing_information
+            ):
+                issues.append(
+                    "추가 확인사항의 확인 필요 정보가 누락되거나 변경됐습니다."
+                )
+        if supporting_positions != sorted(supporting_positions):
+            issues.append(
+                "추가 확인사항이 기존 priority rank와 다르게 재정렬됐습니다."
+            )
+        shortlist = consultation.get("official_candidate_shortlist")
+        shortlist_candidates = (
+            shortlist.get("candidates", [])
+            if isinstance(shortlist, dict)
+            else []
+        )
+        for candidate in shortlist_candidates:
+            if not isinstance(candidate, dict):
+                continue
+            name = str(candidate.get("name", "")).strip()
+            if name and name in response_text:
+                issues.append(
+                    "상담 검토 분야와 공식 금융지원 후보가 한 섹션에 "
+                    "혼합됐습니다."
+                )
+                break
+            institution = str(candidate.get("institution", "")).strip()
+            if (
+                (name and name in supporting_text)
+                or (institution and institution in supporting_text)
+            ):
+                issues.append(
+                    "추가 확인사항과 공식 금융지원 후보가 한 섹션에 "
+                    "혼합됐습니다."
+                )
+                break
+        return list(dict.fromkeys(issues))
     priorities = consultation.get("consultation_priorities", [])
     if isinstance(priorities, list) and priorities:
         if response_section is None:
@@ -510,6 +921,268 @@ def _risk_boundary_issues(markdown: str) -> List[str]:
                 "표현했습니다."
             )
     return list(dict.fromkeys(issues))
+
+
+def _trade_statistics_grounding_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    statistics = consultation.get("trade_statistics")
+    section = re.search(
+        r"(?is)##[^\n]*거래국 무역 통계[^\n]*\n"
+        r"(.*?)(?=\n##|\Z)",
+        markdown,
+    )
+    if not isinstance(statistics, dict):
+        if re.search(
+            r"\[source:\s*consultation\.trade_statistics",
+            markdown,
+        ):
+            return ["무역통계 결과가 없는데 해당 근거를 인용했습니다."]
+        return []
+    issues: List[str] = []
+    if (
+        section is None
+        or not any(
+            item.startswith("consultation.trade_statistics")
+            for item in SOURCE_TAG_RE.findall(section.group(1))
+        )
+    ):
+        issues.append("거래국 무역통계 주장에 구조화된 근거가 없습니다.")
+    return issues
+
+
+def _catalogue_shortlist_issues(source_bundle: Any) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    shortlist = consultation.get("official_candidate_shortlist")
+    if not isinstance(shortlist, dict):
+        return []
+    if shortlist.get("selection_policy") != "CATALOGUE_SIGNAL_FILTER_V1":
+        return []
+    candidates = shortlist.get("candidates", [])
+    if not isinstance(candidates, list):
+        return ["공식 후보 shortlist가 목록 형식이 아닙니다."]
+    issues: List[str] = []
+    catalogue = active_official_catalogue_by_id()
+    families: Set[str] = set()
+    review_area_ids = {
+        str(item.get("review_area_id", ""))
+        for item in consultation.get("consultation_review_areas", [])
+        if isinstance(item, dict)
+    }
+    supporting_terms: Set[str] = set()
+    for item in consultation.get("consultation_supporting_checks", []):
+        if not isinstance(item, dict):
+            continue
+        supporting_terms.update(
+            str(item.get(field, "")).strip()
+            for field in (
+                "check_id",
+                "display_name",
+                "source_priority_category",
+            )
+        )
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            issues.append("공식 후보가 객체 형식이 아닙니다.")
+            continue
+        catalogue_id = str(candidate.get("catalogue_id", ""))
+        product_id = str(candidate.get("product_id", ""))
+        record = catalogue.get(catalogue_id)
+        if not catalogue_id or catalogue_id != product_id or record is None:
+            issues.append(
+                "최종 후보가 active catalogue stable ID에 연결되지 않았습니다."
+            )
+            continue
+        expected = {
+            "name": record.name,
+            "official_name": record.official_name,
+            "institution": record.institution,
+            "category": record.category,
+            "candidate_family": record.candidate_family,
+        }
+        if any(candidate.get(field) != value for field, value in expected.items()):
+            issues.append(
+                "최종 후보의 명칭·기관·분류가 catalogue와 일치하지 않습니다."
+            )
+        source = candidate.get("source")
+        if (
+            not isinstance(source, dict)
+            or source.get("url") != record.source.url
+        ):
+            issues.append("최종 후보 URL이 catalogue와 일치하지 않습니다.")
+        family = str(candidate.get("candidate_family", ""))
+        if family and family in families:
+            issues.append("최종 후보에 동일 candidate family가 중복됐습니다.")
+        families.add(family)
+        if candidate.get("category") == "OFFICIAL_WEB_RESULT":
+            issues.append("AI 공식 웹 검색 결과가 최종 후보에 진입했습니다.")
+        if (
+            candidate.get("category") == "POLICY_FINANCE"
+            and "POLICY_FINANCE" not in review_area_ids
+        ):
+            issues.append(
+                "정책자금 검토 분야 없이 정책자금 후보가 생성됐습니다."
+            )
+        selection_text = " ".join(
+            [str(candidate.get("strategy_connection_reason", ""))]
+            + [
+                str(item)
+                for item in candidate.get("selection_reasons", [])
+            ]
+        )
+        if any(term and term in selection_text for term in supporting_terms):
+            issues.append(
+                "추가 확인사항이 공식 후보 eligibility 또는 선정 이유로 사용됐습니다."
+            )
+    if len(candidates) > 3:
+        issues.append("공식 후보가 최대 3개를 초과했습니다.")
+    return list(dict.fromkeys(issues))
+    text = section.group(1)
+    summary = statistics.get("summary")
+    if not isinstance(summary, dict):
+        return issues
+    scope = str(summary.get("scope", ""))
+    expected_scope = (
+        "국가 전체 교역" if scope == "COUNTRY_TOTAL" else "확인된 HS 품목"
+    )
+    if scope in {"COUNTRY_TOTAL", "HS_ITEM"} and expected_scope not in text:
+        issues.append("무역통계 범위가 구조화된 요약과 일치하지 않습니다.")
+    hs_code = summary.get("hs_code")
+    if hs_code is None:
+        if "HS Code가 확인되지 않아" not in text:
+            issues.append("HS Code 미확인 상태가 보고서에 유지되지 않았습니다.")
+    elif str(hs_code) not in text:
+        issues.append("HS Code가 구조화된 무역통계 요약과 일치하지 않습니다.")
+    source_refs = summary.get("source_refs", [])
+    official_urls = {
+        str(item.get("official_url", ""))
+        for item in source_refs
+        if isinstance(item, dict)
+    }
+    for url in URL_RE.findall(text):
+        if url not in official_urls:
+            issues.append("무역통계 URL이 snapshot 공식 출처와 일치하지 않습니다.")
+    return list(dict.fromkeys(issues))
+
+
+def _trade_statistics_policy_boundary_issues(markdown: str) -> List[str]:
+    issues: List[str] = []
+    subject = r"(?:무역통계|교역(?:규모|흐름|증감)|수출입\s*(?:통계|증감))"
+    negation = r"(?:아니|않|금지|의미하지|변경하지|판단하지|예측하지)"
+    for line in markdown.splitlines():
+        if not re.search(subject, line, re.IGNORECASE):
+            continue
+        if re.search(negation, line):
+            continue
+        if re.search(
+            r"(?:부도확률|거래처\s*신용위험|국가\s*위험\s*점수)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append(
+                "무역통계를 거래처·국가 신용위험이나 부도확률로 "
+                "변환했습니다."
+            )
+        if re.search(
+            r"환율.{0,25}(?:상승|하락).{0,18}(?:예측|근거|가능성)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append("무역통계를 환율 방향 예측 근거로 사용했습니다.")
+        if re.search(
+            r"(?:환헤지|헤지).{0,18}(?:비율|비중).{0,18}"
+            r"(?:변경|조정|늘|줄|증가|감소)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append("무역통계로 헤지 비율을 변경했습니다.")
+        if re.search(
+            r"(?:금융상품\s*승인\s*가능성|상담\s*(?:우선)?순위)"
+            r".{0,18}(?:변경|상승|하락|높|낮)",
+            line,
+            re.IGNORECASE,
+        ):
+            issues.append(
+                "무역통계로 금융상품 승인 가능성이나 상담 순위를 "
+                "변경했습니다."
+            )
+    return list(dict.fromkeys(issues))
+
+
+def _trade_statistics_interpretation_grounding_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    interpretation = consultation.get(
+        "trade_statistics_interpretation"
+    )
+    if not isinstance(interpretation, dict):
+        if "consultation.trade_statistics_interpretation" in markdown:
+            return ["무역통계 해석이 없는데 해당 근거를 인용했습니다."]
+        return []
+    expected = [
+        str(interpretation.get("summary", "")).strip(),
+        str(interpretation.get("limitation", "")).strip(),
+    ]
+    if any(item and item not in markdown for item in expected):
+        return [
+            "검증 완료된 무역통계 해석이 보고서에서 재작성되거나 "
+            "누락됐습니다."
+        ]
+    return []
+
+
+def _country_interpretation_grounding_issues(
+    markdown: str,
+    source_bundle: Any,
+) -> List[str]:
+    if not isinstance(source_bundle, dict):
+        return []
+    consultation = source_bundle.get("consultation")
+    if not isinstance(consultation, dict):
+        return []
+    interpretation = consultation.get(
+        "country_economic_interpretation"
+    )
+    if not isinstance(interpretation, dict):
+        if "consultation.country_economic_interpretation" in markdown:
+            return ["국가 경제환경 해석이 없는데 해당 근거를 인용했습니다."]
+        return []
+    expected = [str(interpretation.get("overall_summary", "")).strip()]
+    for section in interpretation.get("sections", []):
+        if not isinstance(section, dict):
+            continue
+        expected.extend(
+            [
+                str(section.get("observation", "")).strip(),
+                str(section.get("transaction_check", "")).strip(),
+            ]
+        )
+    expected.extend(
+        str(item).strip()
+        for item in interpretation.get("limitations", [])
+    )
+    missing = [item for item in expected if item and item not in markdown]
+    if missing:
+        return [
+            "검증 완료된 국가 경제환경 설명이 보고서에서 재작성되거나 누락됐습니다."
+        ]
+    return []
 
 
 def _consultation_priority_boundary_issues(
@@ -905,6 +1578,10 @@ def critique_report(
     recommendation_issues: List[str] = []
     prohibited_claims: List[str] = []
     allowed_numbers = _source_numbers(source_bundle)
+    for path in TRADE_STATISTICS_DISPLAY_PERCENT_PATHS:
+        allowed_numbers.update(
+            _display_numbers_for_path(source_bundle, path)
+        )
     source_tags = SOURCE_TAG_RE.findall(markdown)
 
     for path in source_tags:
@@ -923,6 +1600,9 @@ def critique_report(
             try:
                 line_allowed_numbers.update(
                     _source_numbers(_resolve_path(source_bundle, path))
+                )
+                line_allowed_numbers.update(
+                    _display_numbers_for_path(source_bundle, path)
                 )
             except KeyError:
                 continue
@@ -1018,6 +1698,11 @@ def critique_report(
         evidence_issues.append(issue)
         recommendation_issues.append(issue)
 
+    for issue in _catalogue_shortlist_issues(source_bundle):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
     for issue in _consultation_grounding_issues(
         markdown,
         source_bundle,
@@ -1027,6 +1712,30 @@ def critique_report(
         recommendation_issues.append(issue)
 
     for issue in _country_environment_grounding_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
+    for issue in _country_interpretation_grounding_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
+    for issue in _trade_statistics_grounding_issues(
+        markdown,
+        source_bundle,
+    ):
+        issues.append(issue)
+        evidence_issues.append(issue)
+        recommendation_issues.append(issue)
+
+    for issue in _trade_statistics_interpretation_grounding_issues(
         markdown,
         source_bundle,
     ):
@@ -1048,6 +1757,11 @@ def critique_report(
         prohibited_claims.append(issue)
 
     for issue in _country_policy_boundary_issues(markdown):
+        issues.append(issue)
+        recommendation_issues.append(issue)
+        prohibited_claims.append(issue)
+
+    for issue in _trade_statistics_policy_boundary_issues(markdown):
         issues.append(issue)
         recommendation_issues.append(issue)
         prohibited_claims.append(issue)

@@ -42,6 +42,7 @@ REQUIRED_FILES = (
     "scripts/check_integration_readiness.py",
     "scripts/generate_golden_import_hedge_demo.py",
     "scripts/verify_golden_import_hedge_flow.py",
+    "scripts/verify_trade_statistics_fixture.py",
     "docs/ARCHITECTURE.md",
     "docs/REPOSITORY_AUDIT.md",
     "docs/STAGE0_DOCUMENT_INTAKE.md",
@@ -54,6 +55,7 @@ REQUIRED_FILES = (
     "docs/STAGE3_OPTIMIZER_SPEC.md",
     "docs/STAGE4_RAG_POLICY.md",
     "docs/STAGE5_REPORT_POLICY.md",
+    "docs/TRADE_STATISTICS.md",
     "docs/AGENT_WORKFLOW.md",
     "docs/DATASET_AND_EVALS.md",
     "docs/SECURITY.md",
@@ -87,6 +89,9 @@ REQUIRED_FILES = (
     "src/integration_assets/stage1/latest_forecast.json",
     "src/integration_assets/stage1/JSON_README.md",
     "src/integration_assets/stage1/team_model_report_3page.docx",
+    "src/integration_assets/trade_statistics/README.md",
+    "src/integration_assets/trade_statistics/raw/kr_br_country_2024-07_2026-06.json",
+    "src/integration_assets/trade_statistics/snapshot_kr_br_country_v1.json",
     "src/document_intake/normalization.py",
     "src/document_intake/source_evidence.py",
     "tests/fixtures/kbfx_sales_contract_extraction.json",
@@ -94,8 +99,6 @@ REQUIRED_FILES = (
     "reports/eval_summary.json",
     "reports/eval_report.md",
     "reports/failure_cases.jsonl",
-    "artifacts/fine_tuning_candidate.jsonl",
-    "artifacts/fine_tuning_excluded.jsonl",
 )
 
 
@@ -137,6 +140,9 @@ def _check_env_and_secrets(errors: List[str]) -> None:
         "MANUAL_USDKRW_RATE",
         "OFFICIAL_SEARCH_CACHE_TTL_HOURS",
         "OFFICIAL_DOMAINS",
+        "TRADE_STATISTICS_PROVIDER",
+        "TRADE_STATISTICS_TIMEOUT_SECONDS",
+        "TRADE_STATISTICS_SNAPSHOT_VERSION",
     ):
         if not re.search(
             r"^{}=".format(variable),
@@ -153,6 +159,7 @@ def _check_env_and_secrets(errors: List[str]) -> None:
         "KOREAEXIM_KEY",
         "ECOS_KEY",
         "CREDIT_KEY",
+        "CUSTOMS_TRADE_API_KEY",
     ):
         if not re.search(
             r"^{}=$".format(empty_secret),
@@ -515,6 +522,34 @@ def _check_golden_import_hedge(errors: List[str]) -> None:
         errors.append("Golden import external hedge boundary is invalid")
 
 
+def _check_trade_statistics_fixture(errors: List[str]) -> None:
+    from scripts.verify_trade_statistics_fixture import (
+        trade_statistics_fixture_summary,
+    )
+
+    try:
+        summary = trade_statistics_fixture_summary()
+    except Exception as exc:
+        errors.append(
+            "official trade-statistics fixture failed: {}".format(
+                type(exc).__name__
+            )
+        )
+        return
+    if summary.get("provider_status") != "OFFICIAL_FIXTURE":
+        errors.append("trade-statistics fixture status is not official")
+    if summary.get("scope") != "COUNTRY_TOTAL":
+        errors.append("Golden trade-statistics scope changed")
+    if summary.get("month_count") != 24:
+        errors.append("Golden trade-statistics fixture lost 24 months")
+    if not all(
+        isinstance(summary.get(key), str)
+        and len(summary[key]) == 64
+        for key in ("raw_sha256", "normalized_sha256")
+    ):
+        errors.append("trade-statistics fixture hash is invalid")
+
+
 def _check_imports(errors: List[str]) -> None:
     modules = (
         "schemas",
@@ -530,6 +565,7 @@ def _check_imports(errors: List[str]) -> None:
         "src.application.official_candidate_service",
         "src.application.stage2_input_service",
         "src.application.trade_risk_service",
+        "src.application.trade_statistics_service",
         "src.consultation.packet",
         "src.consultation.response_mapping",
         "src.consultation.risk_classifier",
@@ -538,6 +574,7 @@ def _check_imports(errors: List[str]) -> None:
         "src.domain.integration_readiness_models",
         "src.domain.stage1_web_models",
         "src.domain.trade_risk_models",
+        "src.domain.trade_statistics_models",
         "src.security.upload_guard",
         "src.stage1.adapter",
         "src.stage1.forecast_provider",
@@ -549,6 +586,9 @@ def _check_imports(errors: List[str]) -> None:
         "src.stage4.local_kb",
         "src.stage4.official_search",
         "src.stage5.report_agent",
+        "src.trade_statistics.analysis",
+        "src.trade_statistics.fixture",
+        "src.trade_statistics.provider",
         "src.ui.state",
         "src.workflow.gates",
         "src.workflow.orchestrator",
@@ -581,6 +621,7 @@ def main() -> int:
     _check_output_schemas(errors)
     _check_demo(errors)
     _check_golden_import_hedge(errors)
+    _check_trade_statistics_fixture(errors)
 
     compile_ok = _run(
         [

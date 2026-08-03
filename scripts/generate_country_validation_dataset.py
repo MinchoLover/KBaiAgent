@@ -7,6 +7,7 @@ logos, signatures, or seals.
 """
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -35,6 +36,7 @@ NOTICE_EN = "TEST DOCUMENT - NO LEGAL EFFECT"
 NOTICE_KO = "합성 테스트 문서 - 법적 효력 없음"
 NOTICE_PT = "DOCUMENTO SINTÉTICO - SEM EFEITO LEGAL"
 FIXED_SEED = 20260729
+TEXT_LAYER_CASE_ID = "us_export_net60_text_009"
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -1122,7 +1124,212 @@ def _cases() -> List[Dict[str, Any]]:
             mask_line_prefix="Payment Due:",
         )
     )
+    seller = "Dawn Peninsula Synthetic Electronics Ltd."
+    buyer = "Prairie Comet Test Distribution LLC"
+    party_lines, party_evidence = _party_lines(
+        seller,
+        "Republic of Korea",
+        "KR",
+        buyer,
+        "United States",
+        "US",
+    )
+    issue_line = "Invoice Date: 2026-08-03"
+    currency_line = "Invoice Currency: USD"
+    amount_line = "Invoice Total / Amount Due: USD 98000.00"
+    terms_line = "Payment Terms: Net 60 Days"
+    label = _base_label(
+        document_type="COMMERCIAL_INVOICE",
+        document_number="US-EXP-N60-TEXT-009",
+        seller_name=seller,
+        seller_country="KR",
+        buyer_name=buyer,
+        buyer_country="US",
+        company_role="SELLER",
+        trade_type="EXPORT",
+        currency="USD",
+        grand_total="98000.00",
+        amount_due="98000.00",
+        issue_date="2026-08-03",
+        explicit_due_date=None,
+        derived_due_date=None,
+        payment_terms="Net 60 Days",
+        installments=[],
+        evidence=(
+            [
+                _evidence(
+                    "document_notice",
+                    NOTICE_EN,
+                    "The English test-only notice is printed at the top.",
+                )
+            ]
+            + party_evidence
+            + [
+                _evidence(
+                    "issue_date",
+                    issue_line,
+                    "The invoice date is explicit.",
+                ),
+                _evidence(
+                    "currency",
+                    currency_line,
+                    "The invoice currency is explicit.",
+                ),
+                _evidence(
+                    "grand_total",
+                    amount_line,
+                    "The invoice total is explicit.",
+                ),
+                _evidence(
+                    "amount_due",
+                    amount_line,
+                    "The full invoice amount remains due.",
+                ),
+                _evidence(
+                    "payment_terms",
+                    terms_line,
+                    "Net 60 is explicit; the model must not write a due date.",
+                ),
+                _evidence(
+                    "derived_due_date",
+                    terms_line,
+                    "Python deterministically derives the date from this term.",
+                    extraction_type="DERIVED",
+                ),
+            ]
+        ),
+    )
+    cases.append(
+        _case(
+            case_id=TEXT_LAYER_CASE_ID,
+            title="SYNTHETIC COMMERCIAL INVOICE",
+            extension=".pdf",
+            country="US",
+            trade_type="EXPORT",
+            category="text_layer_evidence",
+            difficulty="EASY",
+            lines=[
+                "Invoice No: US-EXP-N60-TEXT-009",
+                "PARTIES",
+            ]
+            + party_lines
+            + [
+                "INVOICE DETAILS",
+                issue_line,
+                currency_line,
+                amount_line,
+                terms_line,
+                "Due Date: Not printed; derive only by deterministic policy",
+                "Shipment Date: Not stated in this document",
+                "Letter of Credit: Not stated in this document",
+                "Export Insurance: Not stated in this document",
+                "Payment Guarantee: Not stated in this document",
+                "Actual Advance Payment Status: Not stated in this document",
+            ],
+            label=label,
+            notes=(
+                "Non-Golden text-layer synthetic US export invoice for live "
+                "source-evidence verification. It contains no real customer "
+                "data and is never registered as an API-free document."
+            ),
+            expected_validation_status="CONDITIONAL_REVIEW",
+            expected_review_reasons=[
+                "TEXT_LAYER_SOURCE_EVIDENCE_VERIFICATION",
+                "USER_CONFIRMATION_REQUIRED",
+            ],
+            effect="text_pdf",
+        )
+    )
     return cases
+
+
+def _pdf_escape(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("(", "\\(")
+        .replace(")", "\\)")
+    )
+
+
+def _text_pdf_stream(spec: Dict[str, Any]) -> bytes:
+    lines = [
+        NOTICE_EN,
+        spec["title"],
+        "SYNTHETIC RECORD / FOR QA ONLY / NOT FOR PAYMENT",
+    ] + list(spec["lines"]) + [
+        "No real entity, person, address, account, identifier, logo, signature,",
+        "seal, or stamp is used. Dataset case: {}".format(spec["case_id"]),
+    ]
+    commands: List[str] = []
+    y = 792
+    for index, line in enumerate(lines):
+        font = "F2" if index in {0, 1, 2} else "F1"
+        size = 13 if index == 1 else 9
+        color = "0.70 0.05 0.05 rg" if index == 0 else "0 0 0 rg"
+        commands.extend(
+            [
+                "BT",
+                "/{} {} Tf".format(font, size),
+                color,
+                "1 0 0 1 48 {} Tm".format(y),
+                "({}) Tj".format(_pdf_escape(line)),
+                "ET",
+            ]
+        )
+        y -= 28 if index < 3 else 24
+    commands.append("")
+    return "\n".join(commands).encode("ascii")
+
+
+def _pdf_stream_object(content: bytes) -> bytes:
+    return (
+        "<< /Length {} >>\nstream\n".format(len(content)).encode("ascii")
+        + content
+        + b"endstream"
+    )
+
+
+def _build_text_pdf_bytes(spec: Dict[str, Any]) -> bytes:
+    content = _text_pdf_stream(spec)
+    objects: Dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+            b"/Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> "
+            b"/Contents 6 0 R >>"
+        ),
+        4: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        5: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+        6: _pdf_stream_object(content),
+        7: (
+            b"<< /Title (Synthetic Non-Golden Text Invoice) "
+            b"/Author (KBaiAgent QA) /Creator (deterministic generator 1.0) "
+            b"/Producer (KBaiAgent) /CreationDate (D:20260802000000+09'00') "
+            b"/ModDate (D:20260802000000+09'00') >>"
+        ),
+    }
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\x00\n")
+    offsets: Dict[int, int] = {}
+    for number in range(1, 8):
+        offsets[number] = len(output)
+        output.extend("{} 0 obj\n".format(number).encode("ascii"))
+        output.extend(objects[number])
+        output.extend(b"\nendobj\n")
+    xref_offset = len(output)
+    output.extend(b"xref\n0 8\n")
+    output.extend(b"0000000000 65535 f \n")
+    for number in range(1, 8):
+        output.extend(
+            "{:010d} 00000 n \n".format(offsets[number]).encode("ascii")
+        )
+    output.extend(
+        (
+            "trailer\n<< /Size 8 /Root 1 0 R /Info 7 0 R >>\n"
+            "startxref\n{}\n%%EOF\n"
+        ).format(xref_offset).encode("ascii")
+    )
+    return bytes(output)
 
 
 def _draw_page(spec: Dict[str, Any]) -> Image.Image:
@@ -1305,6 +1512,9 @@ def _render_document(
     case_index: int,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if spec["effect"] == "text_pdf":
+        output_path.write_bytes(_build_text_pdf_bytes(spec))
+        return
     page = _draw_page(spec)
     if spec["effect"] == "scan":
         rendered = _scanner_effect(page, case_index)
@@ -1376,47 +1586,71 @@ def generate(render_documents: bool = True) -> None:
             spec["case_id"]
         )
         _write_json(label_path, label.model_dump())
-        _write_json(
-            prediction_path,
-            {
-                "extraction": label.model_dump(),
-                "metadata": {
-                    "mode": "fixture",
-                    "evaluation_mode": "FIXTURE",
-                    "fixture_only": True,
-                    "model_accuracy_claim_allowed": False,
-                    "purpose": "EVALUATOR_PIPELINE_VALIDATION",
-                    "latency_seconds": "0",
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "estimated_api_cost": "0",
-                    "prompt_version": get_prompt_version(),
+        if spec["effect"] != "text_pdf":
+            _write_json(
+                prediction_path,
+                {
+                    "extraction": label.model_dump(),
+                    "metadata": {
+                        "mode": "fixture",
+                        "evaluation_mode": "FIXTURE",
+                        "fixture_only": True,
+                        "model_accuracy_claim_allowed": False,
+                        "purpose": "EVALUATOR_PIPELINE_VALIDATION",
+                        "latency_seconds": "0",
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "estimated_api_cost": "0",
+                        "prompt_version": get_prompt_version(),
+                    },
                 },
-            },
-        )
-        manifest_rows.append(
-            {
-                "case_id": spec["case_id"],
-                "document_path": document_path.relative_to(ROOT).as_posix(),
-                "label_path": label_path.relative_to(ROOT).as_posix(),
-                "category": spec["category"],
-                "difficulty": spec["difficulty"],
-                "notes": spec["notes"],
-                "split": "test",
-                "company_country": "KR",
-                "counterparty_country": spec["country"],
-                "trade_type": spec["trade_type"],
-                "user_confirmed": False,
-                "human_approved": False,
-                "fine_tuning_eligible": False,
-                "synthetic_document": True,
-                "real_customer_document": False,
-                "expected_validation_status": spec[
-                    "expected_validation_status"
-                ],
-                "expected_review_reasons": spec["expected_review_reasons"],
-            }
-        )
+            )
+        manifest_row = {
+            "case_id": spec["case_id"],
+            "document_path": document_path.relative_to(ROOT).as_posix(),
+            "label_path": label_path.relative_to(ROOT).as_posix(),
+            "category": spec["category"],
+            "difficulty": spec["difficulty"],
+            "notes": spec["notes"],
+            "split": "test",
+            "company_country": "KR",
+            "counterparty_country": spec["country"],
+            "trade_type": spec["trade_type"],
+            "user_confirmed": False,
+            "human_approved": False,
+            "fine_tuning_eligible": False,
+            "synthetic_document": True,
+            "real_customer_document": False,
+            "expected_validation_status": spec[
+                "expected_validation_status"
+            ],
+            "expected_review_reasons": spec["expected_review_reasons"],
+        }
+        if spec["effect"] == "text_pdf":
+            manifest_row.update(
+                {
+                    "document_sha256": hashlib.sha256(
+                        document_path.read_bytes()
+                    ).hexdigest(),
+                    "text_layer_expected": True,
+                    "generation_method": "deterministic_ascii_text_pdf",
+                    "deidentification_declaration": (
+                        "No real company, person, address, account, logo, "
+                        "signature, seal, or stamp is present."
+                    ),
+                    "registered_api_free": False,
+                    "fixture_prediction": False,
+                    "expected_unknown_fields": [
+                        "shipment_date",
+                        "explicit_due_date",
+                        "lc_status",
+                        "insurance_status",
+                        "guarantee_status",
+                        "actual_advance_payment_status",
+                    ],
+                }
+            )
+        manifest_rows.append(manifest_row)
 
     with MANIFEST.open("w", encoding="utf-8") as handle:
         for row in manifest_rows:
@@ -1440,8 +1674,9 @@ def main() -> None:
     args = parse_args()
     generate(render_documents=not args.json_only)
     print(
-        "Generated 8 isolated country-validation cases at {}".format(
-            DATASET.relative_to(ROOT)
+        "Generated {} isolated country-validation cases at {}".format(
+            len(_cases()),
+            DATASET.relative_to(ROOT),
         )
     )
 

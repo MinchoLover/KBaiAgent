@@ -8,10 +8,15 @@ from types import SimpleNamespace
 from src.config import Settings
 from src.demo import run_offline_demo
 from src.domain.product_models import Stage4Result
+from src.domain.report_models import (
+    Stage5NarrativeDraft,
+    Stage5NarrativeItem,
+)
 from src.stage3.optimizer import generate_strategy_candidates
 from src.stage4.local_kb import load_official_kb, search_offline_kb
 from src.stage4.official_search import is_official_url, search_official_web
 from src.stage5.critic import critique_report
+from src.stage5.grounding import build_grounding_registry
 from src.stage5.report_agent import generate_report
 
 
@@ -348,6 +353,24 @@ class Stage5Tests(unittest.TestCase):
     def setUpClass(cls):
         cls.demo = run_offline_demo()
 
+    def _narrative_draft(self, explanation=None):
+        registry = build_grounding_registry(
+            self.demo["report"].report_json
+        )
+        text = explanation or (
+            "확정된 입력의 의미를 확인하고 기관 상담에서 적용 범위를 "
+            "점검해야 합니다."
+        )
+        return Stage5NarrativeDraft(
+            narratives=[
+                Stage5NarrativeItem(
+                    source_id=item.source_id,
+                    explanation=text,
+                )
+                for item in registry
+            ]
+        )
+
     def test_no_key_uses_deterministic_fallback(self):
         report = self.demo["report"]
         self.assertEqual(report.status, "DETERMINISTIC_FALLBACK")
@@ -430,13 +453,16 @@ class Stage5Tests(unittest.TestCase):
         )
 
     def test_valid_llm_explanation_passes_critic(self):
-        markdown = self.demo["report"].markdown
-        client = SimpleNamespace(
-            responses=SimpleNamespace(
-                create=lambda **kwargs: SimpleNamespace(
-                    output_text=markdown
-                )
+        calls = []
+
+        def parse(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                output_parsed=self._narrative_draft()
             )
+
+        client = SimpleNamespace(
+            responses=SimpleNamespace(parse=parse)
         )
         result = generate_report(
             extraction=self.demo["extraction"],
@@ -457,21 +483,28 @@ class Stage5Tests(unittest.TestCase):
         self.assertEqual(result.status, "LLM_PASS")
         self.assertEqual(result.revision_count, 0)
         self.assertEqual(result.generation_provider, "OPENAI")
+        self.assertTrue(result.critique.passed, result.critique.issues)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(calls[0]["store"])
+        self.assertIs(
+            calls[0]["text_format"],
+            Stage5NarrativeDraft,
+        )
+        self.assertIn("검증된 AI 설명", result.markdown)
 
     def test_critic_feedback_is_used_by_exactly_one_revision(self):
         calls = []
-        valid_markdown = self.demo["report"].markdown
+        invalid = self._narrative_draft("가입 가능합니다.")
+        valid = self._narrative_draft()
 
-        def create(**kwargs):
+        def parse(**kwargs):
             calls.append(kwargs)
             if len(calls) == 1:
-                return SimpleNamespace(
-                    output_text="근거 없는 금액 987654321"
-                )
-            return SimpleNamespace(output_text=valid_markdown)
+                return SimpleNamespace(output_parsed=invalid)
+            return SimpleNamespace(output_parsed=valid)
 
         client = SimpleNamespace(
-            responses=SimpleNamespace(create=create)
+            responses=SimpleNamespace(parse=parse)
         )
         result = generate_report(
             extraction=self.demo["extraction"],
@@ -494,15 +527,17 @@ class Stage5Tests(unittest.TestCase):
         self.assertEqual(result.status, "LLM_REVISED_PASS")
         self.assertEqual(result.revision_count, 1)
         self.assertEqual(len(calls), 2)
-        self.assertIn("987654321", calls[1]["input"])
-        self.assertIn("수정 지시", calls[1]["input"])
+        self.assertIn(
+            "validation_feedback",
+            calls[1]["input"][1]["content"],
+        )
 
     def test_report_api_failure_uses_fallback_without_raising(self):
-        def create(**unused_kwargs):
+        def parse(**unused_kwargs):
             raise RuntimeError("provider unavailable")
 
         client = SimpleNamespace(
-            responses=SimpleNamespace(create=create)
+            responses=SimpleNamespace(parse=parse)
         )
         result = generate_report(
             extraction=self.demo["extraction"],
@@ -540,12 +575,14 @@ class Stage5Tests(unittest.TestCase):
 
         calls = []
 
-        def create(**unused_kwargs):
+        def parse(**unused_kwargs):
             calls.append(unused_kwargs)
-            return SimpleNamespace(output_text=invented)
+            return SimpleNamespace(
+                output_parsed=self._narrative_draft()
+            )
 
         client = SimpleNamespace(
-            responses=SimpleNamespace(create=create)
+            responses=SimpleNamespace(parse=parse)
         )
         result = generate_report(
             extraction=self.demo["extraction"],
@@ -569,15 +606,14 @@ class Stage5Tests(unittest.TestCase):
 
     def test_two_critic_failures_use_deterministic_fallback(self):
         calls = []
+        invalid = self._narrative_draft("가입 가능합니다.")
 
-        def create(**kwargs):
+        def parse(**kwargs):
             calls.append(kwargs)
-            return SimpleNamespace(
-                output_text="근거 없는 승인 보장과 금액 987654321"
-            )
+            return SimpleNamespace(output_parsed=invalid)
 
         client = SimpleNamespace(
-            responses=SimpleNamespace(create=create)
+            responses=SimpleNamespace(parse=parse)
         )
         result = generate_report(
             extraction=self.demo["extraction"],

@@ -464,6 +464,41 @@ class SourceEvidenceRecoveryTests(unittest.TestCase):
             evidence["explicit_due_date"].source_text,
         )
 
+    def test_recovered_amount_relinks_currency_from_verified_source(self):
+        evidence = [
+            item
+            for item in self.expected.evidence
+            if item.field not in {"amount_due", "currency"}
+        ]
+        evidence.append(
+            FieldEvidence(
+                field="amount_due",
+                page=1,
+                source_text="Invented Invoice Total: USD 100,000",
+                extraction_type="EXPLICIT",
+                confidence_reason="Model quote is absent from the PDF.",
+            )
+        )
+
+        extraction, validation = apply_deterministic_review_state(
+            self.expected.model_copy(update={"evidence": evidence}),
+            company_role="SELLER",
+            company_country="KR",
+            source_page_texts=self.pages,
+        )
+
+        currency_evidence = [
+            item
+            for item in extraction.evidence
+            if item.field == "currency"
+        ]
+        self.assertEqual(len(currency_evidence), 1)
+        self.assertIn("USD 100,000", currency_evidence[0].source_text)
+        self.assertNotIn(
+            ("MISSING_CORE_EVIDENCE", "currency"),
+            {(item.code, item.field) for item in validation.issues},
+        )
+
     def test_recovery_is_deterministic_and_preserves_other_fields(self):
         raw = self.live_like_extraction()
         first, first_validation = apply_deterministic_review_state(

@@ -5,6 +5,43 @@ from pydantic import Field
 from schemas import StrictModel
 
 
+Stage5GroundingSourceId = Literal[
+    "TRANSACTION_CONTEXT",
+    "CASHFLOW_CONTEXT",
+    "HEDGE_CONTEXT",
+    "TRADE_RISK_CONTEXT",
+    "COUNTRY_ENVIRONMENT_CONTEXT",
+    "TRADE_STATISTICS_CONTEXT",
+    "CONSULTATION_CONTEXT",
+    "SUPPORTING_CHECK_CONTEXT",
+    "OFFICIAL_CANDIDATE_CONTEXT",
+    "LIMITATIONS_CONTEXT",
+]
+
+
+class Stage5GroundingSource(StrictModel):
+    source_id: Stage5GroundingSourceId
+    canonical_path: str = Field(min_length=1)
+    display_label: str = Field(min_length=1, max_length=80)
+    prompt_scope: str = Field(min_length=1, max_length=200)
+
+
+class Stage5NarrativeItem(StrictModel):
+    source_id: Stage5GroundingSourceId
+    explanation: str = Field(
+        min_length=1,
+        max_length=240,
+        pattern=r"^[^0-9\[\]{}<>%$₩]+$",
+    )
+
+
+class Stage5NarrativeDraft(StrictModel):
+    narratives: List[Stage5NarrativeItem] = Field(
+        min_length=1,
+        max_length=10,
+    )
+
+
 class ReportCritique(StrictModel):
     passed: bool
     score: int = Field(default=100, ge=0, le=100)
