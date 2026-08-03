@@ -19,15 +19,11 @@ REQUIRED_FILES = (
     "app.py",
     ".env.example",
     "judge-demo.env.example",
-    "env.template",
     ".gitignore",
     "requirements.txt",
     "run_mac.command",
     "run_windows.bat",
-    "START_HERE.md",
     "README.md",
-    "ARCHITECTURE.md",
-    "REFACTORING_REPORT.md",
     "prompts/system_prompt.md",
     "prompts/extraction_rules.md",
     "prompts/few_shot_examples.json",
@@ -45,7 +41,6 @@ REQUIRED_FILES = (
     "scripts/verify_golden_import_hedge_flow.py",
     "scripts/verify_trade_statistics_fixture.py",
     "docs/ARCHITECTURE.md",
-    "docs/REPOSITORY_AUDIT.md",
     "docs/STAGE0_DOCUMENT_INTAKE.md",
     "docs/STAGE1_CONTRACT.md",
     "docs/STAGE1_INTEGRATION.md",
@@ -57,7 +52,6 @@ REQUIRED_FILES = (
     "docs/STAGE4_RAG_POLICY.md",
     "docs/STAGE5_REPORT_POLICY.md",
     "docs/TRADE_STATISTICS.md",
-    "docs/AGENT_WORKFLOW.md",
     "docs/DATASET_AND_EVALS.md",
     "docs/SECURITY.md",
     "docs/SECURITY_PRIVACY.md",
@@ -65,11 +59,8 @@ REQUIRED_FILES = (
     "docs/LIVE_BENCHMARK_RESULTS.md",
     "docs/INTEGRATION_READINESS.md",
     "docs/LIVE_BENCHMARK_RUNBOOK.md",
-    "docs/SUBMISSION_READINESS.md",
     "docs/DEMO_SCRIPT_KO.md",
     "docs/JUDGE_QA_KO.md",
-    "docs/TEAM_HANDOFF.md",
-    "docs/TEAM_HANDOFF_KO.md",
     "docs/VALIDATION_REPORT.md",
     "docs/JUDGE_DEMO_RUNBOOK.md",
     "docs/SUBMISSION_SECRET_DELIVERY.md",
@@ -77,10 +68,6 @@ REQUIRED_FILES = (
     "dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf",
     "dataset/golden_import_hedge_demo/expected_extraction.json",
     "dataset/golden_import_hedge_demo/demo_inputs.json",
-    "docs/repositioning/CURRENT_STATE.md",
-    "docs/repositioning/IMPLEMENTATION_PLAN.md",
-    "docs/repositioning/TEAM_POSITIONING.md",
-    "docs/repositioning/FINAL_REPORT.md",
     "samples/stage1_scenarios.json",
     "samples/sample_extraction.json",
     "samples/company_cashflow.json",
@@ -177,9 +164,9 @@ def _check_env_and_secrets(errors: List[str]) -> None:
                     stable_setting
                 )
             )
-    example = (ROOT / "env.template").read_text(encoding="utf-8")
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
     if not re.search(r"^OPENAI_API_KEY=$", example, re.MULTILINE):
-        errors.append("env.template must keep OPENAI_API_KEY empty")
+        errors.append(".env.example must keep OPENAI_API_KEY empty")
     for variable in (
         "STAGE1_PROVIDER",
         "STAGE1_FORECAST_FILE",
@@ -201,7 +188,7 @@ def _check_env_and_secrets(errors: List[str]) -> None:
             re.MULTILINE,
         ):
             errors.append(
-                "env.template missing security setting {}".format(
+                ".env.example missing security setting {}".format(
                     variable
                 )
             )
@@ -218,7 +205,7 @@ def _check_env_and_secrets(errors: List[str]) -> None:
             re.MULTILINE,
         ):
             errors.append(
-                "env.template must keep {} empty".format(empty_secret)
+                ".env.example must keep {} empty".format(empty_secret)
             )
 
     secret_pattern = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")
@@ -281,14 +268,17 @@ def _check_readme(errors: List[str]) -> None:
     for command in commands:
         if command not in readme:
             errors.append("README command missing: {}".format(command))
-    for document in ("ARCHITECTURE.md", "REFACTORING_REPORT.md"):
+    for document in (
+        "docs/ARCHITECTURE.md",
+        "docs/JUDGE_DEMO_RUNBOOK.md",
+        "docs/VALIDATION_REPORT.md",
+    ):
         if document not in readme:
             errors.append("README document link missing: {}".format(document))
     for document in (
         "STAGE1_INTEGRATION.md",
         "SPOT_PROVIDER_SETUP.md",
         "INTEGRATION_READINESS.md",
-        "TEAM_HANDOFF_KO.md",
     ):
         if document not in readme:
             errors.append(

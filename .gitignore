@@ -1,7 +1,6 @@
 .env
 .env.*
 !.env.example
-!.env.template
 !judge-demo.env.example
 judge-demo.env
 .judge-private/

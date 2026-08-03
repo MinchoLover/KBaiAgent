@@ -10,15 +10,11 @@
 - `KB_AI_CHALLENGE_TECHNICAL_DESCRIPTION_KO.md`: 기술설명 기준
 - `JUDGE_DEMO_RUNBOOK.md`: 심사위원 로컬 실행 절차
 - `SUBMISSION_SECRET_DELIVERY.md`: API 키 비공개 전달 원칙
-- `SUBMISSION_CHECKLIST.md`: 최종 제출 확인
-- `SUBMISSION_FREEZE.md`: 기능 동결 범위
-- `SUBMISSION_READINESS.md`: 제출 준비 상태
 - `JUDGE_QA_KO.md`: 예상 질의응답
 - `PITCH_3MIN_KO.md`: 발표 원고
 
 ## 데모와 화면 근거
 
-- `FINAL_DEMO_SCRIPT.md`: 최종 데모 진행 순서
 - `DEMO_SCRIPT_KO.md`: Golden 데모 상세 동선
 - `DEMO_SCENARIO_MATRIX.md`: Demo A~E 입력과 기대 결과
 - `SCREENSHOT_MANIFEST.md`: 화면 증거 목록
@@ -27,10 +23,10 @@
 
 ## 실행 구조와 Stage 계약
 
-- `ARCHITECTURE.md`, `REPOSITORY_MAP.md`, `AGENT_WORKFLOW.md`
+- `ARCHITECTURE.md`
 - `STAGE0_DOCUMENT_INTAKE.md`
 - `STAGE1_CONTRACT.md`, `STAGE1_INTEGRATION.md`, `STAGE1_JSON_MAPPING.md`
-- `SPOT_PROVIDER_SETUP.md`, `STAGE1_CHANGE_REQUEST.md`
+- `SPOT_PROVIDER_SETUP.md`
 - `STAGE2_CALCULATION_SPEC.md`
 - `STAGE3_OPTIMIZATION.md`, `STAGE3_OPTIMIZER_SPEC.md`
 - `STAGE4_RAG_POLICY.md`
@@ -44,12 +40,7 @@
 - `DATASET_AND_EVALS.md`
 - `INTEGRATION_READINESS.md`
 - `LIVE_BENCHMARK_RUNBOOK.md`, `LIVE_BENCHMARK_RESULTS.md`
-- `VALIDATION_REPORT.md`, `REPOSITORY_AUDIT.md`
-
-## 호환성 때문에 유지하는 검증 문서
-
-- `TEAM_HANDOFF.md`, `TEAM_HANDOFF_KO.md`
-- `repositioning/`의 4개 검증 문서
+- `VALIDATION_REPORT.md`
 
 실제 테스트 수와 작업 트리 상태는 문서의 과거 숫자가 아니라 현재
 `python scripts/verify.py`와 `git diff --check` 결과를 기준으로 판단한다.

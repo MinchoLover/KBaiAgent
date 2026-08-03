@@ -102,6 +102,5 @@ API endpoint는 서비스 계층 함수로 먼저 구현했습니다. `WorkflowS
 메모리에 있고 trace는 payload 없이 상태·시간·provider·fallback만 보관합니다.
 운영 API 분리는 인증·tenant·감사저장소 설계와 함께 후속 범위입니다.
 
-더 자세한 기존 워크플로 설명은 루트
-[`ARCHITECTURE.md`](../ARCHITECTURE.md), Stage 1 계약은
+Stage 1의 외부 모델 결속 계약은
 [`STAGE1_INTEGRATION.md`](STAGE1_INTEGRATION.md)를 봅니다.
