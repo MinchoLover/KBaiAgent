@@ -17,6 +17,7 @@ from src.consultation.preparation_pdf import (
     consultation_preparation_pdf_filename,
     find_korean_pdf_font,
 )
+from src.domain.document_analysis_models import DocumentAnalysisProvenance
 
 
 class ConsultationPreparationPdfTests(unittest.TestCase):
@@ -79,6 +80,34 @@ class ConsultationPreparationPdfTests(unittest.TestCase):
             hashlib.sha256(self.pdf_bytes).hexdigest(),
             hashlib.sha256(second).hexdigest(),
         )
+
+    def test_fallback_provenance_is_visible_in_preparation_content(self):
+        packet = self.packet.model_copy(
+            update={
+                "document_analysis": DocumentAnalysisProvenance(
+                    document_source="golden_sample",
+                    analysis_mode="live_api",
+                    analysis_source="verified_fixture",
+                    model="verified_golden_fixture",
+                    generated_at="2026-07-29T09:00:00+09:00",
+                    fallback_used=True,
+                    warnings=["FALLBACK_USED"],
+                )
+            }
+        )
+        content = build_consultation_preparation_content(
+            packet=packet,
+            transaction=self.transaction,
+            stage2_result=self.stage2_result,
+            generated_at=self.generated_at,
+            forecast_summary=self.forecast_summary,
+        )
+
+        visible = " ".join(content.document_analysis_lines)
+        self.assertIn("문서 분석: 검증된 데모 결과", visible)
+        self.assertIn("입력 문서: Golden 수출 샘플", visible)
+        self.assertIn("source: verified_fixture", visible)
+        self.assertIn("FALLBACK_USED", visible)
 
     def test_user_content_has_required_sections_and_no_internal_terms(self):
         text = self.content.all_text()

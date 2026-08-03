@@ -1,6 +1,8 @@
 import json
+import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from schemas import ConfirmationState, FieldEvidence, TradeDocumentExtraction
 from src.document_intake.confirmation import (
@@ -1327,6 +1329,15 @@ class StreamlitReviewFlowTests(unittest.TestCase):
     def test_user_country_edits_are_revalidated_from_latest_widgets(self):
         from streamlit.testing.v1 import AppTest
 
+        environment = patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "",
+                "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            },
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
         app = AppTest.from_file(
             str(ROOT / "app.py"),
             default_timeout=20,
@@ -1334,21 +1345,10 @@ class StreamlitReviewFlowTests(unittest.TestCase):
         next(
             button
             for button in app.button
-            if button.key == "service_register_document"
+            if button.key == "service_sample_export"
         ).click().run()
-        mode = next(
-            radio
-            for radio in app.radio
-            if radio.label == "분석할 문서"
-        )
-        mode.set_value("데모 모드").run()
-        analyze = next(
-            button
-            for button in app.button
-            if button.label == "문서 분석하고 거래정보 채우기"
-        )
-        analyze.click().run()
         self.assertEqual(len(app.exception), 0)
+        self.assertIn("extraction", app.session_state)
 
         seller_country = next(
             widget
@@ -1365,6 +1365,12 @@ class StreamlitReviewFlowTests(unittest.TestCase):
             for widget in app.text_input
             if widget.key == "review_issue_date_widget"
         )
+        company_role = next(
+            widget
+            for widget in app.selectbox
+            if widget.key == "review_company_role_widget"
+        )
+        company_role.set_value("BUYER")
         seller_country.set_value("United States")
         buyer_country.set_value("Republic of Korea")
         issue_date.set_value("YYYY-MM-DD")

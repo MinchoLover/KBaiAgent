@@ -101,6 +101,29 @@ def _xml_item(
     )
 
 
+def _xml_total_item(
+    *,
+    export="100",
+    imported="40",
+    balance="60",
+    export_weight="10",
+    import_weight="5",
+):
+    return (
+        "<item><year>총계</year><statCdCntnKor1>-</statCdCntnKor1>"
+        "<statCd>-</statCd><statKor>-</statKor><hsCd>-</hsCd>"
+        "<expWgt>{}</expWgt><expDlr>{}</expDlr>"
+        "<impWgt>{}</impWgt><impDlr>{}</impDlr>"
+        "<balPayments>{}</balPayments></item>"
+    ).format(
+        export_weight,
+        export,
+        import_weight,
+        imported,
+        balance,
+    )
+
+
 def _xml(*items, result_code="00"):
     return (
         "<?xml version='1.0' encoding='UTF-8'?><response><header>"
@@ -319,6 +342,135 @@ class TradeStatisticsProviderTests(unittest.TestCase):
         self.assertEqual(second["strtYymm"], ["202507"])
         self.assertEqual(second["endYymm"], ["202606"])
         self.assertEqual(first["cntyCd"], ["BR"])
+
+    def test_live_country_rows_are_aggregated_by_month(self):
+        request = _request(
+            period_start="2026-05",
+            period_end="2026-06",
+        )
+        observations = parse_customs_xml(
+            _xml(
+                _xml_total_item(
+                    export="350",
+                    imported="150",
+                    balance="200",
+                    export_weight="34",
+                    import_weight="20",
+                ),
+                _xml_item(
+                    "2026.05",
+                    hs_code="0203291000",
+                    export="100",
+                    imported="40",
+                    balance="60",
+                    export_weight="10",
+                    import_weight="5",
+                ),
+                _xml_item(
+                    "2026.05",
+                    hs_code="0901110000",
+                    export="50",
+                    imported="60",
+                    balance="-10",
+                    export_weight="10",
+                    import_weight="7",
+                ),
+                _xml_item(
+                    "2026.06",
+                    hs_code="0203291000",
+                    export="200",
+                    imported="50",
+                    balance="150",
+                    export_weight="15",
+                    import_weight="8",
+                ),
+            ),
+            request,
+            as_of=date(2026, 8, 3),
+        )
+
+        self.assertEqual(len(observations), 2)
+        may, june = observations
+        self.assertEqual(may.period, "2026-05")
+        self.assertIsNone(may.hs_code)
+        self.assertEqual(may.export_value_usd, "150")
+        self.assertEqual(may.import_value_usd, "100")
+        self.assertEqual(may.trade_balance_usd, "50")
+        self.assertEqual(may.export_weight_kg, "20")
+        self.assertEqual(june.export_value_usd, "200")
+        self.assertEqual(june.trade_balance_usd, "150")
+
+    def test_hs_prefix_rows_are_aggregated_to_confirmed_scope(self):
+        request = _request(
+            period_start="2026-05",
+            period_end="2026-05",
+            hs_code="0203",
+            hs_level=4,
+            hs_code_confirmed=True,
+        )
+        observations = parse_customs_xml(
+            _xml(
+                _xml_total_item(
+                    export="100",
+                    imported="40",
+                    balance="60",
+                ),
+                _xml_item(
+                    "2026.05",
+                    hs_code="020329",
+                    export="75",
+                    imported="20",
+                    balance="55",
+                    export_weight="7",
+                    import_weight="2",
+                ),
+                _xml_item(
+                    "2026.05",
+                    hs_code="020322",
+                    export="25",
+                    imported="20",
+                    balance="5",
+                    export_weight="3",
+                    import_weight="3",
+                ),
+            ),
+            request,
+            as_of=date(2026, 8, 3),
+        )
+
+        self.assertEqual(len(observations), 1)
+        item = observations[0]
+        self.assertEqual(item.hs_code, "0203")
+        self.assertEqual(item.hs_level, 4)
+        self.assertEqual(item.export_value_usd, "100")
+        self.assertEqual(item.import_value_usd, "40")
+        self.assertEqual(item.trade_balance_usd, "60")
+
+    def test_official_money_total_mismatch_is_blocked(self):
+        request = _request(
+            period_start="2026-05",
+            period_end="2026-05",
+        )
+        with self.assertRaises(TradeStatisticsProviderError) as context:
+            parse_customs_xml(
+                _xml(
+                    _xml_total_item(
+                        export="102",
+                        imported="40",
+                        balance="62",
+                    ),
+                    _xml_item(
+                        "2026.05",
+                        hs_code="0203291000",
+                        export="100",
+                        imported="40",
+                        balance="60",
+                    ),
+                ),
+                request,
+                as_of=date(2026, 8, 3),
+            )
+        self.assertEqual(context.exception.code, "VALIDATION_FAILED")
 
     def test_duplicate_observation_is_blocked(self):
         provider = CustomsOpenApiProvider(
@@ -865,7 +1017,7 @@ class TradeStatisticsStreamlitTests(unittest.TestCase):
             "현재 환율·현금흐름 계산에는 영향을 주지 않습니다",
             visible,
         )
-        self.assertIn(
+        self.assertNotIn(
             "개발자용 · 데이터 품질 및 기술정보",
             [item.label for item in app.expander],
         )

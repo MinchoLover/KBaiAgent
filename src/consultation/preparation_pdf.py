@@ -91,6 +91,7 @@ class ConsultationPreparationContent:
     payment_method: str
     protection_status: str
     financial_rows: Tuple[Tuple[str, str], ...]
+    document_analysis_lines: Tuple[str, ...]
     market_forecast_lines: Tuple[str, ...]
     stress_lines: Tuple[str, ...]
     priorities: Tuple[ConsultationPriorityContent, ...]
@@ -128,6 +129,7 @@ class ConsultationPreparationContent:
         ]
         for label, value in self.financial_rows:
             values.extend([label, value])
+        values.extend(self.document_analysis_lines)
         values.extend(self.market_forecast_lines)
         values.extend(self.stress_lines)
         for priority in self.priorities:
@@ -554,6 +556,41 @@ def build_consultation_preparation_content(
         ),
     )
     forecast = forecast_summary or {}
+    provenance = packet.document_analysis
+    if provenance is None:
+        document_analysis_lines: Tuple[str, ...] = ()
+    else:
+        document_label = (
+            "Golden 수출 샘플"
+            if provenance.document_source == "golden_sample"
+            else "내 문서 업로드"
+        )
+        analysis_label = (
+            "AI 실시간 분석"
+            if provenance.analysis_source == "openai"
+            else "검증된 데모 결과"
+        )
+        lines = [
+            "문서 분석: {}".format(analysis_label),
+            "입력 문서: {}".format(document_label),
+            "source: {} · 사용 모델: {}".format(
+                provenance.analysis_source,
+                provenance.model,
+            ),
+        ]
+        if provenance.fallback_used:
+            lines.extend(
+                [
+                    (
+                        "경고: 실시간 문서 분석 연결이 원활하지 않아 사전 "
+                        "검증된 동일 샘플 결과를 사용했습니다."
+                    ),
+                    "warning code: {}".format(
+                        ", ".join(provenance.warnings)
+                    ),
+                ]
+            )
+        document_analysis_lines = tuple(lines)
     market_lines = (
         consultation_user_text(
             forecast.get("headline")
@@ -646,6 +683,7 @@ def build_consultation_preparation_content(
         payment_method=payment_method,
         protection_status=_protection_status(packet),
         financial_rows=financial_rows,
+        document_analysis_lines=document_analysis_lines,
         market_forecast_lines=market_lines,
         stress_lines=stress_lines,
         priorities=tuple(priorities),
@@ -1465,6 +1503,19 @@ class _PdfRenderer:
             "검증된 거래정보와 현금흐름 분석 결과",
         )
         self.metric_grid(self.content.financial_rows)
+        if self.content.document_analysis_lines:
+            self.notice_box(
+                "문서 분석 출처",
+                self.content.document_analysis_lines,
+                (
+                    PALE_YELLOW
+                    if any(
+                        "FALLBACK_USED" in line
+                        for line in self.content.document_analysis_lines
+                    )
+                    else PALE_BLUE
+                ),
+            )
         self.notice_box(
             "시장 전망 참고",
             self.content.market_forecast_lines,

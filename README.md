@@ -1,5 +1,48 @@
 # 수출입 금융 의사결정 지원 에이전트
 
+## 압축파일로 5분 실행
+
+Golden Demo는 API 키나 별도 서버 없이 실행됩니다. 준비물은 **Python 3.9 이상**과
+최초 패키지 설치를 위한 인터넷 연결입니다. 압축을 푼 뒤 `app.py`가 보이는
+`KBaiAgent` 폴더에서 실행하세요.
+
+### macOS
+
+Finder에서 `run_mac.command`를 더블클릭합니다. macOS가 실행을 막으면 파일을
+우클릭한 뒤 **열기**를 선택하거나 터미널에서 다음 명령을 실행합니다.
+
+```bash
+cd KBaiAgent
+./run_mac.command
+```
+
+### Windows
+
+압축을 푼 폴더의 `run_windows.bat`를 더블클릭합니다. PowerShell에서 실행하려면:
+
+```powershell
+cd KBaiAgent
+.\run_windows.bat
+```
+
+두 실행파일은 처음 한 번만 `.venv`를 만들고 패키지를 설치합니다. `.env`가 없으면
+API 키가 비어 있는 `judge-demo.env.example`을 자동 복사하며, 이미 존재하는 `.env`는
+덮어쓰지 않습니다. 설치가 끝나면 브라우저가 열립니다. 자동으로 열리지 않으면
+`http://localhost:8501`에 접속하세요.
+
+화면에서는 다음 순서만 따르면 됩니다.
+
+1. **3분 데모 시작하기**
+2. **문서 분석하고 거래정보 채우기**
+3. **거래 기본정보 확정**
+4. **환율·자금 위험 계산하기**
+5. 환율 전망 → 금융지원 추천 → 상담 준비·보고서
+6. **상담 준비서 PDF 다운로드**
+
+국가·금액·날짜를 직접 입력하거나 API 키를 넣을 필요가 없습니다. 종료할 때는 실행
+창에서 `Ctrl+C`를 누릅니다. 문제가 생기면
+[심사위원 실행 안내서](docs/JUDGE_DEMO_RUNBOOK.md)의 오류 해결표를 확인하세요.
+
 ## 1. 프로젝트 한 줄 설명
 
 수출입 거래의 환율 위험을 기업의 실제 현금 문제로 변환하고, 필요한 금융 상담까지
@@ -201,6 +244,24 @@ double로 사용하므로 Live 추출 정확도 주장이 아닙니다. 직접 �
 [docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md](docs/KB_MACRO_HEDGE_REFERENCE_RUNBOOK.md)를
 따릅니다.
 
+## 8-1. 명령어로 직접 실행
+
+클릭 실행 대신 터미널을 사용하려면 다음 순서로 실행합니다. 공개 ZIP의 Golden
+Demo에는 `judge-demo.env`나 실제 API 키가 필요하지 않습니다.
+
+```bash
+cp judge-demo.env.example .env
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
+`http://localhost:8501`의 홈에서 **3분 데모 시작하기**를 누릅니다. Golden Demo는
+고정 검증 데이터로 재현합니다. 실제 API 연동이 승인된 경우에만 별도 전달받은
+`judge-demo.env`를 `.env`로 복사합니다. 전체 절차와 Windows 명령은
+[심사위원 실행 안내서](docs/JUDGE_DEMO_RUNBOOK.md)를 확인하세요.
+
 ## 9. 실행 방법
 
 Python 3.9, Streamlit 단일 앱입니다. DB와 Docker는 필요하지 않습니다.
@@ -228,7 +289,7 @@ SPOT_RATE_PROVIDER=manual
 MANUAL_USDKRW_RATE=1400
 ```
 
-전체 변수는 `env.template`, 빠른 시작은 [START_HERE.md](START_HERE.md)를 봅니다.
+전체 변수는 `.env.example`, 빠른 시작은 [START_HERE.md](START_HERE.md)를 봅니다.
 팀 모델 연결은
 [docs/STAGE1_INTEGRATION.md](docs/STAGE1_INTEGRATION.md), 환율 출처 설정은
 [docs/SPOT_PROVIDER_SETUP.md](docs/SPOT_PROVIDER_SETUP.md)를 봅니다.
@@ -264,8 +325,8 @@ python scripts/verify.py
 ```
 
 `python scripts/verify.py`가 compile, 전체 unittest, fixture E2E, README·schema·비밀
-검사를 한 명령으로 실행합니다. 2026-08-03 제출 동결 검증 기준 707개 테스트가
-통과했습니다.
+검사를 한 명령으로 실행합니다. 테스트 수는 고정 문구가 아니라 현재 실행 결과의
+`Ran ... tests`를 기준으로 확인합니다.
 최신 실제 실행 결과는
 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md)에 기록합니다. fixture 평가는
 live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외합니다.
@@ -303,13 +364,10 @@ Baseline v1/v2 합성 8건씩의 결과는
 [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md), 과거 리팩터링 내역은
 [REFACTORING_REPORT.md](REFACTORING_REPORT.md)를 봅니다.
 
-2026-07-29 제출 직전 통합 사실기록은 다음 문서를 canonical 최종 감사 묶음으로
-사용합니다.
-
-- [최종 프로젝트 보고서](docs/FINAL_PROJECT_REPORT.md)
-- [최종 기술 감사](docs/FINAL_TECHNICAL_AUDIT.md)
-- [상담 강화 보고서](docs/CONSULTATION_STRENGTHENING_REPORT.md)
-- [최종 실행 계획](docs/FINAL_ACTION_PLAN.md)
+제출 범위와 검증 결과는
+[기술설명서](docs/KB_AI_CHALLENGE_TECHNICAL_DESCRIPTION_KO.md),
+[제출 체크리스트](docs/SUBMISSION_CHECKLIST.md),
+[검증 보고서](docs/VALIDATION_REPORT.md)를 기준으로 확인합니다.
 
 ## 12. 미구현 기능과 향후 확장
 

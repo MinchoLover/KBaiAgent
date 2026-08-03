@@ -32,18 +32,18 @@ KBaiAgent의 내부 엄격 계약으로 필수 필드와 수학을 재검증하�
 한다.
 
 ```text
-/Users/jeongminchan/Desktop/kb_macro_ai
+/absolute/path/to/kb_macro_ai
 7d3efa41cdc8bbb8da61b6b0c6108bdf55713e3e
 ```
 
 현재 검증한 고정 입력 fingerprint로 Streamlit을 시작한다.
 
 ```bash
-cd /Users/jeongminchan/Desktop/invoice_intake_mvp
+cd /absolute/path/to/KBaiAgent
 
 ENABLE_KB_MACRO_HEDGE_REFERENCE=true \
 KB_MACRO_HEDGE_MODE=local_cli \
-KB_MACRO_HEDGE_ALLOWED_ROOT=/Users/jeongminchan/Desktop/kb_macro_ai \
+KB_MACRO_HEDGE_ALLOWED_ROOT=/absolute/path/to/kb_macro_ai \
 KB_MACRO_FORECAST_FILE=web_runtime/output/latest_forecast.json \
 KB_MACRO_MODEL_CONFIG_FILE=configs/hedge_recommendation_v1.json \
 KB_MACRO_MARKET_HISTORY_FILE=web_runtime/bundle_v1/market_history.csv \

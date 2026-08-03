@@ -19,6 +19,7 @@ PIPELINE_KEYS = (
     "extraction_original",
     "extraction_validation",
     "upload_metadata",
+    "document_analysis_provenance",
     "confirmation",
     "confirmation_validation",
     "confirmed_transaction",

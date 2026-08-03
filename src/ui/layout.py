@@ -2,6 +2,7 @@ from html import escape
 from typing import Dict, List, Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 PAGE_HOME = "home"
@@ -9,6 +10,8 @@ PAGE_TRANSACTION = "transaction"
 PAGE_ANALYSIS = "analysis"
 PAGE_CONSULTATION = "consultation"
 PAGE_DOWNLOAD = "download"
+
+_SCROLL_TO_PAGE_TOP_KEY = "_scroll_to_page_top"
 
 NAV_ITEMS: List[Dict[str, str]] = [
     {"page": PAGE_HOME, "icon": "⌂", "label": "홈"},
@@ -30,7 +33,54 @@ PAGE_LABELS: Dict[str, str] = {
 def set_active_page(page: str) -> None:
     if page not in PAGE_LABELS:
         raise ValueError("지원하지 않는 화면입니다: {}".format(page))
+    previous_page = str(
+        st.session_state.get("active_page", PAGE_HOME)
+    )
     st.session_state["active_page"] = page
+    if previous_page != page:
+        st.session_state[_SCROLL_TO_PAGE_TOP_KEY] = page
+
+
+def render_page_scroll_reset(page: str) -> None:
+    """Scroll the main document to its top after an actual page change."""
+
+    requested_page = st.session_state.pop(
+        _SCROLL_TO_PAGE_TOP_KEY,
+        None,
+    )
+    if requested_page != page:
+        return
+    components.html(
+        """
+        <script>
+        (() => {
+          const resetScroll = () => {
+            const doc = window.parent.document;
+            const targets = [
+              doc.querySelector('section[data-testid="stMain"]'),
+              doc.querySelector('[data-testid="stAppViewContainer"]'),
+              doc.scrollingElement,
+            ].filter(Boolean);
+            targets.forEach((target) => {
+              target.scrollTop = 0;
+              if (typeof target.scrollTo === 'function') {
+                target.scrollTo({top: 0, left: 0, behavior: 'auto'});
+              }
+            });
+            window.parent.scrollTo(0, 0);
+          };
+          resetScroll();
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(resetScroll);
+          });
+          window.setTimeout(resetScroll, 80);
+          window.setTimeout(resetScroll, 250);
+        })();
+        </script>
+        """,
+        height=0,
+        scrolling=False,
+    )
 
 
 def active_page() -> str:

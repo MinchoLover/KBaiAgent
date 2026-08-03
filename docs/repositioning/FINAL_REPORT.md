@@ -108,7 +108,7 @@ Stage 1 팀 계약과 Stage 2 공개 입력·결과 DTO는 변경하지 않았�
 ### 데모·UI·검증
 
 - `src/application/demo_service.py`
-- `src/demo.py`, 기존 호환 파일 `src/demo 2.py`
+- `src/demo.py` (`src/demo 2.py` 역사 사본은 최종 제출 정리에서 제거)
 - `scripts/run_decision_demo.py`
 - `app.py`
 - `src/ui/components.py`
@@ -121,9 +121,8 @@ Stage 1 팀 계약과 Stage 2 공개 입력·결과 DTO는 변경하지 않았�
 ### 문서
 
 - `README.md`
-- `docs/PROGRESS.md`
-- `docs/DECISIONS.md`
-- `docs/AI_LOG.md`
+- `docs/KB_AI_CHALLENGE_TECHNICAL_DESCRIPTION_KO.md`
+- `docs/VALIDATION_REPORT.md`
 - `docs/repositioning/TEAM_POSITIONING.md`
 - `docs/repositioning/FINAL_REPORT.md`
 

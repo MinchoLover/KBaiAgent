@@ -127,6 +127,14 @@ class Settings:
     official_search_cache_ttl_hours: int = 24
     official_domains: Tuple[str, ...] = DEFAULT_OFFICIAL_DOMAINS
 
+    @property
+    def internal_debug_enabled(self) -> bool:
+        """Allow internal UI evidence only after an explicit dev opt-in."""
+
+        return bool(
+            self.app_env == "development" and self.show_internal_debug
+        )
+
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(

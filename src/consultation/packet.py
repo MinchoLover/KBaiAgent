@@ -33,6 +33,7 @@ from src.domain.consultation_models import (
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
 )
+from src.domain.document_analysis_models import DocumentAnalysisProvenance
 from src.domain.country_economic_interpretation_models import (
     CountryEconomicInterpretationResult,
 )
@@ -697,6 +698,32 @@ def rationale_display_text(
 
 
 def _markdown(packet: ConsultationPacket) -> str:
+    if packet.document_analysis is None:
+        document_analysis_lines = "- 문서 분석 provenance: 기록 없음"
+    else:
+        provenance = packet.document_analysis
+        document_analysis_lines = "\n".join(
+            [
+                "- 입력 문서: `{}`".format(provenance.document_source),
+                "- 요청 분석 방식: `{}`".format(provenance.analysis_mode),
+                "- 실제 분석 source: `{}`".format(
+                    provenance.analysis_source
+                ),
+                "- 사용 모델: `{}`".format(provenance.model),
+                "- 분석 생성시각: `{}`".format(provenance.generated_at),
+                "- fallback 사용: `{}`".format(
+                    str(provenance.fallback_used).lower()
+                ),
+                "- 경고 코드: {}".format(
+                    ", ".join(provenance.warnings) or "없음"
+                ),
+            ]
+        )
+        if provenance.fallback_used:
+            document_analysis_lines += (
+                "\n- 경고: 실시간 문서 분석 연결이 원활하지 않아 "
+                "사전 검증된 동일 샘플 결과를 사용했습니다."
+            )
     risk_lines = (
         "\n".join(
             "- `{}` · 시나리오 `{}` · 기준값 {} / 임계값 {}".format(
@@ -1042,6 +1069,10 @@ def _markdown(packet: ConsultationPacket) -> str:
 
 ## 8. Trace
 
+문서 분석 출처:
+
+{document_analysis_lines}
+
 - 원문 document hash: `{document_hash}`
 - 사용자 확인 필드: {confirmed_fields}
 - 입력 hash: `{input_hash}`
@@ -1170,6 +1201,7 @@ def _markdown(packet: ConsultationPacket) -> str:
         document_lines=document_lines,
         question_lines=question_lines,
         safety_lines=safety_lines,
+        document_analysis_lines=document_analysis_lines,
         documentary_credit=protection.documentary_credit,
         credit_insurance=protection.credit_insurance,
         payment_guarantee=protection.independent_payment_guarantee,
@@ -1237,6 +1269,7 @@ def build_consultation_packet(
     confirmed_transaction: Optional[
         ConfirmedTransactionSnapshot
     ] = None,
+    document_analysis: Optional[DocumentAnalysisProvenance] = None,
 ) -> ConsultationPacketResult:
     stage2_dates = [
         item.settlement_date
@@ -1588,6 +1621,7 @@ def build_consultation_packet(
                 ),
             )
         ],
+        document_analysis=document_analysis,
         user_confirmed_fields=_confirmed_fields(confirmation),
         disclaimer=DISCLAIMER,
     )

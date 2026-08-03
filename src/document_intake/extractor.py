@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 from schemas import TradeDocumentExtraction, ValidationResult
@@ -14,6 +15,13 @@ from src.document_intake.party_matching import (
     match_company_role_from_verified_parties,
 )
 from src.document_intake.source_evidence import extract_pdf_page_texts
+from src.domain.document_analysis_models import (
+    DocumentAnalysisProvenance,
+    DocumentSource,
+    LIVE_API,
+    OPENAI_ANALYSIS_SOURCE,
+    USER_UPLOAD,
+)
 from src.security.upload_guard import (
     UploadMetadata,
     UploadValidationError,
@@ -26,6 +34,10 @@ class ExtractionError(RuntimeError):
     pass
 
 
+class LiveDocumentAnalysisError(ExtractionError):
+    pass
+
+
 @dataclass(frozen=True)
 class ExtractionRun:
     raw_extraction: TradeDocumentExtraction
@@ -33,6 +45,7 @@ class ExtractionRun:
     validation: ValidationResult
     upload: UploadMetadata
     usage: ExtractionUsage
+    provenance: DocumentAnalysisProvenance
     auto_matched_company_role: Optional[str] = None
 
 
@@ -43,6 +56,7 @@ def extract_trade_document_with_metadata(
     mime_type: Optional[str],
     company_role: str,
     company_country: str = "KR",
+    document_source: DocumentSource = USER_UPLOAD,
     settings: Optional[Settings] = None,
     adapter: Optional[OpenAIDocumentAdapter] = None,
 ) -> ExtractionRun:
@@ -111,9 +125,20 @@ def extract_trade_document_with_metadata(
             upload=upload,
             usage=adapter_result.usage,
             auto_matched_company_role=auto_matched_role,
+            provenance=DocumentAnalysisProvenance(
+                document_source=document_source,
+                analysis_mode=LIVE_API,
+                analysis_source=OPENAI_ANALYSIS_SOURCE,
+                model=adapter_result.usage.model,
+                generated_at=datetime.now(timezone.utc).isoformat(),
+                fallback_used=False,
+                warnings=[],
+            ),
         )
-    except (UploadValidationError, OpenAIAdapterError) as exc:
+    except UploadValidationError as exc:
         raise ExtractionError(str(exc)) from exc
+    except OpenAIAdapterError as exc:
+        raise LiveDocumentAnalysisError(str(exc)) from exc
 
 
 def extract_trade_document(

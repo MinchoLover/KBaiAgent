@@ -336,11 +336,12 @@ class GoldenImportHedgeStreamlitTests(unittest.TestCase):
                 str(ROOT / "app.py"),
                 default_timeout=30,
             ).run()
-            app.session_state["run_mode_widget"] = "실제 문서 분석"
+            app.session_state["document_source"] = "user_upload"
+            app.session_state["analysis_mode"] = "live_api"
             app.session_state["company_role_widget"] = "구매자 · BUYER"
             app.session_state["company_country_widget"] = "KR"
             app.session_state["input_signature"] = input_signature(
-                mode="LIVE",
+                mode="user_upload:live_api",
                 company_role="BUYER",
                 company_country="KR",
                 filename="uploaded_document",

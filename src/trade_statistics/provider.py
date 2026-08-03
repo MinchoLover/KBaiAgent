@@ -5,9 +5,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Callable, Dict, List, Optional, Protocol, Tuple
+from typing import Callable, Dict, List, Optional, Protocol, Set, Tuple
 
 from src.domain.trade_statistics_models import (
     TradeStatisticsErrorCode,
@@ -122,6 +123,124 @@ def _response_items(root: ET.Element) -> List[ET.Element]:
     return candidates
 
 
+@dataclass(frozen=True)
+class _CustomsAmounts:
+    export_value: Decimal
+    import_value: Decimal
+    balance_value: Decimal
+    export_weight: Optional[Decimal]
+    import_weight: Optional[Decimal]
+
+
+@dataclass(frozen=True)
+class _CustomsDetailRow:
+    period: str
+    response_hs: Optional[str]
+    amounts: _CustomsAmounts
+
+
+def _amounts_from_item(item: ET.Element) -> _CustomsAmounts:
+    export_weight_raw = _text(item, "expWgt")
+    import_weight_raw = _text(item, "impWgt")
+    amounts = _CustomsAmounts(
+        export_value=Decimal(
+            _decimal_text(_required_text(item, "expDlr"), "expDlr")
+        ),
+        import_value=Decimal(
+            _decimal_text(_required_text(item, "impDlr"), "impDlr")
+        ),
+        balance_value=Decimal(
+            _decimal_text(
+                _required_text(item, "balPayments"),
+                "balPayments",
+            )
+        ),
+        export_weight=(
+            Decimal(_decimal_text(export_weight_raw, "expWgt"))
+            if export_weight_raw is not None
+            else None
+        ),
+        import_weight=(
+            Decimal(_decimal_text(import_weight_raw, "impWgt"))
+            if import_weight_raw is not None
+            else None
+        ),
+    )
+    if (
+        abs(
+            (amounts.export_value - amounts.import_value)
+            - amounts.balance_value
+        )
+        > Decimal("1")
+    ):
+        raise TradeStatisticsProviderError(
+            "VALIDATION_FAILED",
+            "공식 통계 응답의 무역수지가 수출입금액과 일치하지 "
+            "않습니다. 검증되지 않은 값은 표시하지 않습니다.",
+        )
+    return amounts
+
+
+def _sum_amounts(rows: List[_CustomsDetailRow]) -> _CustomsAmounts:
+    export_weights = [
+        row.amounts.export_weight
+        for row in rows
+        if row.amounts.export_weight is not None
+    ]
+    import_weights = [
+        row.amounts.import_weight
+        for row in rows
+        if row.amounts.import_weight is not None
+    ]
+    return _CustomsAmounts(
+        export_value=sum(
+            (row.amounts.export_value for row in rows),
+            Decimal("0"),
+        ),
+        import_value=sum(
+            (row.amounts.import_value for row in rows),
+            Decimal("0"),
+        ),
+        balance_value=sum(
+            (row.amounts.balance_value for row in rows),
+            Decimal("0"),
+        ),
+        export_weight=(
+            sum(export_weights, Decimal("0"))
+            if len(export_weights) == len(rows)
+            else None
+        ),
+        import_weight=(
+            sum(import_weights, Decimal("0"))
+            if len(import_weights) == len(rows)
+            else None
+        ),
+    )
+
+
+def _validate_total_amounts(
+    total: _CustomsAmounts,
+    calculated: _CustomsAmounts,
+) -> None:
+    # The official gateway can apply a small adjustment to the total-row
+    # weights. Financial totals must still reconcile exactly within USD 1.
+    for official, aggregated in (
+        (total.export_value, calculated.export_value),
+        (total.import_value, calculated.import_value),
+        (total.balance_value, calculated.balance_value),
+    ):
+        if abs(official - aggregated) > Decimal("1"):
+            raise TradeStatisticsProviderError(
+                "VALIDATION_FAILED",
+                "공식 통계 총계가 상세 수출입금액 합계와 일치하지 "
+                "않습니다. 검증되지 않은 값은 표시하지 않습니다.",
+            )
+
+
+def _decimal_display(value: Decimal) -> str:
+    return format(value, "f")
+
+
 def parse_customs_xml(
     raw: bytes,
     request: TradeStatisticsRequest,
@@ -159,9 +278,16 @@ def parse_customs_xml(
         effective_as_of.year,
         effective_as_of.month,
     )
-    observations: List[TradeStatisticsObservation] = []
-    for index, item in enumerate(_response_items(root), start=1):
-        period = _normalize_period(_required_text(item, "year"))
+    detail_rows: List[_CustomsDetailRow] = []
+    aggregate_rows: List[_CustomsDetailRow] = []
+    total_rows: List[_CustomsAmounts] = []
+    raw_keys: Set[Tuple[str, str]] = set()
+    for item in _response_items(root):
+        raw_period = _required_text(item, "year")
+        if raw_period == "총계":
+            total_rows.append(_amounts_from_item(item))
+            continue
+        period = _normalize_period(raw_period)
         if period not in allowed_periods or period > current_month:
             raise TradeStatisticsProviderError(
                 "VALIDATION_FAILED",
@@ -177,57 +303,89 @@ def parse_customs_xml(
         response_hs = _text(item, "hsCd")
         if response_hs in {"", "TOTAL", "ALL", "-"}:
             response_hs = None
-        if response_hs != request.hs_code:
+        if request.hs_code is not None and (
+            response_hs is None
+            or not response_hs.isdigit()
+            or not response_hs.startswith(request.hs_code)
+            or len(response_hs) not in {2, 4, 6, 10}
+        ):
             raise TradeStatisticsProviderError(
                 "VALIDATION_FAILED",
                 "공식 통계 응답의 HS Code가 요청과 일치하지 않습니다.",
             )
-        export_value = _decimal_text(
-            _required_text(item, "expDlr"), "expDlr"
-        )
-        import_value = _decimal_text(
-            _required_text(item, "impDlr"), "impDlr"
-        )
-        balance_value = _decimal_text(
-            _required_text(item, "balPayments"), "balPayments"
-        )
-        export_weight_raw = _text(item, "expWgt")
-        import_weight_raw = _text(item, "impWgt")
-        observation = TradeStatisticsObservation(
-            period=period,
-            reporter_country=request.reporter_country,
-            partner_country=request.partner_country,
-            hs_code=request.hs_code,
-            hs_level=request.hs_level,
-            export_value_usd=export_value,
-            import_value_usd=import_value,
-            trade_balance_usd=balance_value,
-            export_weight_kg=(
-                _decimal_text(export_weight_raw, "expWgt")
-                if export_weight_raw is not None
-                else None
-            ),
-            import_weight_kg=(
-                _decimal_text(import_weight_raw, "impWgt")
-                if import_weight_raw is not None
-                else None
-            ),
-            source_record_id="kcs-open-api-{}-{}-{}".format(
-                request.partner_country.lower(),
-                request.hs_code or "total",
-                period,
-            ),
-        )
-        export = Decimal(observation.export_value_usd)
-        imported = Decimal(observation.import_value_usd)
-        balance = Decimal(observation.trade_balance_usd)
-        if abs((export - imported) - balance) > Decimal("1"):
+        if request.hs_code is None and response_hs is not None and (
+            not response_hs.isdigit()
+            or len(response_hs) not in {2, 4, 6, 10}
+        ):
             raise TradeStatisticsProviderError(
                 "VALIDATION_FAILED",
-                "공식 통계 응답의 무역수지가 수출입금액과 일치하지 "
-                "않습니다. 검증되지 않은 값은 표시하지 않습니다.",
+                "공식 통계 응답의 HS Code 형식을 확인할 수 없습니다.",
             )
-        observations.append(observation)
+        raw_key = (period, response_hs or "COUNTRY_TOTAL")
+        if raw_key in raw_keys:
+            raise TradeStatisticsProviderError(
+                "VALIDATION_FAILED",
+                "공식 통계 응답에 중복 상세행이 있습니다. 검증되지 "
+                "않은 값은 표시하지 않습니다.",
+            )
+        raw_keys.add(raw_key)
+        row = _CustomsDetailRow(
+            period=period,
+            response_hs=response_hs,
+            amounts=_amounts_from_item(item),
+        )
+        if response_hs is None:
+            aggregate_rows.append(row)
+        else:
+            detail_rows.append(row)
+    if len(total_rows) > 1:
+        raise TradeStatisticsProviderError(
+            "VALIDATION_FAILED",
+            "공식 통계 응답에 총계행이 중복됐습니다. 검증되지 않은 "
+            "값은 표시하지 않습니다.",
+        )
+    if detail_rows and aggregate_rows:
+        raise TradeStatisticsProviderError(
+            "VALIDATION_FAILED",
+            "공식 통계 응답에 월별 총계와 상세행이 혼재합니다. "
+            "검증되지 않은 값은 표시하지 않습니다.",
+        )
+    source_rows = detail_rows or aggregate_rows
+    if total_rows and source_rows:
+        _validate_total_amounts(total_rows[0], _sum_amounts(source_rows))
+    grouped: Dict[str, List[_CustomsDetailRow]] = {}
+    for row in source_rows:
+        grouped.setdefault(row.period, []).append(row)
+    observations: List[TradeStatisticsObservation] = []
+    for period in sorted(grouped):
+        amounts = _sum_amounts(grouped[period])
+        observations.append(
+            TradeStatisticsObservation(
+                period=period,
+                reporter_country=request.reporter_country,
+                partner_country=request.partner_country,
+                hs_code=request.hs_code,
+                hs_level=request.hs_level,
+                export_value_usd=_decimal_display(amounts.export_value),
+                import_value_usd=_decimal_display(amounts.import_value),
+                trade_balance_usd=_decimal_display(amounts.balance_value),
+                export_weight_kg=(
+                    _decimal_display(amounts.export_weight)
+                    if amounts.export_weight is not None
+                    else None
+                ),
+                import_weight_kg=(
+                    _decimal_display(amounts.import_weight)
+                    if amounts.import_weight is not None
+                    else None
+                ),
+                source_record_id="kcs-open-api-{}-{}-{}".format(
+                    request.partner_country.lower(),
+                    request.hs_code or "total",
+                    period,
+                ),
+            )
+        )
     return observations
 
 

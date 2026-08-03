@@ -14,6 +14,7 @@ from src.domain.consultation_models import (
     DecisionSupportResult,
     InstallmentPaymentStatus,
 )
+from src.domain.document_analysis_models import DocumentAnalysisProvenance
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
 )
@@ -131,6 +132,7 @@ def build_decision_support(
     confirmed_transaction: Optional[
         ConfirmedTransactionSnapshot
     ] = None,
+    document_analysis: Optional[DocumentAnalysisProvenance] = None,
 ) -> DecisionSupportResult:
     assessment = classify_stage2_risks(
         stage2_result=stage2_result,
@@ -178,6 +180,7 @@ def build_decision_support(
         missing_information=missing_information,
         generated_at=generated_at,
         confirmed_transaction=confirmed_transaction,
+        document_analysis=document_analysis,
     )
     return DecisionSupportResult(
         risk_assessment=assessment,

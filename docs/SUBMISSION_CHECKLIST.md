@@ -44,7 +44,7 @@
 - [x] `FINAL_DEMO_SCRIPT.md`
 - [x] `DEMO_SCENARIO_MATRIX.md`
 - [x] `SCREENSHOT_MANIFEST.md`
-- [x] `SUBMISSION_PPT_UPDATE_NOTES.md`
+- [x] `KB_AI_CHALLENGE_TECHNICAL_DESCRIPTION_KO.md`
 - [x] `SUBMISSION_FREEZE.md`
 - [ ] PPT 슬라이드 6·9·10·11·12 실제 교체
 - [ ] PPT와 영상의 Golden 숫자를 화면·보고서와 대조

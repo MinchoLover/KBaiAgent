@@ -2,12 +2,21 @@ import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from src.application.market_integration_service import integrate_stage1_market
 from src.config import Settings
 from src.domain.stage2_models import ExposureInput, Stage2Input
 from src.stage2.engine import run_stage2
-from src.ui.layout import NAV_ITEMS, PAGE_LABELS
+from src.ui.layout import (
+    NAV_ITEMS,
+    PAGE_ANALYSIS,
+    PAGE_LABELS,
+    PAGE_TRANSACTION,
+    render_page_scroll_reset,
+    set_active_page,
+)
 from src.ui.user_views import (
     build_fx_forecast_view,
     build_market_news_views,
@@ -209,6 +218,48 @@ class UserCenteredUiProjectionTests(unittest.TestCase):
 
     def test_internal_debug_flag_defaults_false(self):
         self.assertFalse(Settings().show_internal_debug)
+
+    def test_internal_debug_requires_explicit_development_opt_in(self):
+        self.assertFalse(Settings().internal_debug_enabled)
+        self.assertTrue(
+            Settings(
+                app_env="development",
+                show_internal_debug=True,
+            ).internal_debug_enabled
+        )
+        for app_env in ("presentation", "production"):
+            with self.subTest(app_env=app_env):
+                self.assertFalse(
+                    Settings(
+                        app_env=app_env,
+                        show_internal_debug=True,
+                    ).internal_debug_enabled
+                )
+
+    def test_page_change_requests_one_scroll_reset(self):
+        state = {"active_page": PAGE_TRANSACTION}
+        fake_streamlit = SimpleNamespace(session_state=state)
+        with patch("src.ui.layout.st", fake_streamlit), patch(
+            "src.ui.layout.components.html"
+        ) as render_html:
+            set_active_page(PAGE_ANALYSIS)
+            self.assertEqual(state["active_page"], PAGE_ANALYSIS)
+            self.assertEqual(
+                state["_scroll_to_page_top"],
+                PAGE_ANALYSIS,
+            )
+
+            render_page_scroll_reset(PAGE_ANALYSIS)
+            render_html.assert_called_once()
+            script = render_html.call_args.args[0]
+            self.assertIn("stMain", script)
+            self.assertIn("scrollTo", script)
+            self.assertNotIn("_scroll_to_page_top", state)
+
+            render_page_scroll_reset(PAGE_ANALYSIS)
+            render_html.assert_called_once()
+            set_active_page(PAGE_ANALYSIS)
+            self.assertNotIn("_scroll_to_page_top", state)
 
 
 if __name__ == "__main__":

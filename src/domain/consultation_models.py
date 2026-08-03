@@ -10,6 +10,7 @@ from src.domain.country_environment_models import (
     CountryEnvironmentReviewNeed,
     CountryTradeEnvironmentAssessment,
 )
+from src.domain.document_analysis_models import DocumentAnalysisProvenance
 from src.domain.product_models import (
     AuxiliaryServiceCandidates,
     OfficialCandidateShortlist,
@@ -400,6 +401,10 @@ class ConsultationPacket(StrictModel):
     safety_boundaries: List[str] = Field(default_factory=list)
     source_documents: List[SourceDocumentReference] = Field(
         default_factory=list
+    )
+    document_analysis: Optional[DocumentAnalysisProvenance] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
     )
     user_confirmed_fields: List[str] = Field(default_factory=list)
     disclaimer: str
