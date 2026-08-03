@@ -1,6 +1,18 @@
 import hashlib
 from typing import Iterable
 
+from src.domain.consultation_models import ConsultationPacketResult
+from src.domain.product_models import (
+    AuxiliaryServiceCandidates,
+    OFFICIAL_CANDIDATE_INPUT_FIELDS,
+    OfficialCandidateInputProfile,
+    OfficialCandidateShortlist,
+    assess_official_candidate_input_profile,
+)
+from src.domain.report_models import ReportResult
+from src.workflow.result import StageStatus
+from src.workflow.state import WorkflowState
+
 
 PIPELINE_KEYS = (
     "extraction",
@@ -22,8 +34,10 @@ PIPELINE_KEYS = (
     "country_environment_input",
     "country_environment_assessment",
     "country_environment_trace",
+    "country_economic_interpretation_result",
     "trade_statistics_request",
     "trade_statistics_result",
+    "trade_statistics_interpretation_result",
     "trade_statistics_trace",
     "trade_statistics_error",
     "risk_assessment",
@@ -34,8 +48,14 @@ PIPELINE_KEYS = (
     "kb_macro_hedge_reference",
     "integration_readiness",
     "stage4_result",
+    "official_candidate_input_profile",
     "official_candidate_shortlist",
+    "auxiliary_service_candidates",
     "report_result",
+    "report_download_payload",
+    "official_candidate_auto_refresh",
+    "official_profile_saved_notice",
+    "official_profile_warning_confirmation_fingerprint",
     "workflow_state",
     "review_audit_trail",
     "party_role_auto_match_notice",
@@ -147,10 +167,16 @@ KB_MACRO_HEDGE_WIDGET_KEYS = (
     "kb_macro_cli_constraints_confirmed_widget",
 )
 
+OFFICIAL_CANDIDATE_PROFILE_WIDGET_KEYS = tuple(
+    "official_profile_{}_widget".format(field_name)
+    for field_name in OFFICIAL_CANDIDATE_INPUT_FIELDS
+)
+
+
 STAGE4_WIDGET_KEYS = (
     "stage4_query_widget",
     "stage4_search_mode_widget",
-)
+) + OFFICIAL_CANDIDATE_PROFILE_WIDGET_KEYS
 
 CONSULTATION_WIDGET_KEYS = (
     "consultation_payment_status_editor",
@@ -232,6 +258,11 @@ def clear_downstream(
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",
+            "report_download_payload",
+            "official_candidate_auto_refresh",
+            "official_profile_saved_notice",
+            "official_profile_warning_confirmation_fingerprint",
+            "official_profile_validation_notice",
         ),
         2: (
             "stage2_input",
@@ -246,6 +277,7 @@ def clear_downstream(
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",
+            "report_download_payload",
         ),
         3: (
             "risk_assessment",
@@ -256,13 +288,15 @@ def clear_downstream(
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",
+            "report_download_payload",
         ),
         4: (
             "stage4_result",
             "official_candidate_shortlist",
             "report_result",
+            "report_download_payload",
         ),
-        5: ("report_result",),
+        5: ("report_result", "report_download_payload"),
     }
     stage_widget_keys = {
         0: TRANSACTION_WIDGET_KEYS,
@@ -318,8 +352,10 @@ def clear_confirmation_and_later(state: object) -> None:
             "country_environment_input",
             "country_environment_assessment",
             "country_environment_trace",
+            "country_economic_interpretation_result",
             "trade_statistics_request",
             "trade_statistics_result",
+            "trade_statistics_interpretation_result",
             "trade_statistics_trace",
             "trade_statistics_error",
             "risk_assessment",
@@ -329,8 +365,11 @@ def clear_confirmation_and_later(state: object) -> None:
             "stage3_result",
             "kb_macro_hedge_reference",
             "stage4_result",
+            "official_candidate_input_profile",
+            "auxiliary_service_candidates",
             "official_candidate_shortlist",
             "report_result",
+            "report_download_payload",
             "workflow_state",
         )
         + DOWNSTREAM_WIDGET_KEYS,
@@ -346,10 +385,16 @@ def clear_trade_risk_and_related(state: object) -> None:
             "country_environment_input",
             "country_environment_assessment",
             "country_environment_trace",
+            "country_economic_interpretation_result",
             "consultation_topics",
+            "auxiliary_service_candidates",
             "official_candidate_shortlist",
             "consultation_packet",
             "report_result",
+            "report_download_payload",
+            "official_candidate_auto_refresh",
+            "official_profile_saved_notice",
+            "official_profile_warning_confirmation_fingerprint",
         ),
     )
 
@@ -361,11 +406,182 @@ def clear_country_environment_and_related(state: object) -> None:
             "country_environment_input",
             "country_environment_assessment",
             "country_environment_trace",
+            "country_economic_interpretation_result",
             "consultation_topics",
             "consultation_packet",
             "report_result",
+            "report_download_payload",
         ),
     )
+
+
+def clear_official_candidate_outputs(state: object) -> None:
+    """상품 전용 확인값 변경 시 계산 결과를 보존하고 후보 이후만 지운다."""
+
+    clear_keys(
+        state,
+        (
+            "official_candidate_shortlist",
+            "auxiliary_service_candidates",
+            "consultation_packet",
+            "report_result",
+            "report_download_payload",
+            "official_candidate_auto_refresh",
+            "official_profile_saved_notice",
+            "official_profile_warning_confirmation_fingerprint",
+        ),
+    )
+    workflow_value = state.get("workflow_state")
+    workflow_state = (
+        workflow_value
+        if isinstance(workflow_value, WorkflowState)
+        else WorkflowState.model_validate(workflow_value)
+        if workflow_value is not None
+        else None
+    )
+    if workflow_state is not None:
+        updated = workflow_state.model_copy(
+            update={
+                "report": None,
+                "report_draft": None,
+                "critic_result": None,
+                "final_report": None,
+                "rewrite_count": 0,
+                "final_status": StageStatus.PENDING,
+            }
+        )
+        state["workflow_state"] = (
+            updated
+            if isinstance(workflow_value, WorkflowState)
+            else updated.model_dump()
+        )
+
+
+def update_official_candidate_input_profile(
+    state: object,
+    profile: OfficialCandidateInputProfile,
+) -> bool:
+    """WorkflowState 한 곳에 profile을 저장하고 상품 후보 이후만 무효화한다."""
+
+    workflow_value = state.get("workflow_state")
+    if workflow_value is None:
+        raise ValueError("상품 입력 profile을 저장할 WorkflowState가 없습니다.")
+    workflow_state = WorkflowState.model_validate(workflow_value)
+    confirmed_transaction = workflow_state.confirmed_transaction
+    if confirmed_transaction is None:
+        raise ValueError("상품 입력 profile은 confirmed transaction 이후 저장합니다.")
+    if (
+        profile.bound_transaction_fingerprint
+        != confirmed_transaction.input_fingerprint
+    ):
+        raise ValueError(
+            "상품 입력 profile이 현재 confirmed transaction과 다릅니다."
+        )
+    profile_validation = assess_official_candidate_input_profile(profile)
+    if profile_validation.hard_blocking_issues:
+        raise ValueError(
+            "상품 입력 충돌을 먼저 수정해야 합니다: {}".format(
+                " ".join(
+                    issue.user_message
+                    for issue in profile_validation.hard_blocking_issues
+                )
+            )
+        )
+    current = workflow_state.official_candidate_input_profile
+    if (
+        current is not None
+        and current.input_fingerprint == profile.input_fingerprint
+    ):
+        validate_official_candidate_artifact_state(state)
+        return False
+    clear_official_candidate_outputs(state)
+    cleared_workflow = WorkflowState.model_validate(state["workflow_state"])
+    updated = cleared_workflow.model_copy(
+        update={"official_candidate_input_profile": profile}
+    )
+    state["workflow_state"] = (
+        updated
+        if isinstance(workflow_value, WorkflowState)
+        else updated.model_dump()
+    )
+    return True
+
+
+def validate_official_candidate_artifact_state(state: object) -> None:
+    """현재 거래·profile·후보·Packet·report의 binding을 fail-closed한다."""
+
+    if "official_candidate_input_profile" in state:
+        raise ValueError(
+            "상품 입력 profile은 session_state에 별도 복제할 수 없습니다."
+        )
+    workflow_value = state.get("workflow_state")
+    if workflow_value is None:
+        raise ValueError("상품 후보 artifact를 검증할 WorkflowState가 없습니다.")
+    workflow_state = WorkflowState.model_validate(workflow_value)
+    transaction = workflow_state.confirmed_transaction
+    profile = workflow_state.official_candidate_input_profile
+    if profile is not None and (
+        transaction is None
+        or profile.bound_transaction_fingerprint
+        != transaction.input_fingerprint
+    ):
+        raise ValueError(
+            "WorkflowState profile이 현재 confirmed transaction과 다릅니다."
+        )
+
+    packet_value = state.get("consultation_packet")
+    packet = (
+        ConsultationPacketResult.model_validate(packet_value).packet
+        if packet_value is not None
+        else None
+    )
+    if packet is not None:
+        expected_transaction = (
+            transaction.input_fingerprint
+            if transaction is not None
+            else None
+        )
+        if packet.confirmed_transaction_fingerprint != expected_transaction:
+            raise ValueError(
+                "ConsultationPacket이 현재 confirmed transaction과 다릅니다."
+            )
+        packet_profile = packet.official_candidate_input_profile
+        if (packet_profile is None) != (profile is None) or (
+            packet_profile is not None
+            and profile is not None
+            and packet_profile.input_fingerprint
+            != profile.input_fingerprint
+        ):
+            raise ValueError("ConsultationPacket이 현재 profile과 다릅니다.")
+
+    shortlist_value = state.get("official_candidate_shortlist")
+    if shortlist_value is not None:
+        if packet is None:
+            raise ValueError("Packet 없는 금융후보 artifact는 사용할 수 없습니다.")
+        shortlist = OfficialCandidateShortlist.model_validate(shortlist_value)
+        if shortlist != packet.official_candidate_shortlist:
+            raise ValueError("금융후보 artifact가 최신 Packet과 다릅니다.")
+
+    auxiliary_value = state.get("auxiliary_service_candidates")
+    if auxiliary_value is not None:
+        if packet is None:
+            raise ValueError("Packet 없는 보조서비스 artifact는 사용할 수 없습니다.")
+        auxiliary = AuxiliaryServiceCandidates.model_validate(auxiliary_value)
+        if auxiliary != packet.auxiliary_service_candidates:
+            raise ValueError("보조서비스 artifact가 최신 Packet과 다릅니다.")
+
+    reports = [state.get("report_result"), workflow_state.final_report]
+    for report_value in reports:
+        if report_value is None:
+            continue
+        if packet is None:
+            raise ValueError("Packet 없는 Stage5 report는 사용할 수 없습니다.")
+        report = ReportResult.model_validate(report_value)
+        report_packet_hash = (
+            report.report_json.get("consultation", {}).get("input_hash")
+        )
+        if report_packet_hash != packet.input_hash:
+            raise ValueError("Stage5 report가 최신 ConsultationPacket과 다릅니다.")
 
 
 def clear_review_widgets(state: object) -> None:

@@ -1139,6 +1139,47 @@ class WorkflowOrchestrator:
             self._record(state, "report", result)
             return state
 
+        if consultation_packet is not None:
+            state_profile = state.official_candidate_input_profile
+            packet_profile = (
+                consultation_packet.official_candidate_input_profile
+            )
+            binding_error = None
+            if (
+                consultation_packet.confirmed_transaction_fingerprint
+                != state.confirmed_transaction.input_fingerprint
+            ):
+                binding_error = (
+                    "ConsultationPacket이 현재 confirmed transaction과 "
+                    "다릅니다."
+                )
+            elif (state_profile is None) != (packet_profile is None):
+                binding_error = (
+                    "ConsultationPacket이 현재 상품 입력 profile과 다릅니다."
+                )
+            elif (
+                state_profile is not None
+                and packet_profile is not None
+                and state_profile.input_fingerprint
+                != packet_profile.input_fingerprint
+            ):
+                binding_error = (
+                    "ConsultationPacket이 현재 상품 입력 profile과 다릅니다."
+                )
+            if binding_error is not None:
+                result = StageResult[ReportResult](
+                    status=StageStatus.FAILED,
+                    errors=[binding_error],
+                    started_at=started_at,
+                    finished_at=datetime.now(timezone.utc),
+                    duration_ms=self._duration_ms(started_ns),
+                    provider="consultation_packet_binding_gate",
+                )
+                state.report = result
+                state.final_status = StageStatus.FAILED
+                self._record(state, "report", result)
+                return state
+
         try:
             validate_snapshot_downstream_due_date(
                 snapshot=state.confirmed_transaction,

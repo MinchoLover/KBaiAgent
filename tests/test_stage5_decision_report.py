@@ -1,8 +1,12 @@
+import copy
 import unittest
 from types import SimpleNamespace
 
 from src.application.consultation_service import build_decision_support
 from src.config import Settings
+from src.consultation.review_area import (
+    project_consultation_presentation,
+)
 from src.country_environment.assessment import (
     assess_country_trade_environment,
 )
@@ -69,6 +73,59 @@ class Stage5DecisionReportTests(unittest.TestCase):
             probability_valid=(
                 self.export_demo["stage1"].probability_valid
             ),
+        )
+
+    def _critique_export(self, markdown):
+        report = self.export_demo["report"]
+        return critique_report(
+            markdown=markdown,
+            source_bundle=report.report_json,
+            scenario_kind=self.export_demo["stage1"].kind,
+            probability_valid=(
+                self.export_demo["stage1"].probability_valid
+            ),
+        )
+
+    def _report_with_supporting_check(self):
+        demo = self.export_demo
+        packet = demo["consultation_packet"].packet
+        priorities = [
+            packet.consultation_priorities[0],
+            packet.consultation_priorities[1].model_copy(
+                update={
+                    "category": "COUNTRY_MACRO_ENVIRONMENT_MONITORING"
+                }
+            ),
+            packet.consultation_priorities[2].model_copy(
+                update={"category": "FX_RISK_MANAGEMENT"}
+            ),
+        ]
+        presentation = project_consultation_presentation(
+            priorities=priorities,
+            priority_fingerprint=(
+                packet.consultation_priority_fingerprint
+            ),
+        )
+        supporting_packet = packet.model_copy(
+            update={
+                "consultation_priorities": priorities,
+                "consultation_review_areas": (
+                    presentation.review_areas
+                ),
+                "consultation_supporting_checks": (
+                    presentation.supporting_checks
+                ),
+            }
+        )
+        return generate_report(
+            extraction=demo["extraction"],
+            confirmation=demo["confirmation"],
+            stage1=demo["stage1"],
+            stage2=demo["stage2"],
+            stage3=demo["stage3"],
+            stage4=demo["stage4"],
+            consultation_packet=supporting_packet,
+            settings=Settings(enable_llm_report=False),
         )
 
     def test_import_report_contains_trade_risk_and_shortlist(self):
@@ -255,6 +312,91 @@ class Stage5DecisionReportTests(unittest.TestCase):
             critique.issues,
         )
 
+    def test_critic_rejects_non_catalogue_candidate(self):
+        report = self.export_demo["report"]
+        source_bundle = copy.deepcopy(report.report_json)
+        candidate = source_bundle["consultation"][
+            "official_candidate_shortlist"
+        ]["candidates"][0]
+        candidate["catalogue_id"] = "not_in_catalogue"
+        candidate["product_id"] = "not_in_catalogue"
+        critique = critique_report(
+            markdown=report.markdown,
+            source_bundle=source_bundle,
+            scenario_kind=self.export_demo["stage1"].kind,
+            probability_valid=(
+                self.export_demo["stage1"].probability_valid
+            ),
+        )
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "최종 후보가 active catalogue stable ID에 연결되지 않았습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_changed_candidate_order(self):
+        report = self.export_demo["report"]
+        lines = report.markdown.splitlines()
+        first = next(
+            index
+            for index, line in enumerate(lines)
+            if "official_candidate_shortlist.candidates.0" in line
+        )
+        second = next(
+            index
+            for index, line in enumerate(lines)
+            if "official_candidate_shortlist.candidates.1" in line
+        )
+        lines[first], lines[second] = lines[second], lines[first]
+        critique = self._critique_export("\n".join(lines))
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "공식 후보 순서가 packet shortlist와 다르게 변경됐습니다.",
+            critique.issues,
+        )
+
+    def test_critic_rejects_policy_candidate_without_policy_area(self):
+        report = self.export_demo["report"]
+        source_bundle = copy.deepcopy(report.report_json)
+        candidate = source_bundle["consultation"][
+            "official_candidate_shortlist"
+        ]["candidates"][0]
+        candidate.update(
+            {
+                "catalogue_id": "kosmes_export_funding",
+                "product_id": "kosmes_export_funding",
+                "name": "신시장진출지원자금 검토",
+                "official_name": "신시장진출지원자금",
+                "institution": "중소벤처기업진흥공단",
+                "category": "POLICY_FINANCE",
+                "candidate_family": (
+                    "POLICY_MARKET_EXPANSION_FINANCE"
+                ),
+                "source": {
+                    "title": "중소벤처기업진흥공단 정책자금 안내",
+                    "url": (
+                        "https://www.kosmes.or.kr/nsh/SH/SBI/"
+                        "SHSBI006M0.do"
+                    ),
+                    "verified_at": "2026-08-02",
+                    "evidence_summary": "공식 페이지",
+                },
+            }
+        )
+        critique = critique_report(
+            markdown=report.markdown,
+            source_bundle=source_bundle,
+            scenario_kind=self.export_demo["stage1"].kind,
+            probability_valid=(
+                self.export_demo["stage1"].probability_valid
+            ),
+        )
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "정책자금 검토 분야 없이 정책자금 후보가 생성됐습니다.",
+            critique.issues,
+        )
+
     def test_critic_rejects_eligibility_claim(self):
         report = self.import_demo["report"]
         safe_phrase = "자격·승인 조건은 상담 필요"
@@ -308,18 +450,18 @@ class Stage5DecisionReportTests(unittest.TestCase):
 
     def test_critic_rejects_changed_consultation_topic_title(self):
         report = self.import_demo["report"]
-        topic = self.import_demo[
+        review_area = self.import_demo[
             "consultation_packet"
-        ].packet.consultation_topics[0]
+        ].packet.consultation_review_areas[0]
         unsafe = report.markdown.replace(
-            topic.title,
+            review_area.display_name,
             "임의 금융상품 승인",
             1,
         )
         critique = self._critique(unsafe)
         self.assertFalse(critique.passed)
         self.assertIn(
-            "금융 대응 제목이 인용한 상담 항목과 일치하지 않습니다.",
+            "상담 검토 분야 표시명이 구조화 결과와 일치하지 않습니다.",
             critique.issues,
         )
 
@@ -470,9 +612,9 @@ class Stage5DecisionReportTests(unittest.TestCase):
         packet = self.export_demo["consultation_packet"].packet
         positions = [
             report.markdown.index(
-                "{}순위 {}".format(item.rank, item.title)
+                "{}순위 {}".format(item.rank, item.display_name)
             )
-            for item in packet.consultation_priorities
+            for item in packet.consultation_review_areas
         ]
 
         self.assertEqual(positions, sorted(positions))
@@ -495,6 +637,124 @@ class Stage5DecisionReportTests(unittest.TestCase):
             report.markdown,
         )
         self.assertTrue(report.critique.passed)
+
+    def test_stage5_separates_supporting_check_without_renumbering(self):
+        report = self._report_with_supporting_check()
+        self.assertTrue(report.critique.passed, report.critique.issues)
+        self.assertIn("## 10. 상담 우선순위", report.markdown)
+        self.assertIn("## 10A. 추가 확인사항", report.markdown)
+        self.assertIn("1순위 수출대금 회수 보호", report.markdown)
+        self.assertIn("3순위 환율 관리", report.markdown)
+        self.assertNotIn("2순위 환율 관리", report.markdown)
+        self.assertIn("거래국 거시환경 모니터링", report.markdown)
+        self.assertIn("원본 priority rank: 2", report.markdown)
+        supporting_section = report.markdown.split(
+            "## 10A. 추가 확인사항",
+            1,
+        )[1].split("## 11.", 1)[0]
+        self.assertNotIn("정책자금 검토", supporting_section)
+        self.assertNotIn("공식 후보", supporting_section)
+
+    def test_critic_rejects_supporting_check_policy_rewrite_or_move(self):
+        report = self._report_with_supporting_check()
+        changed_name = report.markdown.replace(
+            "**거래국 거시환경 모니터링**",
+            "**정책자금 검토**",
+            1,
+        )
+        name_critique = critique_report(
+            markdown=changed_name,
+            source_bundle=report.report_json,
+            scenario_kind=self.export_demo["stage1"].kind,
+            probability_valid=(
+                self.export_demo["stage1"].probability_valid
+            ),
+        )
+        self.assertFalse(name_critique.passed)
+        self.assertIn(
+            "추가 확인사항 표시명이 구조화 결과와 일치하지 않습니다.",
+            name_critique.issues,
+        )
+
+        moved = report.markdown.replace(
+            "## 10A. 추가 확인사항",
+            "## 10A. 정책자금 검토",
+            1,
+        )
+        moved_critique = critique_report(
+            markdown=moved,
+            source_bundle=report.report_json,
+            scenario_kind=self.export_demo["stage1"].kind,
+            probability_valid=(
+                self.export_demo["stage1"].probability_valid
+            ),
+        )
+        self.assertFalse(moved_critique.passed)
+        self.assertIn("추가 확인사항", moved_critique.missing_sections)
+
+    def test_critic_rejects_changed_or_mixed_review_area(self):
+        report = self.export_demo["report"]
+        changed_name = report.markdown.replace(
+            "1순위 수출대금 회수 보호",
+            "1순위 정책자금 검토",
+            1,
+        )
+        name_critique = self._critique_export(changed_name)
+        self.assertFalse(name_critique.passed)
+        self.assertIn(
+            "상담 검토 분야 표시명이 구조화 결과와 일치하지 않습니다.",
+            name_critique.issues,
+        )
+
+        candidate = self.export_demo[
+            "official_candidate_shortlist"
+        ].candidates[0]
+        mixed = report.markdown.replace(
+            "[source: consultation.consultation_review_areas.0]",
+            "공식 후보 {}. [source: consultation."
+            "consultation_review_areas.0]".format(candidate.name),
+            1,
+        )
+        mixed_critique = self._critique_export(mixed)
+        self.assertFalse(mixed_critique.passed)
+        self.assertIn(
+            "상담 검토 분야와 공식 금융지원 후보가 한 섹션에 혼합됐습니다.",
+            mixed_critique.issues,
+        )
+
+        invented = report.markdown.replace(
+            "\n## 11. 공식 출처 상담 후보",
+            "\n- **4순위 정책자금 검토** — 입력에 없는 분야입니다."
+            "\n\n## 11. 공식 출처 상담 후보",
+            1,
+        )
+        invented_critique = self._critique_export(invented)
+        self.assertFalse(invented_critique.passed)
+        self.assertIn(
+            "존재하지 않는 상담 검토 분야가 추가됐거나 기존 분야가 "
+            "삭제됐습니다.",
+            invented_critique.issues,
+        )
+
+    def test_critic_rejects_projection_not_bound_to_priorities(self):
+        report = self.export_demo["report"]
+        source_bundle = copy.deepcopy(report.report_json)
+        source_bundle["consultation"][
+            "consultation_review_areas"
+        ][0]["display_name"] = "정책자금 검토"
+        critique = critique_report(
+            markdown=report.markdown,
+            source_bundle=source_bundle,
+            scenario_kind=self.export_demo["stage1"].kind,
+            probability_valid=(
+                self.export_demo["stage1"].probability_valid
+            ),
+        )
+        self.assertFalse(critique.passed)
+        self.assertIn(
+            "상담 검토 분야 projection이 기존 priority와 일치하지 않습니다.",
+            critique.issues,
+        )
 
     def test_critic_rejects_priority_as_approval_grade(self):
         unsafe = (

@@ -628,6 +628,9 @@ class TradeStatisticsIntegrationBoundaryTests(unittest.TestCase):
             "confirmation": {"value": "old"},
             "trade_statistics_request": {"partner_country": "BR"},
             "trade_statistics_result": {"status": "OFFICIAL_FIXTURE"},
+            "trade_statistics_interpretation_result": {
+                "input_fingerprint": "old"
+            },
             "trade_statistics_trace": {"snapshot_id": "old"},
             "trade_statistics_error": {"error_code": "OLD"},
             "trade_statistics_hs_code_widget": "0202",
@@ -637,6 +640,7 @@ class TradeStatisticsIntegrationBoundaryTests(unittest.TestCase):
         for key in (
             "trade_statistics_request",
             "trade_statistics_result",
+            "trade_statistics_interpretation_result",
             "trade_statistics_trace",
             "trade_statistics_error",
             "trade_statistics_hs_code_widget",
@@ -862,7 +866,7 @@ class TradeStatisticsStreamlitTests(unittest.TestCase):
             visible,
         )
         self.assertIn(
-            "출처 및 기술정보",
+            "개발자용 · 데이터 품질 및 기술정보",
             [item.label for item in app.expander],
         )
 

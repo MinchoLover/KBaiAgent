@@ -123,7 +123,7 @@ class GoldenConfirmedTransactionE2ETests(unittest.TestCase):
                 },
                 {
                     "institution": "KB국민은행",
-                    "name": "은행 선물환·외환스왑 상담",
+                    "name": "KB Star FX 선물환·외환스왑 상담",
                 },
                 {
                     "institution": "한국무역보험공사",
@@ -420,7 +420,7 @@ class GoldenStreamlitStateTests(unittest.TestCase):
         errors = " ".join(item.value for item in app.error)
         self.assertIn("결제일과 계산 기준일을 다시 확인", errors)
         self.assertIn(
-            "오류 기술 정보",
+            "개발자용 · 오류 기술 정보",
             [item.label for item in app.expander],
         )
         technical = " ".join(item.value for item in app.markdown)
@@ -543,6 +543,9 @@ class GoldenStreamlitStateTests(unittest.TestCase):
             app.session_state["confirmation_validation"] = golden[
                 "validation"
             ].model_dump()
+            app.session_state["confirmed_transaction"] = golden[
+                "confirmed_transaction"
+            ].model_dump()
             app.session_state["upload_metadata"] = {
                 "filename": "golden_export_contract.pdf",
                 "mime_type": "application/pdf",
@@ -569,6 +572,9 @@ class GoldenStreamlitStateTests(unittest.TestCase):
             ].model_dump()
             app.session_state["country_environment_assessment"] = golden[
                 "country_environment"
+            ].model_dump()
+            app.session_state["country_environment_input"] = golden[
+                "country_environment_input"
             ].model_dump()
             app.session_state["risk_assessment"] = (
                 decision.risk_assessment.model_dump()
@@ -607,15 +613,22 @@ class GoldenStreamlitStateTests(unittest.TestCase):
         self.assertIn("결제일 2026-08-20", visible)
         self.assertIn("확정 결제일 2026-08-20", visible)
         self.assertIn("브라질", visible)
+        self.assertIn("거래국 경제환경 해석", visible)
+        self.assertIn(
+            "검증된 공식 관측을 바탕으로 거래국 경제환경에서",
+            visible,
+        )
         self.assertNotIn("미국 수출 샘플의 전체 분석 결과", visible)
         downloads = [
             item.label for item in app.get("download_button")
         ]
-        self.assertIn("상담 준비서 다운로드", downloads)
-        self.assertIn("JSON 다운로드", downloads)
+        self.assertIn("상담 준비서 PDF 다운로드", downloads)
+        self.assertNotIn("개발자용 원문 Markdown", downloads)
+        self.assertNotIn("JSON 다운로드", downloads)
+        self.assertIn("통합 보고서 다운로드", downloads)
         self.assertLess(
-            downloads.index("상담 준비서 다운로드"),
-            downloads.index("JSON 다운로드"),
+            downloads.index("상담 준비서 PDF 다운로드"),
+            downloads.index("통합 보고서 다운로드"),
         )
 
 

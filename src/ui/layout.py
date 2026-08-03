@@ -12,18 +12,18 @@ PAGE_DOWNLOAD = "download"
 
 NAV_ITEMS: List[Dict[str, str]] = [
     {"page": PAGE_HOME, "icon": "⌂", "label": "홈"},
-    {"page": PAGE_TRANSACTION, "icon": "▤", "label": "거래"},
-    {"page": PAGE_ANALYSIS, "icon": "▥", "label": "분석"},
-    {"page": PAGE_CONSULTATION, "icon": "▣", "label": "상담 준비"},
-    {"page": PAGE_DOWNLOAD, "icon": "⇩", "label": "다운로드"},
+    {"page": PAGE_TRANSACTION, "icon": "▤", "label": "거래 분석"},
+    {"page": PAGE_ANALYSIS, "icon": "▥", "label": "환율 전망·위험"},
+    {"page": PAGE_CONSULTATION, "icon": "▣", "label": "금융지원 추천"},
+    {"page": PAGE_DOWNLOAD, "icon": "⇩", "label": "상담 준비·보고서"},
 ]
 
 PAGE_LABELS: Dict[str, str] = {
     PAGE_HOME: "홈",
-    PAGE_TRANSACTION: "거래 확인",
-    PAGE_ANALYSIS: "금융 분석",
-    PAGE_CONSULTATION: "상담 준비",
-    PAGE_DOWNLOAD: "다운로드",
+    PAGE_TRANSACTION: "거래 분석",
+    PAGE_ANALYSIS: "환율 전망·위험",
+    PAGE_CONSULTATION: "금융지원 추천",
+    PAGE_DOWNLOAD: "상담 준비·보고서",
 }
 
 
@@ -144,10 +144,10 @@ def render_workflow_navigation() -> None:
 
     current = active_page()
     items = [
-        (PAGE_TRANSACTION, "거래 확인"),
-        (PAGE_ANALYSIS, "금융 분석"),
-        (PAGE_CONSULTATION, "상담 준비"),
-        (PAGE_DOWNLOAD, "결과 다운로드"),
+        (PAGE_TRANSACTION, "거래 분석"),
+        (PAGE_ANALYSIS, "환율 전망·위험"),
+        (PAGE_CONSULTATION, "금융지원 추천"),
+        (PAGE_DOWNLOAD, "상담 준비·보고서"),
     ]
     with st.container(key="workflow_navigation"):
         columns = st.columns(len(items), gap="small")
@@ -217,7 +217,12 @@ def render_page_header(
 
 
 def render_step_indicator(active_step: int, completed_step: int) -> None:
-    labels = ["거래 확인", "금융 분석", "상담 준비", "결과 다운로드"]
+    labels = [
+        "거래 분석",
+        "환율 전망·위험",
+        "금융지원 추천",
+        "상담 준비·보고서",
+    ]
     cells: List[str] = []
     for index, label in enumerate(labels, start=1):
         state_class = (

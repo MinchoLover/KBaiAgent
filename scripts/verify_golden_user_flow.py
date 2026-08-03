@@ -101,6 +101,7 @@ def build_golden_user_flow_artifacts() -> Dict[str, Any]:
         stage4_result=state.product_search.data,
         trade_type=state.cashflow.data.trade_type,
         consultation_topics=first_decision.consultation_topics,
+        consultation_packet=first_decision.consultation_packet.packet,
     )
     decision = build_decision_support(
         case_id=state.case_id,

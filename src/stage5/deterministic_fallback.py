@@ -53,6 +53,29 @@ def _product_lines(
     ]
 
 
+def _auxiliary_service_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or consultation_packet.auxiliary_service_candidates is None
+    ):
+        return []
+    return [
+        "- {} — {} ([공식 출처]({})); 금융상품 shortlist와 분리된 "
+        "보조서비스 검토 항목 [source: consultation."
+        "auxiliary_service_candidates.candidates.{}]".format(
+            item.display_name or item.name,
+            item.institution,
+            item.source.url,
+            index,
+        )
+        for index, item in enumerate(
+            consultation_packet.auxiliary_service_candidates.candidates
+        )
+    ]
+
+
 def _trade_risk_lines(
     consultation_packet: Optional[ConsultationPacket],
 ) -> List[str]:
@@ -222,6 +245,46 @@ def _country_environment_lines(
     return lines
 
 
+def _country_economic_interpretation_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or consultation_packet.country_economic_interpretation is None
+    ):
+        return ["- 검증 완료된 별도 경제환경 사용자 설명이 없습니다."]
+    result = consultation_packet.country_economic_interpretation
+    indicator_labels = {
+        "GDP_GROWTH": "경제 성장",
+        "INFLATION": "물가 환경",
+        "CURRENT_ACCOUNT": "대외거래 환경",
+        "OECD_CLASSIFICATION": "결제·송금 참고 신호",
+    }
+    lines = [
+        "- {} [source: consultation.country_economic_interpretation."
+        "overall_summary]".format(result.overall_summary)
+    ]
+    lines.extend(
+        "- **{}** — {} {} [source: consultation."
+        "country_economic_interpretation.sections.{}]".format(
+            indicator_labels[item.indicator_id],
+            item.observation,
+            item.transaction_check,
+            index,
+        )
+        for index, item in enumerate(result.sections)
+    )
+    lines.extend(
+        "- 한계: {} [source: consultation."
+        "country_economic_interpretation.limitations.{}]".format(
+            item,
+            index,
+        )
+        for index, item in enumerate(result.limitations)
+    )
+    return lines
+
+
 def _trade_statistics_lines(
     consultation_packet: Optional[ConsultationPacket],
 ) -> List[str]:
@@ -308,10 +371,28 @@ def _trade_statistics_lines(
         "latest_12m_balance_usd]".format(
             balance_total
         ),
-        "- 현재 거래 참고: {} "
-        "[source: consultation.trade_statistics.summary.user_summary]"
-        .format(summary.user_summary),
     ]
+    interpretation = consultation_packet.trade_statistics_interpretation
+    if interpretation is not None:
+        lines.extend(
+            [
+                "- 해석: {} [source: consultation."
+                "trade_statistics_interpretation.summary]".format(
+                    interpretation.summary
+                ),
+                "- 한계: {} [source: consultation."
+                "trade_statistics_interpretation.limitation]".format(
+                    interpretation.limitation
+                ),
+            ]
+        )
+    else:
+        lines.append(
+            "- 현재 거래 참고: {} [source: consultation."
+            "trade_statistics.summary.user_summary]".format(
+                summary.user_summary
+            )
+        )
     if summary.hs_code is None:
         lines.append(
             "- HS Code가 확인되지 않아 국가 전체 교역 통계만 "
@@ -338,12 +419,13 @@ def _trade_statistics_lines(
                 snapshot.provider_status,
             )
         )
-    lines.append(
-        "- 이 통계는 최근 교역 흐름을 확인하는 참고 자료이며 개별 "
-        "거래처 신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 "
-        "가능성을 의미하지 않습니다. "
-        "[source: consultation.trade_statistics.summary.limitations]"
-    )
+    if interpretation is None:
+        lines.append(
+            "- 이 통계는 최근 교역 흐름을 확인하는 참고 자료이며 개별 "
+            "거래처 신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 "
+            "가능성을 의미하지 않습니다. "
+            "[source: consultation.trade_statistics.summary.limitations]"
+        )
     return lines
 
 
@@ -355,19 +437,46 @@ def _consultation_topic_lines(
         or not consultation_packet.consultation_topics
     ):
         return ["- 별도로 구조화된 금융 상담 항목이 없습니다."]
+    if consultation_packet.consultation_review_areas:
+        lines: List[str] = []
+        for index, review_area in enumerate(
+            consultation_packet.consultation_review_areas
+        ):
+            rationale = " · ".join(
+                "{} {} {}".format(
+                    item.label,
+                    item.value,
+                    item.currency if item.unit == "FX" else item.unit,
+                )
+                for item in review_area.evidence_items
+            ) or "별도 수치 없음"
+            missing = (
+                " / ".join(review_area.missing_information)
+                or "별도 등록 없음"
+            )
+            lines.append(
+                "- **{rank}순위 {display_name}** — 선정 이유: "
+                "{summary} 선정 근거: {rationale}. 확인할 정보: "
+                "{missing}. 상담에서 기대하는 결정: {decision}. "
+                "다음 행동: {action}. {disclaimer} "
+                "[source: consultation.consultation_review_areas.{index}]"
+                .format(
+                    rank=review_area.rank,
+                    display_name=review_area.display_name,
+                    summary=review_area.summary,
+                    rationale=rationale,
+                    missing=missing,
+                    decision=review_area.expected_decision,
+                    action=review_area.next_action,
+                    disclaimer=review_area.disclaimer,
+                    index=index,
+                )
+            )
+        return lines
+    if consultation_packet.consultation_supporting_checks:
+        return ["- 현재 Top 3에 금융상담 검토 분야가 없습니다."]
     if consultation_packet.consultation_priorities:
         lines: List[str] = []
-        authoritative_product_ids = {
-            item.product_id
-            for item in (
-                consultation_packet.official_candidate_shortlist.candidates
-                if (
-                    consultation_packet.official_candidate_shortlist
-                    is not None
-                )
-                else []
-            )
-        }
         for index, priority in enumerate(
             consultation_packet.consultation_priorities
         ):
@@ -387,26 +496,11 @@ def _consultation_topic_lines(
                 " / ".join(priority.missing_information)
                 or "별도 등록 없음"
             )
-            grounded_priority_candidates = [
-                item
-                for item in priority.official_candidates
-                if item.product_id in authoritative_product_ids
-            ]
-            candidates = (
-                " / ".join(
-                    "{}({})".format(
-                        item.name,
-                        item.institution,
-                    )
-                    for item in grounded_priority_candidates
-                )
-                or "현재 검증된 공식 후보 없음"
-            )
             lines.append(
                 "- **{rank}순위 {title}** — 검토 순서 근거: "
                 "{reason} 숫자·조건: {rationale}. 부족정보: {missing}. "
                 "상담에서 기대하는 결정: {decision}. 다음 행동: "
-                "{action}. 공식 후보: {candidates}. {disclaimer} "
+                "{action}. {disclaimer} "
                 "[source: consultation.consultation_priorities.{index}]"
                 .format(
                     rank=priority.rank,
@@ -416,7 +510,6 @@ def _consultation_topic_lines(
                     missing=missing,
                     decision=priority.expected_decision,
                     action=priority.next_action,
-                    candidates=candidates,
                     disclaimer=priority.disclaimer,
                     index=index,
                 )
@@ -440,6 +533,49 @@ def _consultation_topic_lines(
             consultation_packet.consultation_topics
         )
     ]
+
+
+def _supporting_check_lines(
+    consultation_packet: Optional[ConsultationPacket],
+) -> List[str]:
+    if (
+        consultation_packet is None
+        or not consultation_packet.consultation_supporting_checks
+    ):
+        return []
+    lines: List[str] = []
+    for index, supporting_check in enumerate(
+        consultation_packet.consultation_supporting_checks
+    ):
+        rationale = " · ".join(
+            "{} {} {}".format(
+                item.label,
+                item.value,
+                item.currency if item.unit == "FX" else item.unit,
+            )
+            for item in supporting_check.evidence_items
+        ) or "별도 수치 없음"
+        missing = (
+            " / ".join(supporting_check.missing_information)
+            or "별도 등록 없음"
+        )
+        lines.append(
+            "- **{display_name}** — 확인 이유: {summary} "
+            "확인 근거: {rationale}. 필요한 확인 정보: {missing}. "
+            "다음 행동: {action}. 원본 priority rank: {source_rank}. "
+            "{disclaimer} [source: consultation."
+            "consultation_supporting_checks.{index}]".format(
+                display_name=supporting_check.display_name,
+                summary=supporting_check.summary,
+                rationale=rationale,
+                missing=missing,
+                action=supporting_check.next_action,
+                source_rank=supporting_check.source_rank,
+                disclaimer=supporting_check.disclaimer,
+                index=index,
+            )
+        )
+    return lines
 
 
 def _missing_information_lines(
@@ -735,11 +871,22 @@ def generate_deterministic_report(
             consultation_packet=consultation_packet,
         )
     )
+    auxiliary_lines = _auxiliary_service_lines(consultation_packet)
+    auxiliary_section = (
+        "\n## 11A. 추가 확인 서비스\n\n{}\n".format(
+            "\n".join(auxiliary_lines)
+        )
+        if auxiliary_lines
+        else ""
+    )
     trade_risk_lines = "\n".join(
         _trade_risk_lines(consultation_packet)
     )
     country_environment_lines = "\n".join(
         _country_environment_lines(consultation_packet)
+    )
+    country_economic_interpretation_lines = "\n".join(
+        _country_economic_interpretation_lines(consultation_packet)
     )
     trade_statistics_lines = "\n".join(
         _trade_statistics_lines(consultation_packet)
@@ -756,6 +903,16 @@ def generate_deterministic_report(
     )
     consultation_topic_lines = "\n".join(
         _consultation_topic_lines(consultation_packet)
+    )
+    supporting_check_lines = _supporting_check_lines(
+        consultation_packet
+    )
+    supporting_check_section = (
+        "\n## 10A. 추가 확인사항\n\n{}\n".format(
+            "\n".join(supporting_check_lines)
+        )
+        if supporting_check_lines
+        else ""
     )
     missing_information_lines = "\n".join(
         _missing_information_lines(consultation_packet)
@@ -834,6 +991,10 @@ def generate_deterministic_report(
 
 {country_environment_policy_note}
 
+### 거래국 경제환경 해석
+
+{country_economic_interpretation_lines}
+
 ## 8. 거래국 무역 통계
 
 {trade_statistics_lines}
@@ -845,16 +1006,18 @@ def generate_deterministic_report(
 위 후보는 확정 자문이 아니라 입력 가정 아래 계산된 검토안입니다.
 [source: stage3.status]
 
-## 10. 검토할 금융 대응
+## 10. 상담 우선순위
 
 {consultation_topic_lines}
 
 결제·회수 위험이 환헤지 비율을 직접 변경하지 않으며, 최종 판단은 사용자와
 거래은행·보험기관 담당자가 합니다.
+{supporting_check_section}
 
 ## 11. 공식 출처 상담 후보
 
 {product_lines}
+{auxiliary_section}
 
 ## 12. 아직 확인할 정보
 
@@ -888,10 +1051,15 @@ def generate_deterministic_report(
         trade_risk_lines=trade_risk_lines,
         country_environment_lines=country_environment_lines,
         country_environment_policy_note=country_environment_policy_note,
+        country_economic_interpretation_lines=(
+            country_economic_interpretation_lines
+        ),
         trade_statistics_lines=trade_statistics_lines,
         strategy_lines=strategy_lines,
         consultation_topic_lines=consultation_topic_lines,
+        supporting_check_section=supporting_check_section,
         product_lines=product_lines,
+        auxiliary_section=auxiliary_section,
         missing_information_lines=missing_information_lines,
         question_lines=question_lines,
     )

@@ -247,17 +247,19 @@ class GoldenConsultationPriorityTests(unittest.TestCase):
         markdown = self.fixture["decision"].consultation_packet.markdown
         positions = [
             markdown.index(
-                "{}순위 · {}".format(item.rank, item.title)
+                "{}순위 · {}".format(item.rank, item.display_name)
             )
-            for item in self.packet.consultation_priorities
+            for item in self.packet.consultation_review_areas
         ]
         self.assertEqual(positions, sorted(positions))
-        for priority in self.packet.consultation_priorities:
-            self.assertIn(priority.priority_reason, markdown)
-            self.assertIn(priority.expected_decision, markdown)
-            self.assertIn(priority.next_action, markdown)
-            for rationale in priority.numeric_rationale:
+        for review_area in self.packet.consultation_review_areas:
+            self.assertIn(review_area.summary, markdown)
+            self.assertIn(review_area.expected_decision, markdown)
+            self.assertIn(review_area.next_action, markdown)
+            for rationale in review_area.evidence_items:
                 self.assertIn(rationale.label, markdown)
+        self.assertNotIn("tie-break", markdown)
+        self.assertNotIn("결정 규칙", markdown)
         self.assertIn("USD 80,000", markdown)
         self.assertIn("7,000,000원", markdown)
         self.assertIn("2,000,000원", markdown)

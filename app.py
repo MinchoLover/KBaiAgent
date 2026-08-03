@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from html import escape
@@ -44,8 +45,13 @@ from src.application.kb_macro_hedge_service import (
 from src.application.country_environment_service import (
     build_country_environment_input,
 )
+from src.application.country_economic_interpretation_service import (
+    interpret_country_economic_environment,
+)
 from src.application.official_candidate_service import (
     build_official_candidate_query,
+    project_auxiliary_service_candidates,
+    project_official_candidate_signals,
     shortlist_official_candidates,
 )
 from src.application.trade_risk_service import build_trade_risk_prefill
@@ -55,8 +61,19 @@ from src.application.trade_statistics_service import (
     trade_statistics_request_fingerprint,
     trade_statistics_trace,
 )
+from src.application.trade_statistics_interpretation_service import (
+    interpret_trade_statistics,
+)
 from src.config import Settings
 from src.consultation.packet import rationale_display_text
+from src.consultation.preparation_pdf import (
+    PDF_MIME,
+    ConsultationPreparationPdfError,
+    build_consultation_preparation_pdf,
+    consultation_preparation_pdf_filename,
+    consultation_user_text,
+)
+from src.consultation.review_area import REVIEW_AREA_DISPLAY_NAMES
 from src.consultation.trade_settlement_risk import (
     assess_trade_settlement_risk,
     create_trade_risk_confirmation,
@@ -83,7 +100,8 @@ from src.document_intake.normalization import (
 from src.document_intake.source_evidence import extract_pdf_page_texts
 from src.domain.consultation_models import (
     ConsultationPacketResult,
-    ConsultationPriorityView,
+    ConsultationReviewAreaView,
+    ConsultationSupportingCheckView,
     ConsultationTopic,
     DecisionSupportResult,
     InstallmentPaymentStatus,
@@ -91,6 +109,10 @@ from src.domain.consultation_models import (
 )
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
+    CountryTradeEnvironmentInput,
+)
+from src.domain.country_economic_interpretation_models import (
+    CountryEconomicInterpretationResult,
 )
 from src.domain.confirmed_transaction_models import (
     ConfirmedTransactionSnapshot,
@@ -103,8 +125,12 @@ from src.domain.kb_macro_hedge_models import (
     KbMacroHedgeReferenceResult,
 )
 from src.domain.product_models import (
+    AuxiliaryServiceCandidates,
+    OFFICIAL_CANDIDATE_INPUT_FIELDS,
+    OfficialCandidateInputProfile,
     OfficialCandidateShortlist,
     Stage4Result,
+    assess_official_candidate_input_profile,
 )
 from src.domain.report_models import ReportResult
 from src.domain.stage1_models import Stage1LoadResult
@@ -123,6 +149,9 @@ from src.domain.trade_risk_models import (
 )
 from src.domain.trade_statistics_models import (
     TradeStatisticsResult,
+)
+from src.domain.trade_statistics_interpretation_models import (
+    TradeStatisticsInterpretationResult,
 )
 from src.security.upload_guard import validate_upload
 from src.stage2.binding import (
@@ -153,12 +182,17 @@ from src.ui.components import (
 from src.ui.presentation import (
     country_summary,
     no_feasible_reason_copy,
-    priority_key_rationale,
-    priority_risk_sentence,
     transaction_summary,
     world_bank_display,
 )
 from src.trade_statistics.periods import month_range, shift_month
+from src.stage4.local_kb import active_official_catalogue_by_id
+from src.trade_statistics.interpretation_input import (
+    build_trade_statistics_interpretation_input,
+)
+from src.country_environment.interpretation_input import (
+    build_country_economic_interpretation_input,
+)
 from src.ui.layout import (
     PAGE_ANALYSIS,
     PAGE_CONSULTATION,
@@ -179,12 +213,21 @@ from src.ui.layout import (
 from src.ui.state import (
     clear_confirmation_and_later,
     clear_downstream,
+    clear_official_candidate_outputs,
     clear_review_widgets,
     clear_trade_risk_and_related,
     input_signature,
     sync_input_signature,
+    update_official_candidate_input_profile,
+    validate_official_candidate_artifact_state,
 )
 from src.ui.theme import apply_kb_workspace_theme
+from src.ui.user_views import (
+    FxForecastView,
+    MarketNewsView,
+    build_fx_forecast_view,
+    build_market_news_views,
+)
 from src.workflow.orchestrator import WorkflowOrchestrator
 from src.workflow.state import WorkflowState
 from validators import (
@@ -217,6 +260,64 @@ def _save_model(key: str, value: Any) -> None:
     st.session_state[key] = value.model_dump()
 
 
+def _ensure_country_economic_interpretation(
+    assessment: Optional[CountryTradeEnvironmentAssessment] = None,
+) -> Optional[CountryEconomicInterpretationResult]:
+    current_assessment = assessment or _model_from_state(
+        "country_environment_assessment",
+        CountryTradeEnvironmentAssessment,
+    )
+    country_input = _model_from_state(
+        "country_environment_input",
+        CountryTradeEnvironmentInput,
+    )
+    confirmed_transaction = _model_from_state(
+        "confirmed_transaction",
+        ConfirmedTransactionSnapshot,
+    )
+    if (
+        current_assessment is None
+        or country_input is None
+        or confirmed_transaction is None
+    ):
+        st.session_state.pop(
+            "country_economic_interpretation_result",
+            None,
+        )
+        return None
+    try:
+        interpretation_input = (
+            build_country_economic_interpretation_input(
+                assessment=current_assessment,
+                country_input=country_input,
+                confirmed_transaction=confirmed_transaction,
+                settings=settings,
+            )
+        )
+    except ValueError:
+        st.session_state.pop(
+            "country_economic_interpretation_result",
+            None,
+        )
+        return None
+    existing = _model_from_state(
+        "country_economic_interpretation_result",
+        CountryEconomicInterpretationResult,
+    )
+    if (
+        existing is not None
+        and existing.input_fingerprint
+        == interpretation_input.input_fingerprint
+    ):
+        return existing
+    result = interpret_country_economic_environment(
+        interpretation_input=interpretation_input,
+        settings=settings,
+    )
+    _save_model("country_economic_interpretation_result", result)
+    return result
+
+
 def _registered_demo_inputs_from_state() -> Optional[Dict[str, Any]]:
     if (
         st.session_state.get("registered_document_id")
@@ -244,11 +345,60 @@ def _trade_statistics_source_preference() -> str:
     return "OFFICIAL_FIXTURE" if is_demo_transaction else "LIVE"
 
 
+def _ensure_trade_statistics_interpretation(
+    result: Optional[TradeStatisticsResult] = None,
+) -> Optional[TradeStatisticsInterpretationResult]:
+    current = result or _model_from_state(
+        "trade_statistics_result",
+        TradeStatisticsResult,
+    )
+    if current is None:
+        st.session_state.pop(
+            "trade_statistics_interpretation_result",
+            None,
+        )
+        return None
+    try:
+        interpretation_input = build_trade_statistics_interpretation_input(
+            result=current,
+            settings=settings,
+        )
+    except ValueError:
+        st.session_state.pop(
+            "trade_statistics_interpretation_result",
+            None,
+        )
+        return None
+    existing = _model_from_state(
+        "trade_statistics_interpretation_result",
+        TradeStatisticsInterpretationResult,
+    )
+    if (
+        existing is not None
+        and existing.input_fingerprint
+        == interpretation_input.input_fingerprint
+    ):
+        return existing
+    interpretation = interpret_trade_statistics(
+        interpretation_input=interpretation_input,
+        settings=settings,
+    )
+    _save_model(
+        "trade_statistics_interpretation_result",
+        interpretation,
+    )
+    return interpretation
+
+
 def _ensure_trade_statistics(
     workflow: WorkflowState,
 ) -> Tuple[WorkflowState, Optional[TradeStatisticsResult]]:
     transaction = workflow.confirmed_transaction
     if transaction is None:
+        st.session_state.pop(
+            "trade_statistics_interpretation_result",
+            None,
+        )
         return workflow, None
     entered_hs_code = str(
         st.session_state.get("trade_statistics_hs_code_widget", "")
@@ -274,6 +424,10 @@ def _ensure_trade_statistics(
         st.session_state.pop("trade_statistics_request", None)
         st.session_state.pop("trade_statistics_result", None)
         st.session_state.pop("trade_statistics_trace", None)
+        st.session_state.pop(
+            "trade_statistics_interpretation_result",
+            None,
+        )
         st.session_state["trade_statistics_error"] = {
             "status": "VALIDATION_FAILED",
             "error_code": exc.code,
@@ -298,6 +452,10 @@ def _ensure_trade_statistics(
     st.session_state.pop("trade_statistics_error", None)
     st.session_state.pop("trade_statistics_result", None)
     st.session_state.pop("trade_statistics_trace", None)
+    st.session_state.pop(
+        "trade_statistics_interpretation_result",
+        None,
+    )
     _save_model("trade_statistics_request", request)
     updated = orchestrator.run_trade_statistics(workflow, request)
     stage_result = updated.trade_statistics
@@ -323,13 +481,13 @@ def _render_kb_macro_hedge_reference(
     status = status_copy.get(result.status, result.status)
     if result.status in {"READY", "REFERENCE_ONLY"}:
         st.success(
-            "{} · 기존 Stage 3와 분리된 외부 참고 결과입니다.".format(
+            "{} · 기존 환헤지 비교와 분리된 외부 참고 결과입니다.".format(
                 status
             )
         )
     else:
         st.warning(
-            "{} · 외부 후보는 표시하지 않으며 기존 Stage 3 결과는 "
+            "{} · 외부 후보는 표시하지 않으며 기존 환헤지 결과는 "
             "그대로 유지합니다.".format(status)
         )
     info_cols = st.columns(3)
@@ -360,7 +518,7 @@ def _render_kb_macro_hedge_reference(
     )
     st.caption(
         "단일 USD 수입 지급 전용 · 실제 상품 추천, 가입 승인 또는 "
-        "실행 지시가 아닙니다. 외부 후보는 Stage 4와 상담 리포트에 "
+        "실행 지시가 아닙니다. 외부 후보는 금융지원 추천과 상담 리포트에 "
         "자동 전달되지 않습니다."
     )
     if result.request is not None:
@@ -519,7 +677,7 @@ def _render_kb_macro_hedge_reference(
                 "참고 결과만 세션에 보관합니다."
             ),
             "INTERNAL_STAGE3_FALLBACK_REMAINS_ACTIVE": (
-                "외부 실행 실패와 관계없이 기존 Stage 3 계산은 유지됩니다."
+                "외부 실행 실패와 관계없이 기존 환헤지 계산은 유지됩니다."
             ),
         }
         with st.expander("검증 경고와 적용 한계", expanded=False):
@@ -556,7 +714,7 @@ def _render_integration_readiness(
         st.warning("통합 연결 상태 · {}".format(status))
 
     stage1 = report.stage1
-    st.markdown("**환율 예측 · Stage 1**")
+    st.markdown("**환율 전망 연결**")
     st.caption(
         "상태 {} · provider {} · health {} · source {}".format(
             status_copy.get(stage1.status, stage1.status),
@@ -650,7 +808,7 @@ def _render_integration_readiness(
         )
     st.caption(
         "API key 값은 표시하지 않습니다. 외부 헤지는 단일 USD 수입 지급 "
-        "참고 전용이며 기존 Stage 3·공식 후보·상담 리포트를 변경하지 않습니다."
+        "참고 전용이며 기존 환헤지 결과·공식 후보·상담 리포트를 변경하지 않습니다."
     )
 
 
@@ -683,14 +841,33 @@ def _save_decision_support(value: DecisionSupportResult) -> None:
             "country_environment_assessment",
             value.country_environment,
         )
+    if value.country_economic_interpretation is not None:
+        _save_model(
+            "country_economic_interpretation_result",
+            value.country_economic_interpretation,
+        )
     if value.trade_statistics is not None:
         _save_model(
             "trade_statistics_result",
             value.trade_statistics,
         )
+        if value.trade_statistics_interpretation is not None:
+            _save_model(
+                "trade_statistics_interpretation_result",
+                value.trade_statistics_interpretation,
+            )
+        else:
+            st.session_state.pop(
+                "trade_statistics_interpretation_result",
+                None,
+            )
     else:
         st.session_state.pop("trade_statistics_result", None)
         st.session_state.pop("trade_statistics_trace", None)
+        st.session_state.pop(
+            "trade_statistics_interpretation_result",
+            None,
+        )
     st.session_state["consultation_topics"] = [
         item.model_dump() for item in value.consultation_topics
     ]
@@ -704,6 +881,13 @@ def _save_decision_support(value: DecisionSupportResult) -> None:
             "official_candidate_shortlist",
             None,
         )
+    if value.auxiliary_service_candidates is not None:
+        _save_model(
+            "auxiliary_service_candidates",
+            value.auxiliary_service_candidates,
+        )
+    else:
+        st.session_state.pop("auxiliary_service_candidates", None)
     st.session_state["installment_payment_statuses"] = [
         item.model_dump()
         for item in (
@@ -733,7 +917,7 @@ def _installment_payment_statuses_from_state(
 
 
 def _render_priority_card(
-    priority: ConsultationPriorityView,
+    review_area: ConsultationReviewAreaView,
     display_rationale: Optional[List[Tuple[str, str]]] = None,
 ) -> None:
     if display_rationale is None:
@@ -746,85 +930,115 @@ def _render_priority_card(
                     else rationale_display_text(item)
                 ),
             )
-            for item in priority_key_rationale(priority)
+            for item in review_area.evidence_items[:3]
         ]
-    rationale_html = "".join(
-        "<p><small>{}</small><strong>{}</strong></p>".format(
-            escape(label),
-            escape(display_value),
-        )
-        for label, display_value in display_rationale
+    reason = consultation_user_text(
+        consultation_priority_reason_copy(review_area.summary)
     )
+    next_action = consultation_user_text(review_area.next_action)
     st.markdown(
         "<div class='consultation-card'>"
-        "<span class='rank rank-{}'>{}</span><h4>{}</h4>"
-        "<p>{}</p><div class='rationale-grid'>{}</div>"
-        "<div class='decision'><small>상담에서 결정할 사항</small>"
-        "<p>{}</p></div>"
-        "<div class='decision'><small>다음 행동</small>"
-        "<p>{}</p></div></div>".format(
-            priority.rank,
-            priority.rank,
-            escape(priority.title),
-            escape(
-                consultation_priority_reason_copy(
-                    priority_risk_sentence(priority)
-                )
-            ),
-            rationale_html,
-            escape(priority.expected_decision),
-            escape(priority.next_action),
+        "<span class='rank rank-{}'>{}</span>"
+        "<small class='consultation-purpose-label'>상담 목적</small>"
+        "<h4>{}</h4>"
+        "<div class='decision'><small>핵심 이유</small><p>{}</p></div>"
+        "<div class='decision consultation-next-action'>"
+        "<small>다음 행동</small><p>{}</p></div></div>".format(
+            review_area.rank,
+            review_area.rank,
+            escape(consultation_user_text(review_area.display_name)),
+            escape(reason),
+            escape(next_action),
         ),
         unsafe_allow_html=True,
     )
-    action_columns = st.columns(3)
-    with action_columns[0].popover(
-        "▤ 준비자료",
-        use_container_width=True,
+    with st.expander(
+        "{}순위 상담 준비 상세 보기".format(review_area.rank),
+        expanded=False,
     ):
-        if priority.missing_information:
-            st.warning(
-                "아직 확인할 정보 · {}".format(
-                    " · ".join(priority.missing_information)
-                )
-            )
-        if priority.preparation_documents:
-            for item in priority.preparation_documents:
-                st.write("· {}".format(item))
-        else:
-            st.info("추가 준비자료가 없습니다.")
-    with action_columns[1].popover(
-        "▢ 은행 질문",
-        use_container_width=True,
-    ):
-        for item in priority.bank_questions:
-            st.write("· {}".format(item))
-        if not priority.bank_questions:
-            st.info("추가 질문이 없습니다.")
-    with action_columns[2].popover(
-        "⌂ 공식 후보",
-        use_container_width=True,
-    ):
-        if priority.official_candidates:
-            for candidate in priority.official_candidates:
-                st.markdown(
-                    "- [{} · {}]({}) · 확인일 {}  \n"
-                    "  연결 이유: {}  \n"
-                    "  eligibility=UNKNOWN · "
-                    "approval=CONSULTATION_REQUIRED".format(
-                        candidate.institution,
-                        candidate.name,
-                        candidate.source.url,
-                        candidate.source.verified_at,
-                        candidate.strategy_connection_reason,
+        st.markdown("**1. 왜 먼저 상담하나요?**")
+        st.write(reason)
+        if display_rationale:
+            st.caption("확인된 핵심 정보")
+            for label, display_value in display_rationale:
+                st.write(
+                    "· {}: {}".format(
+                        consultation_user_text(label),
+                        consultation_user_text(display_value),
                     )
                 )
+        st.markdown("**2. 상담 전에 확인할 내용**")
+        if review_area.missing_information:
+            for item in review_area.missing_information:
+                st.write("☐ {}".format(consultation_user_text(item)))
         else:
-            st.info(
-                "현재 검증된 공식 후보가 없습니다. 최신 상담 가능 "
-                "구조는 KB 영업점 또는 기업금융·외환 상담에서 "
-                "확인하세요."
-            )
+            st.caption("현재 별도로 등록된 미확인 항목이 없습니다.")
+        st.markdown("**3. 준비할 자료**")
+        if review_area.preparation_documents:
+            for item in review_area.preparation_documents:
+                st.write("☐ {}".format(consultation_user_text(item)))
+        else:
+            st.info("추가 준비자료가 없습니다.")
+        st.markdown("**4. 은행·기관에 물어볼 질문**")
+        for item in review_area.bank_questions:
+            st.write("· {}".format(consultation_user_text(item)))
+        if not review_area.bank_questions:
+            st.info("추가 질문이 없습니다.")
+        st.markdown("**5. 상담 후 결정할 사항**")
+        st.write(consultation_user_text(review_area.expected_decision))
+        st.markdown("**6. 다음 행동**")
+        st.write(next_action)
+
+
+def _render_supporting_check_card(
+    supporting_check: ConsultationSupportingCheckView,
+) -> None:
+    rationale_html = "".join(
+        "<p><small>{}</small><strong>{}</strong></p>".format(
+            escape(
+                consultation_user_text(
+                    consultation_rationale_label(item.label)
+                )
+            ),
+            escape(
+                consultation_user_text(
+                    consultation_status_label(item.value)
+                    if item.unit == "STATUS"
+                    else rationale_display_text(item)
+                )
+            ),
+        )
+        for item in supporting_check.evidence_items[:3]
+    )
+    st.markdown(
+        "<div class='consultation-card supporting-check-card'>"
+        "<h4>{}</h4><p>{}</p>"
+        "<div class='decision'><small>확인 근거</small>"
+        "<div class='rationale-grid'>{}</div></div>"
+        "<div class='decision'><small>필요한 확인 정보</small>"
+        "<p>{}</p></div>"
+        "<div class='decision'><small>다음 행동</small>"
+        "<p>{}</p></div></div>".format(
+            escape(consultation_user_text(supporting_check.display_name)),
+            escape(
+                consultation_user_text(
+                    consultation_priority_reason_copy(
+                        supporting_check.summary
+                    )
+                )
+            ),
+            rationale_html,
+            escape(
+                " · ".join(
+                    consultation_user_text(item)
+                    for item in supporting_check.missing_information
+                )
+                or "현재 별도로 등록된 미확인 정보 없음"
+            ),
+            escape(consultation_user_text(supporting_check.next_action)),
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_consultation_priorities(
@@ -836,16 +1050,17 @@ def _render_consultation_priorities(
     layout: str = "columns",
     show_heading: bool = True,
 ) -> None:
-    priorities = value.packet.consultation_priorities
-    if not priorities:
+    review_areas = value.packet.consultation_review_areas
+    supporting_checks = value.packet.consultation_supporting_checks
+    if not review_areas and not supporting_checks:
         return
-    if show_heading:
+    if show_heading and review_areas:
         st.markdown("### 먼저 확인할 상담")
         st.caption(
             "지금 은행과 확인할 순서입니다. 각 카드의 핵심 숫자와 결정사항을 "
             "먼저 보고, 준비자료와 질문은 필요할 때 펼쳐보세요."
         )
-        st.caption(priorities[0].disclaimer)
+        st.caption(review_areas[0].disclaimer)
     adverse_five = _five_percent_adverse_result(stage2_result)
     rationale_overrides: Dict[int, List[Tuple[str, str]]] = {}
     if adverse_five is not None:
@@ -880,57 +1095,72 @@ def _render_consultation_priorities(
                 format_krw(adverse_five.ending_cash),
             ),
             (
-                "목표 현금 버퍼",
+                "최소 유지 운영자금",
                 _priority_rationale_text(
                     value,
                     ("목표 buffer", "목표 현금 버퍼"),
                 ),
             ),
             (
-                "목표 현금 버퍼 부족",
+                "최소 운영자금 대비 부족액",
                 format_krw(
                     adverse_five.maximum_buffer_shortfall
                 ),
             ),
         ]
-    with st.container(key="consultation_top3_{}".format(key_prefix)):
-        if layout == "stacked":
-            for priority in priorities:
-                _render_priority_card(
-                    priority,
-                    display_rationale=rationale_overrides.get(
-                        priority.rank
-                    ),
-                )
-        else:
-            columns = st.columns(len(priorities))
-            for column, priority in zip(columns, priorities):
-                with column:
+    if review_areas:
+        with st.container(key="consultation_top3_{}".format(key_prefix)):
+            if layout == "stacked":
+                for review_area in review_areas:
                     _render_priority_card(
-                        priority,
+                        review_area,
                         display_rationale=rationale_overrides.get(
-                            priority.rank
+                            review_area.rank
                         ),
                     )
+            else:
+                columns = st.columns(len(review_areas))
+                for column, review_area in zip(columns, review_areas):
+                    with column:
+                        _render_priority_card(
+                            review_area,
+                            display_rationale=rationale_overrides.get(
+                                review_area.rank
+                            ),
+                        )
+    if supporting_checks:
+        st.markdown("#### 추가 확인사항")
+        st.caption(
+            "금융상품 분야가 아니라 상담 전에 보완하거나 계속 확인할 "
+            "정보입니다. 원래 우선순위를 다시 매기지 않습니다."
+        )
+        with st.container(
+            key="consultation_supporting_checks_{}".format(key_prefix)
+        ):
+            for supporting_check in supporting_checks:
+                _render_supporting_check_card(supporting_check)
     if value.packet.other_consultation_topics:
-        with st.expander("기타 확인사항", expanded=False):
+        with st.expander("Top 3 외 기타 확인사항", expanded=False):
             for topic in value.packet.other_consultation_topics:
                 st.markdown("- **{}**: {}".format(
                     topic.title,
                     topic.explanation,
                 ))
     if show_download:
-        st.download_button(
-            "상담 준비서 다운로드",
-            data=value.markdown,
-            file_name="KB_상담_준비서_{}.md".format(
-                _consultation_artifact_date(value)
-            ),
-            mime="text/markdown",
-            key="{}_handoff_download".format(key_prefix),
-            type="primary",
-            width="stretch",
-        )
+        try:
+            pdf_bytes, pdf_filename = _consultation_pdf_artifact(value)
+        except (ConsultationPreparationPdfError, ValueError) as exc:
+            st.error(str(exc))
+        else:
+            st.download_button(
+                "상담 준비서 PDF 다운로드",
+                data=pdf_bytes,
+                file_name=pdf_filename,
+                mime=PDF_MIME,
+                key="{}_handoff_download".format(key_prefix),
+                type="primary",
+                width="stretch",
+            )
         st.caption(
             "다운로드는 상담 준비자료 생성이며 실제 예약·RM 전송·신청 "
             "완료를 의미하지 않습니다."
@@ -998,7 +1228,7 @@ def _render_transaction_overview(
     )
     if section in {"all", "summary"}:
         validation_badge = (
-            "<span class='validation-status-badge'>자동 검증 완료</span>"
+            "<span class='validation-status-badge'>거래정보 확인 가능</span>"
             if validation is not None and validation.validation_pass
             else ""
         )
@@ -1037,6 +1267,35 @@ def _render_transaction_overview(
                 ),
                 unsafe_allow_html=True,
             )
+            trade_risk_confirmation = _model_from_state(
+                "trade_risk_confirmation",
+                TradeRiskConfirmationRecord,
+            )
+            if trade_risk_confirmation is not None:
+                risk_input = trade_risk_confirmation.confirmed_input
+                relationship = {
+                    "NEW": "신규 거래처",
+                    "EXISTING": "기존 거래처",
+                    "UNKNOWN": "확인 필요",
+                }.get(risk_input.counterparty_relationship, "확인 필요")
+                protection = {
+                    "UNKNOWN": "확인 필요",
+                    "NONE_CONFIRMED": "보험·보증 없음 확인",
+                    "DETAILS_PROVIDED": "보험·보증 상세 입력됨",
+                }.get(
+                    risk_input.protection_information_status,
+                    "확인 필요",
+                )
+                st.markdown(
+                    "<div class='transaction-confirmed-facts'>"
+                    "<span><small>거래처 관계</small><strong>{}</strong></span>"
+                    "<span><small>보험·보증 확인</small><strong>{}</strong></span>"
+                    "</div>".format(
+                        escape(relationship),
+                        escape(protection),
+                    ),
+                    unsafe_allow_html=True,
+                )
             render_warning_banner(str(summary["missing_information"]))
 
     if section == "summary":
@@ -1171,16 +1430,40 @@ def _render_transaction_overview(
             )
         st.caption(SCHEDULED_EXPOSURE_WARNING)
 
-    with st.expander("원문 근거", expanded=False):
+    with st.expander("계약서 근거 보기", expanded=False):
         rows = evidence_rows(extraction)
         if rows:
-            st.dataframe(rows, width="stretch", hide_index=True)
+            field_labels = {
+                "seller_country": "판매자 국가",
+                "buyer_country": "구매자 국가",
+                "currency": "거래 통화",
+                "amount_due": "분석 대상 예정 결제액",
+                "contract_date": "계약일",
+                "issue_date": "발행일",
+                "shipment_date": "선적일",
+                "due_date": "결제 예정일",
+                "payment_terms": "결제조건",
+                "installments": "분할결제",
+            }
+            user_rows = [
+                {
+                    "확인 항목": field_labels.get(
+                        str(row.get("필드")),
+                        "거래정보",
+                    ),
+                    "페이지": row.get("페이지"),
+                    "계약서 인용": row.get("원문 근거"),
+                }
+                for row in rows
+            ]
+            st.dataframe(user_rows, width="stretch", hide_index=True)
         else:
             st.warning("원문 근거가 없어 거래 확정 전 직접 대조가 필요합니다.")
-        st.caption(
-            "결제일 source path · {}".format(summary["source_path"])
-        )
-        if detail_snapshot is not None:
+        if show_internal_debug:
+            st.caption(
+                "결제일 source path · {}".format(summary["source_path"])
+            )
+        if detail_snapshot is not None and show_internal_debug:
             st.caption(
                 "확정 입력 fingerprint · {}".format(
                     detail_snapshot.input_fingerprint
@@ -1194,22 +1477,10 @@ def _render_financial_overview(
 ) -> None:
     packet = value.packet
     trade_type = packet.company_summary.trade_type
+    risk_summary_values = None
     if stage2_result is not None:
-        risk_tone, risk_label, risk_headline, risk_detail = _risk_summary(
+        risk_summary_values = _risk_summary(
             stage2_result
-        )
-        st.markdown("### 분석 종합 결론")
-        st.markdown(
-            "<div class='risk-banner {}'><div class='signal'>{}</div>"
-            "<div><strong>{}</strong><p>입력한 회사 자금과 환율 시나리오를 "
-            "함께 반영한 결과입니다.</p></div>"
-            "<div class='detail'>{}</div></div>".format(
-                risk_tone,
-                escape(risk_label),
-                escape(risk_headline),
-                escape(risk_detail),
-            ),
-            unsafe_allow_html=True,
         )
     adverse_five = _five_percent_adverse_result(stage2_result)
     if adverse_five is not None:
@@ -1313,9 +1584,19 @@ def _render_financial_overview(
         if protection_needs_review
         else "확인된 보호수단과 적용범위를 상담에서 재확인"
     )
-    st.markdown("### 분석 핵심 결과")
+    st.markdown(
+        "<div class='stage-bridge'><span>2 · 거래 금액 영향</span></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("## 이 전망이 우리 거래에 주는 영향")
     st.caption(
-        "{} {} · 상대국 {} · 결제 예정일 {}".format(
+        "분석 대상 {} · {} {} · 상대국 {} · 결제 예정일 {}".format(
+            format_foreign(
+                stage2_result.open_exposure,
+                stage2_result.currency,
+            )
+            if stage2_result is not None
+            else packet.company_summary.currency,
             "수입" if trade_type == "IMPORT" else "수출",
             packet.company_summary.currency,
             _country_display(
@@ -1332,16 +1613,17 @@ def _render_financial_overview(
         "<div class='hero-metric'>{} 시<br>{}<b>{} {}</b></div>"
         "{}<p>{}</p></div>"
         "<div class='impact-card cash' aria-label='스트레스 후 예상 현금 {}; "
-        "최소 유지 운영자금 {}; 운영자금 부족 {}; 현금 적자 {}; "
-        "지급 또는 post-credit 부족 {}'><div class='metric-heading'>"
+        "최소 유지 운영자금 {}; 최소 운영자금 대비 부족액 {}; "
+        "실제 현금 적자 {}; 대출한도 반영 후 부족액 {}'>"
+        "<div class='metric-heading'>"
         "<span class='metric-icon'>◇</span><span>환율 변동 후 운영자금 점검</span></div>"
         "<div class='metric-row'><span>스트레스 후 예상 현금</span>"
         "<b>{}</b></div>"
         "<div class='metric-row'><span>최소 유지 운영자금</span><b>{}</b></div>"
-        "<div class='metric-row'><span>운영자금 부족</span>"
+        "<div class='metric-row'><span>최소 운영자금 대비 부족액</span>"
         "<b class='danger'>{}</b></div>"
-        "<div class='metric-row'><span>현금 적자</span><b>{}</b></div>"
-        "<div class='metric-row'><span>지급 또는 post-credit 부족</span>"
+        "<div class='metric-row'><span>실제 현금 적자</span><b>{}</b></div>"
+        "<div class='metric-row'><span>대출한도 반영 후 부족액</span>"
         "<b>{}</b></div></div>"
         "<div class='impact-card collection' aria-label='{}; 잔금 {}; "
         "결제조건 {}; {}'><div class='metric-heading'>"
@@ -1381,12 +1663,328 @@ def _render_financial_overview(
         ),
         unsafe_allow_html=True,
     )
+    if risk_summary_values is not None:
+        risk_tone, risk_label, risk_headline, risk_detail = risk_summary_values
+        st.markdown("### 현금흐름·회수 위험")
+        st.markdown(
+            "<div class='risk-banner {}'><div class='signal'>{}</div>"
+            "<div><strong>{}</strong><p>운영자금 버퍼, 현금 적자, "
+            "신용한도 반영 후 부족을 서로 구분해 판정했습니다.</p></div>"
+            "<div class='detail'>{}</div></div>".format(
+                risk_tone,
+                escape(risk_label),
+                escape(risk_headline),
+                escape(risk_detail),
+            ),
+            unsafe_allow_html=True,
+        )
     with st.expander("결과 해석 기준", expanded=False):
         st.caption(SCHEDULED_EXPOSURE_WARNING)
         st.caption(
-            "운영자금 부족은 지급불능 또는 필요 대출금이 아닙니다. "
-            "현금 적자와 지급/post-credit 부족을 함께 확인해야 합니다."
+            "최소 운영자금 대비 부족액은 지급불능 또는 필요 대출금이 "
+            "아닙니다. 실제 현금 적자와 대출한도 반영 후 부족액을 "
+            "함께 확인해야 합니다."
         )
+
+
+def _signed_percent(value: Optional[Decimal]) -> str:
+    if value is None:
+        return "범위 확인 필요"
+    return "{:+.1f}%".format(value * Decimal("100"))
+
+
+def _render_fx_forecast_hero(
+    *,
+    view: Optional[FxForecastView],
+    stage2_result: Stage2Result,
+) -> None:
+    if view is None:
+        st.markdown("## AI 환율 전망")
+        st.markdown(
+            "<div class='fx-empty-state'><strong>AI 방향 전망이 아직 없습니다.</strong>"
+            "<p>확인한 기준환율과 고정 스트레스 결과는 아래에서 계속 "
+            "확인할 수 있습니다. 시장 전망을 준비하면 중심값과 범위를 "
+            "함께 보여드립니다.</p></div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    center_rate = (
+        "{}원".format(format_decimal_display(view.center_rate, 2))
+        if view.center_rate is not None
+        else "확인 필요"
+    )
+    lower_rate = (
+        "{}원".format(format_decimal_display(view.lower_rate, 2))
+        if view.lower_rate is not None
+        else "확인 필요"
+    )
+    upper_rate = (
+        "{}원".format(format_decimal_display(view.upper_rate, 2))
+        if view.upper_rate is not None
+        else "확인 필요"
+    )
+    direction_class = "down" if view.direction == "하락" else "up"
+    st.markdown(
+        "<section class='fx-forecast-hero {}' aria-label='AI 환율 전망 {}'>"
+        "<div class='fx-forecast-top'><div class='fx-forecast-copy'>"
+        "<span class='eyebrow'><b>AI</b> 환율 전망 · {}</span>"
+        "<div class='fx-direction-line'><span class='direction-symbol' "
+        "aria-hidden='true'>{}</span><div><h2>{} 전망</h2>"
+        "<p>{}</p></div></div></div>"
+        "<div class='fx-primary-metric'><small>모델 중심환율</small>"
+        "<strong>{}</strong><span class='move-badge'>기준 대비 {}</span>"
+        "</div></div>"
+        "<div class='fx-forecast-metrics'>"
+        "<div><small>예측 하한</small><strong>{}</strong>"
+        "<span>모델이 제시한 범위의 하단</span></div>"
+        "<div><small>예측 상한</small><strong>{}</strong>"
+        "<span>모델이 제시한 범위의 상단</span></div>"
+        "<div class='period'><small>모델 전망 기간</small>"
+        "<strong>{} <i>→</i> {}</strong>"
+        "<span>결제 예정일 {}</span></div>"
+        "</div><div class='fx-forecast-meta'>"
+        "<span><b>기준환율</b> {}원</span>"
+        "<span><b>기준일</b> {}</span>"
+        "<span><b>데이터 기준일</b> {}</span>"
+        "<span><b>출처</b> {}</span>"
+        "</div></section>".format(
+            direction_class,
+            escape(view.direction),
+            escape(view.pair),
+            escape(view.direction_symbol),
+            escape(view.direction),
+            escape(view.direction_sentence),
+            escape(center_rate),
+            escape(_signed_percent(view.center_move)),
+            escape(lower_rate),
+            escape(upper_rate),
+            escape(view.reference_as_of),
+            escape(view.horizon_end_date),
+            escape(view.target_date),
+            escape(format_decimal_display(view.reference_rate, 2)),
+            escape(view.reference_as_of),
+            escape(view.data_as_of),
+            escape(view.source_label),
+        ),
+        unsafe_allow_html=True,
+    )
+    if view.lower_rate is not None and view.upper_rate is not None:
+        span = view.upper_rate - view.lower_rate
+        lower_scenario_label = (
+            "불리한 시나리오"
+            if stage2_result.trade_type == "EXPORT"
+            else "유리한 시나리오"
+        )
+        upper_scenario_label = (
+            "유리한 시나리오"
+            if stage2_result.trade_type == "EXPORT"
+            else "불리한 시나리오"
+        )
+        current_position = Decimal("50")
+        center_position = Decimal("50")
+        if span > 0:
+            current_position = (
+                (view.reference_rate - view.lower_rate) / span
+                * Decimal("100")
+            )
+            if view.center_rate is not None:
+                center_position = (
+                    (view.center_rate - view.lower_rate) / span
+                    * Decimal("100")
+                )
+        current_position = max(Decimal("0"), min(Decimal("100"), current_position))
+        center_position = max(Decimal("0"), min(Decimal("100"), center_position))
+        st.markdown(
+            "<div class='fx-range-chart' role='img' aria-label='기준환율과 "
+            "예측 하한, 중심값, 상한 비교'>"
+            "<div class='range-heading'><strong>예측 범위 한눈에 보기</strong>"
+            "<span>{}</span></div>"
+            "<div class='range-labels'><span><small>{}</small><b>{}</b></span>"
+            "<span><small>{}</small><b>{}</b></span></div>"
+            "<div class='range-track'>"
+            "<span class='range-current' style='left:{}%'><i></i>기준</span>"
+            "<span class='range-center' style='left:{}%'><i></i>AI 중심</span>"
+            "</div></div>".format(
+                escape(view.uncertainty_copy),
+                escape(lower_scenario_label),
+                escape(lower_rate),
+                escape(upper_scenario_label),
+                escape(upper_rate),
+                format(current_position.quantize(Decimal("0.1")), "f"),
+                format(center_position.quantize(Decimal("0.1")), "f"),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    preferred_name = (
+        "MODEL_DOWN_Q50" if view.direction == "하락" else "MODEL_UP_Q50"
+    )
+    center_result = next(
+        (
+            item
+            for item in stage2_result.scenario_results
+            if item.scenario_name == preferred_name
+        ),
+        None,
+    )
+    if center_result is not None:
+        flow_label = (
+            "원화 지급액"
+            if stage2_result.trade_type == "IMPORT"
+            else "원화 수취액"
+        )
+        flow_value = (
+            center_result.fx_krw_outflow
+            if stage2_result.trade_type == "IMPORT"
+            else center_result.fx_krw_inflow
+        )
+        impact_label = (
+            "기준 대비 추가 지급"
+            if stage2_result.trade_type == "IMPORT"
+            else "기준 대비 수취 감소"
+        )
+        stage2_input = _model_from_state("stage2_input", Stage2Input)
+        spread_bps = (
+            stage2_input.bank_spread_bps
+            if stage2_input is not None
+            else "확인 필요"
+        )
+        st.markdown(
+            "<div class='fx-business-impact'>"
+            "<div class='impact-copy'><span class='impact-icon' "
+            "aria-hidden='true'>₩</span><div><strong>현금흐름 엔진 적용값</strong>"
+            "<small>모델 환율과 실제 금액 계산에 쓴 환율을 구분합니다.</small>"
+            "</div></div><div class='impact-metrics'>"
+            "<span><small>적용 노출금액</small><b>{}</b></span>"
+            "<span><small>현금흐름 엔진 적용환율</small><b>{}원</b></span>"
+            "<span><small>{}</small><b>{}</b></span>"
+            "<span><small>{}</small><b>{}</b></span></div></div>".format(
+                escape(
+                    format_foreign(
+                        stage2_result.open_exposure,
+                        stage2_result.currency,
+                    )
+                ),
+                escape(
+                    format_decimal_display(
+                        center_result.applied_rate,
+                        4,
+                    )
+                ),
+                escape(flow_label),
+                escape(format_krw(flow_value)),
+                escape(impact_label),
+                escape(format_krw(center_result.loss_vs_base)),
+            ),
+            unsafe_allow_html=True,
+        )
+        trade_direction = (
+            "수입" if stage2_result.trade_type == "IMPORT" else "수출"
+        )
+        with st.expander("적용값 계산 기준", expanded=False):
+            st.markdown(
+                "<div class='fx-calculation-basis'><ul>"
+                "<li>모델 중심환율 raw 값: <strong>{}원</strong></li>"
+                "<li>화면 표시값은 소수 둘째 자리 반올림</li>"
+                "<li>{} 거래 스프레드: <strong>{}bps</strong></li>"
+                "<li>자연상계: <strong>{}</strong></li>"
+                "<li>기존 헤지: <strong>{}</strong></li>"
+                "</ul><p>모델 중심환율은 시장 시나리오 환율이고, 현금흐름 "
+                "엔진 적용환율은 거래 방향에 따른 은행 스프레드를 반영하므로 "
+                "서로 다릅니다. 자연상계와 기존 헤지는 적용 노출금액에서 이미 "
+                "구분되어 있어 모델 중심환율 × 전체 거래액과 결과가 다를 수 "
+                "있습니다.</p><p>결제일이 모델 검증기간 안에 있어 AI 중심 "
+                "시나리오를 현금흐름 비교에 포함했습니다.</p></div>".format(
+                    escape(
+                        format_decimal_display(
+                            center_result.scenario_rate,
+                            4,
+                        )
+                    ),
+                    escape(trade_direction),
+                    escape(str(spread_bps)),
+                    escape(
+                        format_foreign(
+                            stage2_result.natural_offset,
+                            stage2_result.currency,
+                        )
+                    ),
+                    escape(
+                        format_foreign(
+                            stage2_result.hedged_amount,
+                            stage2_result.currency,
+                        )
+                    ),
+                ),
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption(
+            "AI 중심 시나리오가 결제일 검증범위 밖이면 금액 영향에는 "
+            "적용하지 않습니다. 아래 고정 스트레스 결과를 확인하세요."
+        )
+    st.markdown(
+        "<div class='fx-forecast-notice' role='note'><span "
+        "aria-hidden='true'>i</span><p>AI 전망은 참고 정보이며 확정 환율이나 "
+        "실제 수취·지급 금액을 보장하지 않습니다.</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_market_news(news: List[MarketNewsView]) -> None:
+    st.markdown("### 시장 뉴스")
+    st.caption(
+        "뉴스는 전망을 이해하기 위한 시장 배경이며 환율 수치를 "
+        "직접 계산하지 않습니다."
+    )
+    if not news:
+        st.markdown(
+            "<div class='news-empty-state'><strong>현재 연결된 뉴스 근거가 "
+            "없습니다.</strong><p>환율 전망 수치는 모델 결과를 기준으로 "
+            "제공되며, 뉴스 연결이 복구되면 관련 시장 요인을 함께 "
+            "표시합니다.</p></div>",
+            unsafe_allow_html=True,
+        )
+        return
+    def render_cards(items: List[MarketNewsView]) -> None:
+        cards: List[str] = []
+        for item in items:
+            tags = "".join(
+                "<span>{}</span>".format(escape(tag))
+                for tag in item.factor_tags
+            )
+            link = (
+                "<a href='{}' target='_blank' rel='noopener noreferrer'>"
+                "기사 보기</a>".format(escape(item.url, quote=True))
+                if item.url
+                else ""
+            )
+            cards.append(
+                "<article class='news-card'><div class='news-meta'>"
+                "<span>{}</span><span>{}</span></div><h3>{}</h3>"
+                "<div class='news-pressure'>{}</div><p>{}</p>"
+                "<div class='news-tags'>{}</div><small>{}</small>{}</article>"
+                .format(
+                    escape(item.source_label),
+                    escape(item.published_at),
+                    escape(item.headline),
+                    escape(item.pressure_label),
+                    escape(item.summary),
+                    tags,
+                    escape(item.relevance),
+                    link,
+                )
+            )
+        st.markdown(
+            "<div class='news-card-grid'>{}</div>".format("".join(cards)),
+            unsafe_allow_html=True,
+        )
+
+    render_cards(news[:3])
+    if len(news) > 3:
+        with st.expander("시장 뉴스 더 보기", expanded=False):
+            render_cards(news[3:])
 
 
 def _render_financial_evidence(
@@ -1397,7 +1995,14 @@ def _render_financial_evidence(
     risk_assessment: Optional[RiskAssessment],
 ) -> None:
     scenarios = stage1_load.scenario_set
-    st.markdown("#### 적용한 환율 시나리오")
+    st.markdown(
+        "<div class='stage-bridge'><span>4 · 적용 시나리오</span></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("## 적용한 환율 시나리오")
+    st.caption(
+        "현재 기준과 대표 불리·유리 시나리오를 같은 기준으로 비교합니다."
+    )
     base_scenario = next(
         (
             item
@@ -1407,15 +2012,24 @@ def _render_financial_evidence(
         None,
     )
     adverse_scenario = _five_percent_adverse_result(stage2_result)
+    favorable_scenario = _five_percent_favorable_result(stage2_result)
     core_scenarios = [
         ("현재 기준", base_scenario),
         (
-            "{} · 결과 카드 적용".format(
+            "대표 불리 · {}".format(
                 _scenario_label(adverse_scenario.scenario_name)
                 if adverse_scenario is not None
                 else "불리한 시나리오"
             ),
             adverse_scenario,
+        ),
+        (
+            "대표 유리 · {}".format(
+                _scenario_label(favorable_scenario.scenario_name)
+                if favorable_scenario is not None
+                else "유리한 시나리오"
+            ),
+            favorable_scenario,
         ),
     ]
     core_rows = [
@@ -1426,6 +2040,13 @@ def _render_financial_evidence(
             ),
             "기준 대비 영향": format_krw(item.loss_vs_base),
             "결제 후 잔고": format_krw(item.ending_cash),
+            "최소 운영자금 대비 부족액": format_krw(
+                item.maximum_buffer_shortfall
+            ),
+            "실제 현금 적자": format_krw(item.cash_deficit),
+            "대출한도 반영 후 부족액": format_krw(
+                item.post_credit_shortfall
+            ),
         }
         for label, item in core_scenarios
         if item is not None
@@ -1441,11 +2062,11 @@ def _render_financial_evidence(
             ),
             "기준 대비 영향": format_krw(item.loss_vs_base),
             "결제 후 잔고": format_krw(item.ending_cash),
-            "운영자금 부족": format_krw(
+            "최소 운영자금 대비 부족액": format_krw(
                 item.maximum_buffer_shortfall
             ),
-            "현금 적자": format_krw(item.cash_deficit),
-            "지급/post-credit 부족": format_krw(
+            "실제 현금 적자": format_krw(item.cash_deficit),
+            "대출한도 반영 후 부족액": format_krw(
                 item.post_credit_shortfall
             ),
         }
@@ -1458,65 +2079,22 @@ def _render_financial_evidence(
         )
         st.dataframe(stage2_rows, width="stretch", hide_index=True)
 
-    st.markdown("#### 시장 분석 근거")
-    if (
-        market_integration is not None
-        and market_integration.forecast_load is not None
-    ):
-        forecast = market_integration.forecast_load.forecast
-        direction_copy = (
-            "하락"
-            if forecast.direction.label == "USD_KRW_DOWN"
-            else "상승"
-        )
-        st.write(forecast.market_context.summary)
-        st.info(
-            "모델 분석에서는 USD/KRW {} 방향이 우세하게 나타났습니다. "
-            "실제 발생확률이 아닌 시장 방향 참고 결과입니다.".format(
-                direction_copy
-            )
-        )
-        st.caption("뉴스는 계산값을 변경하지 않았습니다.")
-    else:
-        st.caption(
-            "시장 방향 자료 없이 확인된 기준환율과 고정 스트레스 "
-            "시나리오를 적용했습니다."
-        )
-
     if stage1_load.warnings:
         st.info(
             "일부 시장 데이터가 과거 값으로 보완되었습니다. "
             "환율 계산은 완료됐으며 시장 방향 정보는 참고용입니다."
         )
 
-    trade_assessment = _model_from_state(
-        "trade_risk_assessment",
-        TradeSettlementRiskAssessment,
-    )
-    if trade_assessment is not None:
-        _render_trade_risk_details(trade_assessment)
-
-    country_assessment = _model_from_state(
-        "country_environment_assessment",
-        CountryTradeEnvironmentAssessment,
-    )
-    if country_assessment is not None:
-        _render_country_environment_section(country_assessment)
-
-    trade_statistics = _model_from_state(
-        "trade_statistics_result",
-        TradeStatisticsResult,
-    )
-    if (
-        trade_statistics is not None
-        or isinstance(
-            st.session_state.get("trade_statistics_error"),
-            dict,
+    if show_internal_debug:
+        technical_panel = st.expander(
+            "개발자용 · 데이터 품질 및 기술정보",
+            expanded=False,
         )
-    ):
-        _render_trade_statistics_section(trade_statistics)
-
-    with st.expander("데이터 품질 및 기술정보", expanded=False):
+    else:
+        technical_panel = None
+    if technical_panel is None:
+        return
+    with technical_panel:
         st.markdown("#### 환율 데이터와 적용 규칙")
         st.caption(
             "source {} · currency {} · target date {} · "
@@ -1733,7 +2311,10 @@ def _save_workflow(value: WorkflowState) -> None:
 
 def _render_cashflow_error(detail: CashflowErrorDetail) -> None:
     st.error(detail.user_message)
-    with st.expander("오류 기술 정보", expanded=False):
+    if not show_internal_debug:
+        st.caption("입력값을 다시 확인한 뒤 계산을 재시도해 주세요.")
+        return
+    with st.expander("개발자용 · 오류 기술 정보", expanded=False):
         st.write("error code: `{}`".format(detail.code))
         st.write("stage: `{}`".format(detail.stage))
         st.write(
@@ -1783,7 +2364,9 @@ def _render_stage_system_error(
         "다시 실행하고, 같은 문제가 반복되면 아래 오류 코드를 전달해 "
         "주세요.".format(task_label)
     )
-    with st.expander("오류 기술 정보", expanded=False):
+    if not show_internal_debug:
+        return
+    with st.expander("개발자용 · 오류 기술 정보", expanded=False):
         st.write("error code: `{}`".format(code))
         st.write("stage: `{}`".format(stage))
         st.write(
@@ -1864,13 +2447,26 @@ def _rebuild_consultation_with_payment_statuses(
             "country_environment_assessment",
             CountryTradeEnvironmentAssessment,
         ),
+        country_economic_interpretation=(
+            _ensure_country_economic_interpretation()
+        ),
         trade_statistics=_model_from_state(
             "trade_statistics_result",
             TradeStatisticsResult,
         ),
+        trade_statistics_interpretation=(
+            _ensure_trade_statistics_interpretation()
+        ),
         official_candidate_shortlist=_model_from_state(
             "official_candidate_shortlist",
             OfficialCandidateShortlist,
+        ),
+        official_candidate_input_profile=(
+            workflow.official_candidate_input_profile
+        ),
+        auxiliary_service_candidates=_model_from_state(
+            "auxiliary_service_candidates",
+            AuxiliaryServiceCandidates,
         ),
         installment_payment_statuses=statuses,
         missing_information=list(
@@ -2303,6 +2899,7 @@ def _trade_risk_priority_copy(
 def _render_country_environment_section(
     assessment: CountryTradeEnvironmentAssessment,
 ) -> None:
+    interpretation = _ensure_country_economic_interpretation(assessment)
     summary = country_summary(assessment)
     tone = (
         "danger"
@@ -2446,34 +3043,69 @@ def _render_country_environment_section(
                         escape(reference.official_url)
                     )
                 )
-    trace = country_environment_trace(assessment)
-    with st.expander("국가환경 분석 근거 및 기술정보", expanded=False):
-        st.caption(
-            "snapshot={} · version={} · hash={} · rule={}".format(
-                assessment.snapshot_id,
-                assessment.snapshot_version,
-                assessment.snapshot_hash,
-                assessment.rule_version,
+    if interpretation is not None:
+        indicator_labels = {
+            "GDP_GROWTH": "경제 성장",
+            "INFLATION": "물가 환경",
+            "CURRENT_ACCOUNT": "대외거래 환경",
+            "OECD_CLASSIFICATION": "결제·송금 참고 신호",
+        }
+        st.markdown("#### 거래국 경제환경 해석")
+        st.write(interpretation.overall_summary)
+        for section in interpretation.sections:
+            with st.container(border=True):
+                st.markdown(
+                    "**{}**".format(
+                        indicator_labels[section.indicator_id]
+                    )
+                )
+                st.write(section.observation)
+                st.caption("확인사항: {}".format(section.transaction_check))
+        with st.expander("경제환경 해석의 한계", expanded=False):
+            for limitation in interpretation.limitations:
+                st.write("- {}".format(limitation))
+    if show_internal_debug:
+        trace = country_environment_trace(assessment)
+        with st.expander(
+            "개발자용 · 국가환경 분석 근거",
+            expanded=False,
+        ):
+            st.caption(
+                "snapshot={} · version={} · hash={} · rule={}".format(
+                    assessment.snapshot_id,
+                    assessment.snapshot_version,
+                    assessment.snapshot_hash,
+                    assessment.rule_version,
+                )
             )
-        )
-        st.caption(
-            "input_fingerprint={}".format(
-                assessment.input_fingerprint
+            st.caption(
+                "input_fingerprint={}".format(
+                    assessment.input_fingerprint
+                )
             )
-        )
-        st.json(trace.model_dump())
-        json_download(
-            label="국가환경 추적 JSON",
-            value=trace,
-            filename="country_environment_trace.json",
-            key="country_environment_trace_download",
-        )
+            if interpretation is not None:
+                st.caption(
+                    "interpretation_status={} · input_fingerprint={} · "
+                    "model={}".format(
+                        interpretation.status,
+                        interpretation.input_fingerprint,
+                        interpretation.generation_model or "DETERMINISTIC",
+                    )
+                )
+            st.json(trace.model_dump())
+            json_download(
+                label="국가환경 추적 JSON",
+                value=trace,
+                filename="country_environment_trace.json",
+                key="country_environment_trace_download",
+            )
 
 
 def _render_trade_statistics_section(
     result: Optional[TradeStatisticsResult],
 ) -> None:
     st.markdown("### 거래국 무역 통계")
+    interpretation = _ensure_trade_statistics_interpretation(result)
     boundary = (
         "최근 교역 흐름을 확인하는 참고 통계입니다. 개별 거래처의 "
         "신용위험, 환율 방향, 헤지 비율 또는 금융상품 승인 가능성을 "
@@ -2554,17 +3186,18 @@ def _render_trade_statistics_section(
                     )
                 )
             )
-            with st.expander("출처 및 기술정보", expanded=False):
-                st.caption(
-                    "status={} · error_code={} · input_fingerprint={}".format(
-                        error.get("status", "VALIDATION_FAILED"),
-                        error.get("error_code", "VALIDATION_FAILED"),
-                        error.get(
-                            "confirmed_transaction_fingerprint",
-                            "NOT_AVAILABLE",
-                        ),
+            if show_internal_debug:
+                with st.expander("개발자용 · 오류 정보", expanded=False):
+                    st.caption(
+                        "status={} · error_code={} · input_fingerprint={}".format(
+                            error.get("status", "VALIDATION_FAILED"),
+                            error.get("error_code", "VALIDATION_FAILED"),
+                            error.get(
+                                "confirmed_transaction_fingerprint",
+                                "NOT_AVAILABLE",
+                            ),
+                        )
                     )
-                )
         else:
             st.caption("확정 거래를 기준으로 무역통계를 준비합니다.")
         st.caption(boundary)
@@ -2572,24 +3205,28 @@ def _render_trade_statistics_section(
         return
     if result.summary is None or result.snapshot is None:
         st.info(result.user_message)
+        if interpretation is not None:
+            st.write(interpretation.summary)
+            st.caption(interpretation.limitation)
         st.caption("현재 환율·현금흐름 계산에는 영향을 주지 않습니다.")
         st.caption(boundary)
-        with st.expander("출처 및 기술정보", expanded=False):
-            st.caption(
-                "status={} · error_code={} · provider={} · period={}~{}"
-                .format(
-                    result.status,
-                    result.error_code or "NONE",
-                    result.request.provider,
-                    result.request.period_start,
-                    result.request.period_end,
+        if show_internal_debug:
+            with st.expander("개발자용 · 출처 및 오류 정보", expanded=False):
+                st.caption(
+                    "status={} · error_code={} · provider={} · period={}~{}"
+                    .format(
+                        result.status,
+                        result.error_code or "NONE",
+                        result.request.provider,
+                        result.request.period_start,
+                        result.request.period_end,
+                    )
                 )
-            )
-            st.caption(
-                "request_fingerprint={}".format(
-                    result.request_fingerprint
+                st.caption(
+                    "request_fingerprint={}".format(
+                        result.request_fingerprint
+                    )
                 )
-            )
         render_hs_controls()
         return
     summary = result.summary
@@ -2597,9 +3234,9 @@ def _render_trade_statistics_section(
     reporter = _country_display(summary.reporter_country)
     partner = _country_display(summary.partner_country)
     status_label = (
-        "공식 fixture · API-free 데모"
+        "관세청 공식 자료 · 보관본"
         if result.status == "OFFICIAL_FIXTURE"
-        else "관세청 OpenAPI live"
+        else "관세청 공식 자료 · 실시간 조회"
     )
     st.markdown(
         "#### {}–{} 교역 동향".format(
@@ -2624,6 +3261,17 @@ def _render_trade_statistics_section(
             summary.latest_period,
         )
     )
+    latest_start = shift_month(summary.latest_period, -11)
+    comparison_end = shift_month(latest_start, -1)
+    comparison_start = shift_month(comparison_end, -11)
+    st.caption(
+        "최근 집계기간 {}~{} · 직전 비교기간 {}~{}".format(
+            latest_start,
+            summary.latest_period,
+            comparison_start,
+            comparison_end,
+        )
+    )
 
     def metric_money(value: Optional[str]) -> str:
         return (
@@ -2641,28 +3289,42 @@ def _render_trade_statistics_section(
             "INSUFFICIENT_HISTORY": "비교 불가 · 기간 부족",
         }.get(status, "비교 불가")
 
-    metrics = st.columns(3)
+    metrics = st.columns(4)
     metrics[0].metric(
         "{}의 대{} 수출 · 최근 12개월".format(reporter, partner),
         metric_money(summary.latest_12m_export_usd),
-        comparison_text(
-            summary.export_yoy_pct,
-            summary.export_comparison_status,
-        ),
     )
     metrics[1].metric(
         "{}의 대{} 수입 · 최근 12개월".format(reporter, partner),
         metric_money(summary.latest_12m_import_usd),
-        comparison_text(
-            summary.import_yoy_pct,
-            summary.import_comparison_status,
-        ),
     )
     metrics[2].metric(
         "무역수지 · 최근 12개월",
         metric_money(summary.latest_12m_balance_usd),
     )
-    st.write(summary.user_summary)
+    metrics[3].metric(
+        "대{} 수출 증감률".format(partner),
+        comparison_text(
+            summary.export_yoy_pct,
+            summary.export_comparison_status,
+        ).replace("직전 12개월 대비 ", ""),
+    )
+    if summary.source_refs:
+        reference = summary.source_refs[0]
+        st.markdown(
+            "[{}]({}) · 기준월 {} · 수출 FOB / 수입 CIF · 금액 USD"
+            .format(
+                escape(reference.source_title),
+                escape(reference.official_url),
+                escape(reference.source_as_of),
+            )
+        )
+    if interpretation is not None:
+        st.write(interpretation.summary)
+        st.caption(interpretation.limitation)
+    else:
+        st.write(summary.user_summary)
+        st.caption(boundary)
     if summary.hs_code is None:
         st.info(
             "HS Code 미확인 · 현재 문서에서 확인된 HS Code가 없어 "
@@ -2678,7 +3340,6 @@ def _render_trade_statistics_section(
             )
         )
 
-    latest_start = shift_month(summary.latest_period, -11)
     chart_periods = month_range(latest_start, summary.latest_period)
     observations = {
         item.period: item
@@ -2703,56 +3364,101 @@ def _render_trade_statistics_section(
             for period in chart_periods
         ]
     )
-    st.markdown("#### 최근 월별 수출·수입 추이")
-    st.caption(
-        "단위 USD · 범례로 수출·수입을 구분합니다. 미응답 월은 0으로 "
-        "채우지 않습니다."
-    )
-    st.bar_chart(
-        chart_frame,
-        x="월",
-        y=["한국 수출 (USD)", "한국 수입 (USD)"],
-        x_label="관측월",
-        y_label="USD",
-        color=["#2563eb", "#f59e0b"],
-        stack=False,
-        use_container_width=True,
-        height=320,
-    )
-    if summary.source_refs:
-        reference = summary.source_refs[0]
-        st.markdown(
-            "[{}]({}) · 기준월 {} · 수출 FOB / 수입 CIF · 금액 USD"
-            .format(
-                escape(reference.source_title),
-                escape(reference.official_url),
-                escape(reference.source_as_of),
-            )
-        )
-    st.caption(boundary)
-    with st.expander("출처 및 기술정보", expanded=False):
+    with st.expander("월별 상세 추이 보기", expanded=False):
+        st.markdown("#### 최근 월별 수출·수입 추이")
         st.caption(
-            "source={} · status={} · snapshot={} · collected_at={}".format(
-                snapshot.source_name,
-                result.status,
-                snapshot.snapshot_id,
-                snapshot.collected_at,
+            "단위 USD · 범례로 수출·수입을 구분합니다. 미응답 월은 "
+            "0으로 채우지 않습니다."
+        )
+        st.bar_chart(
+            chart_frame,
+            x="월",
+            y=["한국 수출 (USD)", "한국 수입 (USD)"],
+            x_label="관측월",
+            y_label="USD",
+            color=["#2563eb", "#f59e0b"],
+            stack=False,
+            use_container_width=True,
+            height=320,
+        )
+    if show_internal_debug:
+        with st.expander("개발자용 · 출처 및 기술정보", expanded=False):
+            st.caption(
+                "source={} · status={} · snapshot={} · collected_at={}".format(
+                    snapshot.source_name,
+                    result.status,
+                    snapshot.snapshot_id,
+                    snapshot.collected_at,
+                )
             )
-        )
-        st.caption(
-            "raw_sha256={} · normalized_sha256={}".format(
-                snapshot.raw_sha256,
-                snapshot.normalized_sha256,
+            st.caption(
+                "raw_sha256={} · normalized_sha256={}".format(
+                    snapshot.raw_sha256,
+                    snapshot.normalized_sha256,
+                )
             )
-        )
-        st.caption(
-            "request_fingerprint={}".format(result.request_fingerprint)
-        )
-        for warning in result.warnings:
-            st.caption("주의 · {}".format(warning))
-        for limitation in summary.limitations:
-            st.caption("한계 · {}".format(limitation))
+            st.caption(
+                "request_fingerprint={}".format(result.request_fingerprint)
+            )
+            if interpretation is not None:
+                st.caption(
+                    "interpretation_status={} · input_fingerprint={} · "
+                    "model={}".format(
+                        interpretation.status,
+                        interpretation.input_fingerprint,
+                        interpretation.generation_model or "DETERMINISTIC",
+                    )
+                )
+            for warning in result.warnings:
+                st.caption("주의 · {}".format(warning))
+            for limitation in summary.limitations:
+                st.caption("한계 · {}".format(limitation))
     render_hs_controls()
+
+
+def _render_market_country_context(
+    market_integration: Optional[MarketIntegrationResult],
+) -> None:
+    st.markdown(
+        "<div class='stage-bridge'><span>6 · 참고정보</span></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("## 시장·국가 참고정보")
+    st.caption(
+        "아래 정보는 환율 전망과 거래 배경을 이해하기 위한 참고자료이며, "
+        "금융 계산이나 상품 승인 여부를 직접 변경하지 않습니다."
+    )
+    news_tab, country_tab, statistics_tab = st.tabs(
+        ["시장 뉴스", "국가·경제환경", "무역통계"]
+    )
+    with news_tab:
+        _render_market_news(
+            build_market_news_views(market_integration, limit=5)
+        )
+    with country_tab:
+        st.caption(
+            "국가 신용등급이나 개별 거래처 평가가 아니라 공식 관측자료 "
+            "기반의 상담 참고정보입니다."
+        )
+        country_assessment = _model_from_state(
+            "country_environment_assessment",
+            CountryTradeEnvironmentAssessment,
+        )
+        if country_assessment is None:
+            st.info("현재 연결된 국가·경제환경 참고자료가 없습니다.")
+        else:
+            _render_country_environment_section(country_assessment)
+    with statistics_tab:
+        st.caption(
+            "개별 거래의 안전성·환율 방향·금융상품 승인 가능성을 "
+            "의미하지 않습니다."
+        )
+        _render_trade_statistics_section(
+            _model_from_state(
+                "trade_statistics_result",
+                TradeStatisticsResult,
+            )
+        )
 
 
 def _render_trade_risk_section(
@@ -2867,7 +3573,7 @@ def _render_trade_risk_section(
                 ),
                 format_func=lambda value: {
                     "UNKNOWN": "미확인",
-                    "OPEN_ACCOUNT": "Open Account · 사후송금",
+                    "OPEN_ACCOUNT": "외상거래(Open Account) · 사후송금",
                     "DOCUMENTARY_CREDIT": "신용장 · L/C",
                     "DOCUMENTARY_COLLECTION_DP": "추심 D/P",
                     "DOCUMENTARY_COLLECTION_DA": "추심 D/A",
@@ -3115,9 +3821,17 @@ def _render_trade_risk_section(
                         stage2_result=stage2_result,
                         trade_settlement_risk=assessment,
                         country_environment=country_assessment,
+                        country_economic_interpretation=(
+                            _ensure_country_economic_interpretation(
+                                country_assessment
+                            )
+                        ),
                         trade_statistics=_model_from_state(
                             "trade_statistics_result",
                             TradeStatisticsResult,
+                        ),
+                        trade_statistics_interpretation=(
+                            _ensure_trade_statistics_interpretation()
                         ),
                         installment_payment_statuses=(
                             _installment_payment_statuses_from_state()
@@ -3140,6 +3854,9 @@ def _render_trade_risk_section(
                             consultation_topics=(
                                 decision_support.consultation_topics
                             ),
+                            consultation_packet=(
+                                decision_support.consultation_packet.packet
+                            ),
                         )
                         decision_support = build_decision_support(
                             case_id=workflow.case_id,
@@ -3150,9 +3867,17 @@ def _render_trade_risk_section(
                             stage2_result=stage2_result,
                             trade_settlement_risk=assessment,
                             country_environment=country_assessment,
+                            country_economic_interpretation=(
+                                _ensure_country_economic_interpretation(
+                                    country_assessment
+                                )
+                            ),
                             trade_statistics=_model_from_state(
                                 "trade_statistics_result",
                                 TradeStatisticsResult,
+                            ),
+                            trade_statistics_interpretation=(
+                                _ensure_trade_statistics_interpretation()
                             ),
                             official_candidate_shortlist=shortlist,
                             installment_payment_statuses=(
@@ -3207,7 +3932,7 @@ def _render_trade_risk_section(
     payment_labels = {
         "UNKNOWN": "확인 필요",
         "NOT_APPLICABLE": "해당 없음",
-        "OPEN_ACCOUNT": "Open Account · 사후송금",
+        "OPEN_ACCOUNT": "외상거래(Open Account) · 사후송금",
         "DOCUMENTARY_CREDIT": "신용장 · L/C",
         "DOCUMENTARY_COLLECTION_DP": "추심 D/P",
         "DOCUMENTARY_COLLECTION_DA": "추심 D/A",
@@ -3330,6 +4055,26 @@ def _five_percent_adverse_result(
     )
 
 
+def _five_percent_favorable_result(
+    result: Optional[Stage2Result],
+) -> Optional[Any]:
+    if result is None:
+        return None
+    expected_name = (
+        "STRESS_-5.00PCT"
+        if result.trade_type == "IMPORT"
+        else "STRESS_+5.00PCT"
+    )
+    return next(
+        (
+            item
+            for item in result.scenario_results
+            if item.scenario_name == expected_name
+        ),
+        None,
+    )
+
+
 def _risk_summary(
     result: Stage2Result,
 ) -> Tuple[str, str, str, str]:
@@ -3391,8 +4136,9 @@ def _section_intro(
     description: str,
 ) -> None:
     page_steps = {
-        "원문 검증": "2",
-        "거래 영향": "3",
+        "원문 검증": "1",
+        "거래 영향": "2",
+        "선택 · 공식 출처": "3",
         "상담 실행 준비": "4",
         "결과 저장": "✓",
     }
@@ -3449,6 +4195,136 @@ def _consultation_artifact_date(value: ConsultationPacketResult) -> str:
     return settlement_date or "날짜미정"
 
 
+def _user_facing_markdown(value: str) -> str:
+    """Hide audit-only bindings while preserving the validated artifact."""
+
+    visible = value.split("\n## 8. Trace", 1)[0]
+    hidden_labels = (
+        "Case ID:",
+        "입력 hash:",
+        "원문 document hash:",
+        "fingerprint",
+        "계산 버전:",
+        "critic=",
+        "grounding",
+        "target_date",
+        "settlement_date",
+    )
+    visible = "\n".join(
+        line
+        for line in visible.splitlines()
+        if not any(label.lower() in line.lower() for label in hidden_labels)
+    )
+    visible = re.sub(r"\s*\[source:[^\]]+\]", "", visible)
+    replacements = {
+        "`ConsultationPacket` JSON": "상담 준비 데이터",
+        "Stage 1": "환율 전망",
+        "Stage 2": "현금흐름 분석",
+        "Stage 3 후보": "환율 대응안",
+        "STRESS_-5PCT": "환율 -5% 시나리오",
+        "BASE": "기준 시나리오",
+        "국가환경 snapshot": "국가환경 공식자료",
+        "eligibility와 approval은 UNKNOWN 또는 상담 필요": (
+            "자격과 승인 여부는 상담 전 확정되지 않음"
+        ),
+        "NONE_CONFIRMED": "확인되지 않음",
+        "NONE_IN_CALCULATION_INPUT": "계산 입력에서 확인되지 않음",
+        "NOT_APPLICABLE": "해당 없음",
+    }
+    for source, target in replacements.items():
+        visible = visible.replace(source, target)
+    return consultation_user_text(visible).strip()
+
+
+def _consultation_pdf_artifact(
+    value: ConsultationPacketResult,
+) -> Tuple[bytes, str]:
+    validate_official_candidate_artifact_state(st.session_state)
+    transaction = _model_from_state(
+        "confirmed_transaction",
+        ConfirmedTransactionSnapshot,
+    )
+    if transaction is None:
+        workflow = _workflow_from_state()
+        transaction = (
+            workflow.confirmed_transaction
+            if workflow is not None
+            else None
+        )
+    stage2_result = _model_from_state("stage2_result", Stage2Result)
+    if transaction is None or stage2_result is None:
+        raise ConsultationPreparationPdfError(
+            "현재 거래와 현금흐름 결과를 확인한 뒤 상담 준비서를 다시 "
+            "생성해 주세요."
+        )
+    try:
+        generated_at = datetime.fromisoformat(value.packet.generated_at)
+    except (TypeError, ValueError) as exc:
+        raise ConsultationPreparationPdfError(
+            "상담 준비서 생성시각을 확인할 수 없습니다."
+        ) from exc
+    if generated_at.tzinfo is None:
+        raise ConsultationPreparationPdfError(
+            "상담 준비서 생성시각의 시간대를 확인할 수 없습니다."
+        )
+    forecast_summary: Optional[Dict[str, str]] = None
+    market = _model_from_state(
+        "market_integration",
+        MarketIntegrationResult,
+    )
+    forecast_view = build_fx_forecast_view(market)
+    if forecast_view is not None:
+        center = (
+            "{}원".format(
+                format_decimal_display(forecast_view.center_rate, 2)
+            )
+            if forecast_view.center_rate is not None
+            else "중심환율 확인 필요"
+        )
+        lower = (
+            "{}원".format(
+                format_decimal_display(forecast_view.lower_rate, 2)
+            )
+            if forecast_view.lower_rate is not None
+            else "하한 확인 필요"
+        )
+        upper = (
+            "{}원".format(
+                format_decimal_display(forecast_view.upper_rate, 2)
+            )
+            if forecast_view.upper_rate is not None
+            else "상한 확인 필요"
+        )
+        forecast_summary = {
+            "headline": "{} 전망 · 모델 중심환율 {}".format(
+                forecast_view.direction,
+                center,
+            ),
+            "range": (
+                "예측 범위 {}~{} · 모델 전망기간 {}~{} · "
+                "결제예정일 {}"
+            ).format(
+                lower,
+                upper,
+                forecast_view.reference_as_of,
+                forecast_view.horizon_end_date,
+                forecast_view.target_date,
+            ),
+            "data_as_of": forecast_view.data_as_of,
+        }
+    pdf_bytes = build_consultation_preparation_pdf(
+        packet=value.packet,
+        transaction=transaction,
+        stage2_result=stage2_result,
+        generated_at=generated_at,
+        forecast_summary=forecast_summary,
+    )
+    return (
+        pdf_bytes,
+        consultation_preparation_pdf_filename(generated_at),
+    )
+
+
 def _render_download_action_panel(
     value: ConsultationPacketResult,
 ) -> None:
@@ -3458,17 +4334,20 @@ def _render_download_action_panel(
         "</h3><p>우선 상담과 공식 근거를 한 자료로 저장합니다.</p></div>",
         unsafe_allow_html=True,
     )
-    st.download_button(
-        "⇩  상담 준비서 다운로드",
-        data=value.markdown,
-        file_name="KB_상담_준비서_{}.md".format(
-            _consultation_artifact_date(value)
-        ),
-        mime="text/markdown",
-        key="consultation_workspace_handoff_download",
-        type="primary",
-        width="stretch",
-    )
+    try:
+        pdf_bytes, pdf_filename = _consultation_pdf_artifact(value)
+    except (ConsultationPreparationPdfError, ValueError) as exc:
+        st.error(str(exc))
+    else:
+        st.download_button(
+            "⇩  상담 준비서 PDF 다운로드",
+            data=pdf_bytes,
+            file_name=pdf_filename,
+            mime=PDF_MIME,
+            key="consultation_workspace_handoff_download",
+            type="primary",
+            width="stretch",
+        )
     with st.popover("공식 출처 확인 ↗", use_container_width=True):
         _render_official_sources_body(value)
     if candidates:
@@ -3491,7 +4370,7 @@ def _render_download_action_panel(
     else:
         st.info(
             "아직 연결된 공식 후보가 없습니다. 아래 공식 상담정보 찾기를 "
-            "실행하면 검증된 shortlist만 표시합니다."
+            "실행하면 검증된 상담 후보만 표시합니다."
         )
     st.button(
         "전체 다운로드와 보고서 보기",
@@ -3517,6 +4396,10 @@ def _demo_all(company_role: str = "BUYER") -> None:
     st.session_state["company_country_widget"] = "KR"
     st.session_state["stage1_mode_widget"] = "EXTERNAL_STAGE1"
     result = run_decision_support_demo(company_role)
+    forecast_demo = run_decision_support_demo(
+        company_role,
+        use_stage1_web_fixture=True,
+    )["market_integration"]
     extraction = result["extraction"]
     source_path, source_mime, original_extraction = _demo_fixture(company_role)
     _save_model("extraction", extraction)
@@ -3539,6 +4422,11 @@ def _demo_all(company_role: str = "BUYER") -> None:
         document_input_from_confirmed_transaction(demo_snapshot)
     )
     _save_model("stage1_load", result["stage1_load"])
+    if forecast_demo is not None:
+        _save_model(
+            "market_integration",
+            forecast_demo,
+        )
     _save_model("stage2_input", result["stage2_input"])
     _save_model("stage2_result", result["stage2"])
     _save_model(
@@ -3626,10 +4514,513 @@ def _start_golden_registration() -> None:
     st.session_state["company_country_widget"] = "KR"
 
 
+PROFILE_OPTION_LABELS: Dict[str, Dict[str, str]] = {
+    "shipment_status": {
+        "UNKNOWN": "확인 필요",
+        "PRE_SHIPMENT": "아직 선적 전",
+        "COMPLETED": "선적 완료",
+    },
+    "receivable_status": {
+        "UNKNOWN": "확인 필요",
+        "EXISTS": "수출채권 발생",
+        "NOT_YET": "아직 발생 전",
+        "NONE": "수출채권 없음",
+    },
+    "trade_form": {
+        "UNKNOWN": "확인 필요",
+        "GENERAL_EXPORT": "일반수출",
+        "PROCESSING_TRADE": "위탁가공무역",
+        "INTERMEDIARY_TRADE": "중계무역",
+        "RESALE_TRADE": "재판매",
+    },
+    "customs_clearance": {
+        "UNKNOWN": "확인 필요",
+        "YES": "통관 완료",
+        "NO": "통관 전 또는 미완료",
+    },
+    "relationship_scope": {
+        "UNKNOWN": "확인 필요",
+        "SINGLE_ONE_OFF": "단일 거래",
+        "RECURRING_SINGLE_BUYER": "한 수입자와 반복 거래",
+        "RECURRING_MULTIPLE_BUYERS": "여러 수입자와 반복 거래",
+    },
+    "credit_information_status": {
+        "UNKNOWN": "확인 필요",
+        "SUFFICIENT": "신용정보 충분",
+        "INSUFFICIENT": "신용정보 부족",
+    },
+    "credit_investigation_intent": {
+        "UNKNOWN": "확인 필요",
+        "YES": "신용조사 필요",
+        "NO": "현재 필요 없음",
+    },
+    "funding_purposes": {
+        "UNKNOWN": "확인 필요",
+        "MANUFACTURING": "수출물품 제조",
+        "PROCESSING": "수출물품 가공",
+        "RAW_MATERIAL_PROCUREMENT": "원자재 조달",
+        "FINISHED_GOODS_PROCUREMENT": "완제품 조달",
+        "EXPORT_PERFORMANCE": "수출이행 자금",
+        "RECEIVABLE_EARLY_CASH_CONVERSION": "수출채권 조기 현금화",
+        "GENERAL_WORKING_CAPITAL": "일반 운영자금",
+        "PRODUCTION_FACILITY": "생산설비",
+        "NONE": "해당 없음",
+    },
+    "receivable_financing_intent": {
+        "UNKNOWN": "확인 필요",
+        "NONE": "채권 매입 계획 없음",
+        "NEGO_OR_PURCHASE": "네고·채권매입 검토",
+        "KB_RECEIVABLE_PURCHASE": "KB 수출채권 매입 상담",
+    },
+    "early_cash_conversion_intent": {
+        "UNKNOWN": "확인 필요",
+        "YES": "조기 현금화 필요",
+        "NO": "조기 현금화 불필요",
+        "NOT_APPLICABLE": "해당 없음",
+    },
+    "bank_financing_intent": {
+        "UNKNOWN": "확인 필요",
+        "YES": "은행 금융 상담 의사 있음",
+        "NO": "현재 상담 의사 없음",
+    },
+    "repayment_responsibility_acknowledgement": {
+        "UNKNOWN": "확인 필요",
+        "ACKNOWLEDGED": "수출자 상환책임을 확인함",
+        "NOT_ACKNOWLEDGED": "아직 확인하지 않음",
+        "NOT_APPLICABLE": "해당 없음",
+    },
+    "short_term_export_insurance_linkage_review": {
+        "UNKNOWN": "확인 필요",
+        "AGREED_TO_REVIEW": "연계 검토에 동의",
+        "NOT_AGREED": "연계 검토하지 않음",
+        "NOT_APPLICABLE": "해당 없음",
+    },
+    "sme_status": {
+        "UNKNOWN": "확인 필요",
+        "CONFIRMED": "중소기업 해당 확인",
+        "NOT_CONFIRMED": "중소기업 해당 아님/미확인",
+    },
+    "annual_export_band": {
+        "UNKNOWN": "확인 필요",
+        "BELOW_USD_100K": "최근 1년 USD 100,000 미만",
+        "AT_LEAST_USD_100K": "최근 1년 USD 100,000 이상",
+    },
+    "market_entry_purpose": {
+        "UNKNOWN": "확인 필요",
+        "YES": "해외시장 확대 목적 있음",
+        "NO": "해당 목적 없음",
+    },
+    "policy_finance_need": {
+        "UNKNOWN": "확인 필요",
+        "YES": "정책금융 상담 희망",
+        "NO": "현재 희망하지 않음",
+    },
+    "production_or_working_capital_need": {
+        "UNKNOWN": "확인 필요",
+        "YES": "생산설비·운전자금 필요",
+        "NO": "해당 자금 필요 없음",
+    },
+}
+
+
+def _profile_selectbox(
+    *,
+    field_name: str,
+    label: str,
+    current_value: str,
+    help_text: Optional[str] = None,
+    allowed_values: Optional[List[str]] = None,
+) -> str:
+    labels = PROFILE_OPTION_LABELS[field_name]
+    options = [
+        value
+        for value in labels
+        if allowed_values is None or value in allowed_values
+    ]
+    if current_value not in options:
+        options.append(current_value)
+    return st.selectbox(
+        label,
+        options,
+        index=_safe_index(options, current_value),
+        format_func=lambda value: labels[value],
+        help=help_text,
+        key="official_profile_{}_widget".format(field_name),
+    )
+
+
+def _render_official_candidate_profile_form(
+    workflow: WorkflowState,
+) -> None:
+    transaction = workflow.confirmed_transaction
+    if transaction is None:
+        st.info("거래정보를 먼저 확정하면 금융지원 확인 질문이 열립니다.")
+        return
+    current = workflow.official_candidate_input_profile
+    defaults = current or OfficialCandidateInputProfile()
+    trade_risk_confirmation = _model_from_state(
+        "trade_risk_confirmation",
+        TradeRiskConfirmationRecord,
+    )
+    st.markdown("### 필요한 조건만 추가로 확인하세요")
+    st.caption(
+        "모르는 항목은 ‘확인 필요’로 두세요. 답을 추측하거나 기본값을 "
+        "‘아니오’로 처리하지 않으며, 확인된 사실만 후보 필터에 사용합니다."
+    )
+    validation_notice = st.session_state.pop(
+        "official_profile_validation_notice",
+        None,
+    )
+    if validation_notice is not None:
+        for message in validation_notice.get("errors", []):
+            st.error(message)
+        for message in validation_notice.get("warnings", []):
+            st.warning(message)
+        st.info("충돌한 항목을 수정한 뒤 다시 추천을 업데이트해 주세요.")
+    if trade_risk_confirmation is not None:
+        confirmed_risk = trade_risk_confirmation.confirmed_input
+        payment_labels = {
+            "OPEN_ACCOUNT": "O/A(외상송금)",
+            "DOCUMENTARY_CREDIT": "L/C(신용장)",
+            "DOCUMENTARY_COLLECTION_DP": "D/P(지급인도)",
+            "DOCUMENTARY_COLLECTION_DA": "D/A(인수인도)",
+            "UNKNOWN": "확인 필요",
+        }
+        relationship_labels = {
+            "NEW": "신규 거래처",
+            "EXISTING": "기존 거래처",
+            "UNKNOWN": "확인 필요",
+        }
+        st.info(
+            "이미 확인한 거래정보 · 결제방식 {} · 거래처 관계 {}".format(
+                payment_labels.get(
+                    confirmed_risk.balance_payment_method,
+                    "기타/확인 필요",
+                ),
+                relationship_labels.get(
+                    confirmed_risk.counterparty_relationship,
+                    "확인 필요",
+                ),
+            )
+        )
+
+    with st.form("official_candidate_input_profile_form"):
+        st.markdown("#### 거래 진행과 채권")
+        progress_columns = st.columns(2)
+        with progress_columns[0]:
+            shipment_status = _profile_selectbox(
+                field_name="shipment_status",
+                label="선적을 완료했나요?",
+                current_value=defaults.shipment_status,
+                help_text="선적일만으로 완료를 추정하지 않고 직접 확인합니다.",
+            )
+            receivable_status = _profile_selectbox(
+                field_name="receivable_status",
+                label="수출채권이 발생했나요?",
+                current_value=defaults.receivable_status,
+            )
+            trade_form = _profile_selectbox(
+                field_name="trade_form",
+                label="거래 형태는 무엇인가요?",
+                current_value=defaults.trade_form,
+            )
+            customs_clearance = _profile_selectbox(
+                field_name="customs_clearance",
+                label="수출 통관 상태를 확인했나요?",
+                current_value=defaults.customs_clearance,
+            )
+        with progress_columns[1]:
+            relationship_scope = _profile_selectbox(
+                field_name="relationship_scope",
+                label="거래가 반복되는 범위는 무엇인가요?",
+                current_value=defaults.relationship_scope,
+            )
+            credit_information_status = _profile_selectbox(
+                field_name="credit_information_status",
+                label="거래처 신용정보가 충분한가요?",
+                current_value=defaults.credit_information_status,
+            )
+            credit_investigation_intent = _profile_selectbox(
+                field_name="credit_investigation_intent",
+                label="공식 신용조사 자료가 필요한가요?",
+                current_value=defaults.credit_investigation_intent,
+            )
+
+        st.markdown("#### 자금 목적과 채권 매입")
+        receivable_questions_not_applicable = (
+            shipment_status == "PRE_SHIPMENT"
+            or receivable_status in {"NOT_YET", "NONE"}
+        )
+        if receivable_questions_not_applicable:
+            st.info(
+                "선적 전이거나 발생한 수출채권이 없으므로 채권 매입·조기 "
+                "현금화 질문은 ‘계획 없음’ 또는 ‘해당 없음’으로 확인해 주세요."
+            )
+        funding_columns = st.columns(2)
+        current_purpose = defaults.funding_purposes[0]
+        with funding_columns[0]:
+            funding_purpose = _profile_selectbox(
+                field_name="funding_purposes",
+                label="이번 상담의 주된 자금 목적은 무엇인가요?",
+                current_value=current_purpose,
+            )
+            receivable_financing_intent = _profile_selectbox(
+                field_name="receivable_financing_intent",
+                label="환어음·수출채권 매입 또는 네고 계획이 있나요?",
+                current_value=defaults.receivable_financing_intent,
+                help_text=(
+                    "네고는 은행이 수출서류나 채권을 만기 전에 매입하는 "
+                    "거래를 뜻합니다."
+                ),
+                allowed_values=(
+                    ["UNKNOWN", "NONE"]
+                    if receivable_questions_not_applicable
+                    else None
+                ),
+            )
+            early_cash_conversion_intent = _profile_selectbox(
+                field_name="early_cash_conversion_intent",
+                label="수출채권을 만기 전에 현금화할 필요가 있나요?",
+                current_value=defaults.early_cash_conversion_intent,
+                allowed_values=(
+                    ["UNKNOWN", "NOT_APPLICABLE"]
+                    if receivable_questions_not_applicable
+                    else None
+                ),
+            )
+            bank_financing_intent = _profile_selectbox(
+                field_name="bank_financing_intent",
+                label="은행 금융 상담을 원하나요?",
+                current_value=defaults.bank_financing_intent,
+            )
+        with funding_columns[1]:
+            repayment_ack = _profile_selectbox(
+                field_name="repayment_responsibility_acknowledgement",
+                label="채권매입 금융의 수출자 상환책임을 확인했나요?",
+                current_value=(
+                    defaults.repayment_responsibility_acknowledgement
+                ),
+                allowed_values=(
+                    ["UNKNOWN", "NOT_APPLICABLE"]
+                    if receivable_questions_not_applicable
+                    else None
+                ),
+            )
+            insurance_linkage = _profile_selectbox(
+                field_name="short_term_export_insurance_linkage_review",
+                label="단기수출보험 연계 여부를 상담에서 확인할까요?",
+                current_value=(
+                    defaults.short_term_export_insurance_linkage_review
+                ),
+                allowed_values=(
+                    ["UNKNOWN", "NOT_APPLICABLE"]
+                    if shipment_status == "PRE_SHIPMENT"
+                    else None
+                ),
+            )
+
+        with st.expander("정책금융이 필요할 때만 확인", expanded=False):
+            policy_columns = st.columns(2)
+            with policy_columns[0]:
+                sme_status = _profile_selectbox(
+                    field_name="sme_status",
+                    label="중소기업 해당 여부가 확인됐나요?",
+                    current_value=defaults.sme_status,
+                )
+                annual_export_band = _profile_selectbox(
+                    field_name="annual_export_band",
+                    label="최근 1년 수출실적 구간",
+                    current_value=defaults.annual_export_band,
+                )
+            with policy_columns[1]:
+                market_entry_purpose = _profile_selectbox(
+                    field_name="market_entry_purpose",
+                    label="해외시장 확대 목적이 있나요?",
+                    current_value=defaults.market_entry_purpose,
+                )
+                policy_finance_need = _profile_selectbox(
+                    field_name="policy_finance_need",
+                    label="정책금융 상담을 원하나요?",
+                    current_value=defaults.policy_finance_need,
+                )
+                production_need = _profile_selectbox(
+                    field_name="production_or_working_capital_need",
+                    label="생산설비 또는 운전자금이 필요한가요?",
+                    current_value=(
+                        defaults.production_or_working_capital_need
+                    ),
+                )
+        submitted = st.form_submit_button(
+            "선택 내용 반영해 추천 업데이트",
+            type="primary",
+            width="stretch",
+        )
+
+    if not submitted:
+        return
+    values: Dict[str, Any] = {
+        "shipment_status": shipment_status,
+        "receivable_status": receivable_status,
+        "trade_form": trade_form,
+        "customs_clearance": customs_clearance,
+        "relationship_scope": relationship_scope,
+        "credit_information_status": credit_information_status,
+        "credit_investigation_intent": credit_investigation_intent,
+        "funding_purposes": [funding_purpose],
+        "receivable_financing_intent": receivable_financing_intent,
+        "early_cash_conversion_intent": early_cash_conversion_intent,
+        "bank_financing_intent": bank_financing_intent,
+        "repayment_responsibility_acknowledgement": repayment_ack,
+        "short_term_export_insurance_linkage_review": insurance_linkage,
+        "sme_status": sme_status,
+        "annual_export_band": annual_export_band,
+        "market_entry_purpose": market_entry_purpose,
+        "policy_finance_need": policy_finance_need,
+        "production_or_working_capital_need": production_need,
+    }
+    field_sources: Dict[str, str] = {}
+    for field_name in OFFICIAL_CANDIDATE_INPUT_FIELDS:
+        value = values[field_name]
+        unknown = value == "UNKNOWN" or value == ["UNKNOWN"]
+        field_sources[field_name] = (
+            "UNKNOWN"
+            if unknown
+            else "COMPANY_PROFILE_CONFIRMED"
+            if field_name in {"sme_status", "annual_export_band"}
+            else "USER_CONFIRMED"
+        )
+    profile = OfficialCandidateInputProfile(
+        **values,
+        field_sources=field_sources,
+        confirmed_at=datetime.now(timezone.utc).isoformat(),
+        confirmed_by="streamlit-user",
+        bound_transaction_fingerprint=transaction.input_fingerprint,
+    )
+    current_profile = workflow.official_candidate_input_profile
+    if (
+        current_profile is not None
+        and current_profile.input_fingerprint == profile.input_fingerprint
+    ):
+        update_official_candidate_input_profile(st.session_state, profile)
+        st.info("이미 최신 조건이 반영되어 있습니다.")
+        return
+
+    has_confirmed_lc = bool(
+        trade_risk_confirmation is not None
+        and trade_risk_confirmation.confirmed_input.field_sources.get(
+            "balance_payment_method",
+            "UNKNOWN",
+        )
+        != "UNKNOWN"
+        and trade_risk_confirmation.confirmed_input.balance_payment_method
+        == "DOCUMENTARY_CREDIT"
+    )
+    profile_validation = assess_official_candidate_input_profile(
+        profile,
+        has_confirmed_lc=has_confirmed_lc,
+    )
+    if profile_validation.hard_blocking_issues:
+        # A rejected profile must never leave the previous shortlist or report
+        # visible as though it reflected the conflicting selections.  Keep the
+        # transaction and Stage1~3 calculations, but fail closed from the
+        # official-candidate boundary onward.
+        clear_official_candidate_outputs(st.session_state)
+        st.session_state["official_profile_validation_notice"] = {
+            "errors": [
+                issue.user_message
+                for issue in profile_validation.hard_blocking_issues
+            ],
+            "warnings": [
+                issue.user_message
+                for issue in profile_validation.warning_issues
+            ],
+        }
+        # Start a clean render pass.  Several downstream panels may already
+        # hold local references loaded earlier in this run, so a plain return
+        # can paint stale cards once more below the validation message.
+        st.rerun()
+    if profile_validation.warning_issues:
+        pending_fingerprint = st.session_state.get(
+            "official_profile_warning_confirmation_fingerprint"
+        )
+        if pending_fingerprint != profile.input_fingerprint:
+            st.session_state[
+                "official_profile_warning_confirmation_fingerprint"
+            ] = profile.input_fingerprint
+            for issue in profile_validation.warning_issues:
+                st.warning(issue.user_message)
+            st.info(
+                "선택이 맞다면 같은 버튼을 한 번 더 눌러 확인하고 추천을 "
+                "업데이트하세요."
+            )
+            return
+    st.session_state.pop(
+        "official_profile_warning_confirmation_fingerprint",
+        None,
+    )
+    changed = update_official_candidate_input_profile(
+        st.session_state,
+        profile,
+    )
+    if changed:
+        st.session_state["official_candidate_auto_refresh"] = True
+        st.rerun()
+    st.info("이미 최신 조건이 반영되어 있습니다.")
+
+
 load_dotenv()
 settings = Settings.from_env()
 presentation_mode = settings.app_env == "presentation"
+show_internal_debug = bool(
+    settings.app_env == "development" or settings.show_internal_debug
+)
 orchestrator = WorkflowOrchestrator(settings=settings)
+
+
+def _run_hedge_comparison(
+    *,
+    grid_step_percent: int,
+    stability_preference: Decimal,
+    forward_fee_bps: Decimal,
+    staged_conversion_fee_bps: Decimal,
+    staged_risk_factor: Decimal,
+    maximum_forward_ratio: Decimal,
+    forward_effective_rate: Optional[str] = None,
+) -> bool:
+    """기존 결정론 환율 대응안 비교를 실행하고 후속 결과만 비운다."""
+
+    st.session_state.pop("stage3_result", None)
+    clear_downstream(
+        st.session_state,
+        4,
+        clear_widgets=False,
+    )
+    workflow = _workflow_from_state()
+    if workflow is None:
+        st.error("분석 세션이 없습니다. 거래 확인부터 다시 시작하세요.")
+        return False
+    workflow = orchestrator.run_hedge(
+        workflow,
+        grid_step_percent=grid_step_percent,
+        stability_preference=format(stability_preference, "f"),
+        assumptions=Stage3Assumptions(
+            forward_effective_rate=forward_effective_rate,
+            forward_fee_bps=format(forward_fee_bps, "f"),
+            staged_conversion_fee_bps=format(
+                staged_conversion_fee_bps,
+                "f",
+            ),
+            staged_risk_factor=format(staged_risk_factor, "f"),
+            risk_aversion_weight=format(stability_preference, "f"),
+            maximum_forward_ratio=format(maximum_forward_ratio, "f"),
+        ),
+    )
+    _save_workflow(workflow)
+    if workflow.hedge is None or workflow.hedge.data is None:
+        return False
+    _save_model("stage3_result", workflow.hedge.data)
+    clear_downstream(st.session_state, 4)
+    return True
 
 
 def _store_intake_workflow(
@@ -4258,6 +5649,12 @@ div[data-testid="stMetric"] {
     unsafe_allow_html=True,
 )
 apply_kb_workspace_theme()
+if not show_internal_debug:
+    st.markdown(
+        "<style>[data-testid='stToolbar'], [data-testid='stStatusWidget']"
+        "{display:none !important;}</style>",
+        unsafe_allow_html=True,
+    )
 
 st.session_state.setdefault(
     "run_mode_widget",
@@ -4412,7 +5809,7 @@ with st.sidebar:
         st.caption(
             "문서 모델 환경변수 · {}".format(settings.openai_model)
         )
-        if presentation_mode:
+        if presentation_mode and show_internal_debug:
             st.caption(
                 "등록된 합성문서는 content SHA-256이 일치할 때만 "
                 "API-free 검토 adapter를 사용합니다."
@@ -4428,13 +5825,13 @@ with st.sidebar:
                 else settings.stage1_provider
             )
             stage1_provider = st.radio(
-                "환율 경로 provider",
+                "환율 전망 자료",
                 provider_options,
                 index=_safe_index(provider_options, default_provider),
                 format_func=lambda value: {
-                    "http": "로컬 HTTP",
-                    "file": "latest_forecast.json",
-                    "mock": "제공 fixture",
+                    "http": "연결된 AI 전망",
+                    "file": "검증된 전망 자료",
+                    "mock": "모의 전망 자료",
                 }[value],
                 key="stage1_provider_widget",
             )
@@ -4449,7 +5846,7 @@ with st.sidebar:
             if default_spot not in spot_options:
                 default_spot = "manual"
             spot_provider = st.radio(
-                "기준환율 provider",
+                "기준환율 출처",
                 spot_options,
                 index=_safe_index(spot_options, default_spot),
                 format_func=lambda value: {
@@ -4460,8 +5857,8 @@ with st.sidebar:
                 key="spot_provider_widget",
             )
             st.caption(
-                "fallback · HTTP 실패 시 허용된 file/mock 경로와 "
-                "FALLBACK_USED 상태를 결과 근거에 남깁니다."
+                "연결이 지연되면 보관된 자료 또는 고정 스트레스 결과로 "
+                "안전하게 전환하며 실제 연결 결과처럼 표시하지 않습니다."
             )
         elif sidebar_scenario_mode == "EXTERNAL_STAGE1":
             source_type = st.radio(
@@ -4483,11 +5880,11 @@ with st.sidebar:
                     value=settings.stage1_base_url,
                     key="stage1_endpoint_widget",
                 )
-            st.caption("외부 JSON/REST는 Stage 1 adapter 계약으로 검증합니다.")
+            st.caption("외부 전망 자료는 기존 입력 계약에 따라 검증합니다.")
         else:
             st.caption(
-                "현재는 직접 스트레스 테스트를 사용합니다. 외부 provider와 "
-                "fixture fallback은 계산에 적용되지 않습니다."
+                "현재는 직접 스트레스 테스트를 사용하며 외부 전망값은 "
+                "계산에 적용되지 않습니다."
             )
         if not presentation_mode:
             st.markdown("**테스트 fixture**")
@@ -4508,11 +5905,11 @@ with st.sidebar:
         st.divider()
         st.markdown("**연동 상태 점검**")
         st.caption(
-            "Stage 1 health·forecast freshness·fallback·spot 출처와 "
+            "환율 전망 최신성·대체자료·기준환율 출처와 "
             "kb_macro_ai 고정 commit·SHA·거래 지원 여부를 점검합니다."
         )
         st.caption(
-            "현재 설정 · Stage 1 {} · Spot {} · kb_macro_ai {}/{}".format(
+            "현재 설정 · 환율 전망 {} · 기준환율 {} · 외부 헤지 {}/{}".format(
                 settings.stage1_provider,
                 settings.spot_rate_provider,
                 (
@@ -4634,10 +6031,10 @@ if current_page == PAGE_HOME:
     with home_columns[1]:
         render_demo_summary(
             {
-                "거래": "계약 핵심정보와 원문 근거 확인",
-                "영향": "환율 변화와 회사 자금 방어선 분석",
-                "상담": "우선 상담 Top 3와 공식 출처 후보",
-                "저장": "상담 준비서·통합 보고서·JSON",
+                "거래 분석": "계약 핵심정보와 원문 근거 확인",
+                "환율 전망·위험": "AI 방향·범위와 회사 자금 영향",
+                "금융지원 추천": "공식 출처의 검토 후보 최대 3개",
+                "상담 준비·보고서": "질문·준비서류와 상담 자료",
             }
         )
     st.stop()
@@ -4650,14 +6047,14 @@ response_tab = st.container(key="workflow_consultation")
 stage5_tab = st.container(key="workflow_download")
 stage1_tab = risk_tab
 stage2_tab = risk_tab
-stage3_tab = response_tab
+stage3_tab = stage5_tab
 stage4_tab = response_tab
 
 with stage0_tab:
     _section_intro(
         "원문 검증",
-        "거래 확인",
-        "어떤 거래인지 원문과 대조한 뒤 금융 분석을 시작합니다.",
+        "계약서에서 확인한 거래 정보",
+        "AI가 이해한 거래를 원문과 대조한 뒤 분석을 시작합니다.",
     )
     existing_extraction = _model_from_state(
         "extraction",
@@ -5486,7 +6883,7 @@ with stage0_tab:
                     disabled=is_confirmed,
                 )
             confirmation_submit = st.form_submit_button(
-                "원문과 확인하고 금융분석 시작",
+                "거래 기본정보 확정",
                 type="primary",
                 disabled=is_confirmed,
             )
@@ -5561,7 +6958,7 @@ with stage0_tab:
                     )
                     if snapshot is None:
                         raise ValueError(
-                            "확정 거래 snapshot을 만들 수 없습니다. "
+                            "확정 거래정보를 만들 수 없습니다. "
                             "핵심 거래값을 다시 확인하세요."
                         )
                     document_input = (
@@ -5571,9 +6968,9 @@ with stage0_tab:
                         "stage2_document_input"
                     ] = document_input
                     st.success(
-                        "거래가 확정되었습니다. 금융 리스크 분석으로 이동하세요."
+                        "거래가 확정되었습니다. 아래 분석 입력을 이어서 "
+                        "확인하세요."
                     )
-                    set_active_page(PAGE_ANALYSIS)
                     st.rerun()
             except ValueError as exc:
                 st.error(str(exc))
@@ -5610,38 +7007,116 @@ with stage0_tab:
                 )
             else:
                 st.error("핵심값 확인 또는 검증 문제를 해결하세요.")
-            with st.expander("고급 · 확정 거래 데이터", expanded=False):
-                _advanced_downloads_title()
-                download_cols = st.columns(2)
-                with download_cols[0]:
-                    json_download(
-                        label="확정 거래 전체 JSON",
-                        value=st.session_state.get(
-                            "stage0_output",
-                            extraction.model_dump(),
-                        ),
-                        filename="stage0_confirmed.json",
-                        key="download_stage0",
-                    )
-                if "stage2_document_input" in st.session_state:
-                    with download_cols[1]:
+            if show_internal_debug:
+                with st.expander(
+                    "개발자용 · 확정 거래 데이터",
+                    expanded=False,
+                ):
+                    _advanced_downloads_title()
+                    download_cols = st.columns(2)
+                    with download_cols[0]:
                         json_download(
-                            label="현금 계산용 거래 JSON",
-                            value=st.session_state["stage2_document_input"],
-                            filename="stage2_document_input.json",
-                            key="download_document_input",
+                            label="확정 거래 전체 JSON",
+                            value=st.session_state.get(
+                                "stage0_output",
+                                extraction.model_dump(),
+                            ),
+                            filename="stage0_confirmed.json",
+                            key="download_stage0",
                         )
+                    if "stage2_document_input" in st.session_state:
+                        with download_cols[1]:
+                            json_download(
+                                label="현금 계산용 거래 JSON",
+                                value=st.session_state[
+                                    "stage2_document_input"
+                                ],
+                                filename="stage2_document_input.json",
+                                key="download_document_input",
+                            )
+
+    transaction_trade_terms_slot = st.container(
+        key="transaction_trade_terms_slot"
+    )
+    transaction_company_funds_slot = st.container(
+        key="transaction_company_funds_slot"
+    )
+    transaction_assumptions_slot = st.container(
+        key="transaction_assumptions_slot"
+    )
+    transaction_analysis_cta_slot = st.container(
+        key="transaction_analysis_cta_slot"
+    )
 
 with stage1_tab:
     _section_intro(
         "거래 영향",
-        "금융 분석",
-        "환율·현금흐름·결제와 회수 위험이 돈으로 얼마나 영향을 주는지 확인합니다.",
+        "환율 전망·위험",
+        "AI 환율 방향과 변동 범위를 먼저 보고 현금흐름·회수 위험을 확인합니다.",
     )
     risk_overview = _model_from_state(
         "consultation_packet",
         ConsultationPacketResult,
     )
+    completed_stage1 = _model_from_state("stage1_load", Stage1LoadResult)
+    completed_stage2 = _model_from_state("stage2_result", Stage2Result)
+    completed_market = _model_from_state(
+        "market_integration",
+        MarketIntegrationResult,
+    )
+    if (
+        risk_overview is not None
+        and completed_stage1 is not None
+        and completed_stage2 is not None
+    ):
+        _render_fx_forecast_hero(
+            view=build_fx_forecast_view(completed_market),
+            stage2_result=completed_stage2,
+        )
+        _render_financial_overview(
+            risk_overview,
+            stage2_result=completed_stage2,
+        )
+        trade_assessment = _model_from_state(
+            "trade_risk_assessment",
+            TradeSettlementRiskAssessment,
+        )
+        if trade_assessment is not None:
+            _render_trade_risk_details(trade_assessment)
+        _render_financial_evidence(
+            stage1_load=completed_stage1,
+            stage2_result=completed_stage2,
+            market_integration=completed_market,
+            risk_assessment=_model_from_state(
+                "risk_assessment",
+                RiskAssessment,
+            ),
+        )
+        st.markdown(
+            "<div class='stage-bridge'><span>5 · 다음 행동</span></div>",
+            unsafe_allow_html=True,
+        )
+        _, _, cta_headline, _ = _risk_summary(completed_stage2)
+        st.markdown("### 금융지원 상담 후보 확인")
+        st.caption(
+            "확인된 외화노출 {} · 핵심 위험 {} · 상품 조건은 상담에서 "
+            "추가 확인합니다.".format(
+                format_foreign(
+                    completed_stage2.open_exposure,
+                    completed_stage2.currency,
+                ),
+                cta_headline,
+            )
+        )
+        st.button(
+            "금융지원 추천으로 계속",
+            type="primary",
+            key="go_to_consultation_from_summary",
+            on_click=set_active_page,
+            args=(PAGE_CONSULTATION,),
+            width="stretch",
+        )
+        _render_market_country_context(completed_market)
     document_input = st.session_state.get("stage2_document_input")
     if document_input is None:
         st.markdown(
@@ -5658,23 +7133,43 @@ with stage1_tab:
             TradeDocumentExtraction,
         )
         if extraction_for_trade_risk is not None:
-            _render_trade_risk_section(
-                document_input=document_input,
-                extraction=extraction_for_trade_risk,
-            )
+            with transaction_trade_terms_slot:
+                st.markdown(
+                    "<div class='stage-bridge'><span>2 · 대금 회수조건"
+                    "</span></div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown("## 대금 회수조건")
+                st.caption(
+                    "잔금 결제방식과 보호수단을 확인해 회수·결제 위험의 "
+                    "분석 전제를 확정합니다."
+                )
+                _render_trade_risk_section(
+                    document_input=document_input,
+                    extraction=extraction_for_trade_risk,
+                )
         target_date = ""
         try:
             target_date = confirmed_analysis_due_date_from_document_input(
                 document_input
             )
         except (TypeError, ValueError) as exc:
-            st.error(
+            transaction_assumptions_slot.error(
                 "확정 결제일을 금융분석에 연결할 수 없습니다: {}".format(
                     str(exc)
                 )
             )
-        scenario_settings = st.expander(
-            "금융분석 입력과 환율 가정",
+        transaction_assumptions_slot.markdown(
+            "<div class='stage-bridge'><span>4 · 분석 전제</span></div>",
+            unsafe_allow_html=True,
+        )
+        transaction_assumptions_slot.markdown("## 금융분석 전제")
+        transaction_assumptions_slot.caption(
+            "기준환율·결제예정일·거래 방향을 확인하고 환율 범위를 "
+            "준비합니다."
+        )
+        scenario_settings = transaction_assumptions_slot.expander(
+            "기준환율과 환율 가정 확인",
             expanded=(
                 _model_from_state("stage1_load", Stage1LoadResult) is None
             ),
@@ -5686,7 +7181,7 @@ with stage1_tab:
             format_func=lambda value: {
                 "WEB_FORECAST": "AI 경로 분석 + 고정 스트레스",
                 "MANUAL_STRESS": "직접 스트레스 테스트",
-                "EXTERNAL_STAGE1": "기존 시나리오 JSON",
+                "EXTERNAL_STAGE1": "연결된 외부 전망",
             }[value],
             key="stage1_mode_widget",
         )
@@ -5708,7 +7203,7 @@ with stage1_tab:
                 value=False,
                 key="spot_confirmed_widget",
                 help=(
-                    "Stage 1 JSON에는 절대환율이 없으므로 사용자가 확인한 "
+                    "AI 전망 자료에는 절대환율이 없으므로 사용자가 확인한 "
                     "환율만 계산에 사용할 수 있습니다."
                 ),
             )
@@ -5720,7 +7215,7 @@ with stage1_tab:
             "확인한 기준환율을 바탕으로 결제일까지의 환율 변동 범위를 "
             "준비합니다."
         )
-        st.caption(
+        transaction_assumptions_slot.caption(
             "현재 기준환율 · 1 {} = {}원".format(
                 trade["currency"],
                 format_decimal_display(base_rate, 2),
@@ -5781,10 +7276,12 @@ with stage1_tab:
                         workflow.market_integration,
                     )
                 clear_downstream(st.session_state, 2)
-                st.success("환율 가정이 준비되었습니다. 현금 영향을 계산하세요.")
+                transaction_assumptions_slot.success(
+                    "환율 가정이 준비되었습니다. 회사 자금 입력을 확인하세요."
+                )
                 st.rerun()
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
-                st.error(str(exc))
+                transaction_assumptions_slot.error(str(exc))
 
         stage1_load = _model_from_state(
             "stage1_load",
@@ -5813,7 +7310,7 @@ with stage1_tab:
                 ),
                 None,
             )
-            assumption_columns = st.columns(3)
+            assumption_columns = transaction_assumptions_slot.columns(3)
             assumption_columns[0].metric(
                 "적용 기준환율",
                 "{}원".format(
@@ -5835,7 +7332,7 @@ with stage1_tab:
                     else "계산 시나리오 확인 필요"
                 ),
             )
-            st.caption(
+            transaction_assumptions_slot.caption(
                 "시장 상세·전체 시나리오·데이터 품질은 계산 결과 아래에서 "
                 "확인할 수 있습니다."
             )
@@ -5843,15 +7340,15 @@ with stage1_tab:
 with stage2_tab:
     stage1_load = _model_from_state("stage1_load", Stage1LoadResult)
     document_input = st.session_state.get("stage2_document_input")
-    if stage1_load is None or document_input is None:
+    if document_input is None:
         pass
     else:
-        st.markdown(
-            "<div class='stage-bridge'><span>이어서 · 회사 자금 입력</span></div>",
+        transaction_company_funds_slot.markdown(
+            "<div class='stage-bridge'><span>3 · 회사 자금</span></div>",
             unsafe_allow_html=True,
         )
-        st.markdown("### 회사 자금 입력")
-        st.caption(
+        transaction_company_funds_slot.markdown("## 회사 자금")
+        transaction_company_funds_slot.caption(
             "현재 사용할 수 있는 원화와 최소 유지 운영자금을 입력하면 "
             "환율이 불리해질 때의 "
             "추가 부담과 실제 지급 부족 여부를 계산합니다."
@@ -5865,7 +7362,7 @@ with stage2_tab:
                 )
             )
         except (TypeError, ValueError) as exc:
-            st.error(
+            transaction_company_funds_slot.error(
                 "확정 결제일을 현금 계산에 연결할 수 없습니다: {}".format(
                     str(exc)
                 )
@@ -5879,7 +7376,7 @@ with stage2_tab:
             document_input=document_input,
             demo_inputs=_registered_demo_inputs_from_state(),
         )
-        st.caption(
+        transaction_company_funds_slot.caption(
             "확정 거래 · {} · {} · 결제일 {}".format(
                 format_foreign(
                     trade["foreign_amount"],
@@ -5890,7 +7387,7 @@ with stage2_tab:
             )
         )
         if risk_overview is not None and stored_stage2_input is not None:
-            with st.container(border=True):
+            with transaction_company_funds_slot.container(border=True):
                 st.markdown("#### 입력한 회사 자금")
                 input_summary_columns = st.columns(4)
                 input_summary_columns[0].metric(
@@ -5909,7 +7406,12 @@ with stage2_tab:
                     "감당 가능한 최대 환율손실",
                     format_krw(stored_stage2_input.acceptable_fx_loss),
                 )
-        company_input_panel = st.expander(
+        if stage1_load is None:
+            transaction_company_funds_slot.info(
+                "회사 자금을 입력한 뒤 아래 금융분석 전제에서 환율 범위를 "
+                "준비하면 계산을 시작할 수 있습니다."
+            )
+        company_input_panel = transaction_company_funds_slot.expander(
             (
                 "입력 수정"
                 if risk_overview is not None
@@ -6133,7 +7635,10 @@ with stage2_tab:
             stage2_submit = st.form_submit_button(
                 "환율·자금 위험 계산하기",
                 type="primary",
-                disabled=not bool(confirmed_analysis_due_date),
+                disabled=(
+                    not bool(confirmed_analysis_due_date)
+                    or stage1_load is None
+                ),
             )
 
         if stage2_submit:
@@ -6234,7 +7739,15 @@ with stage2_tab:
                         "country_environment_assessment",
                         CountryTradeEnvironmentAssessment,
                     ),
+                    country_economic_interpretation=(
+                        _ensure_country_economic_interpretation()
+                    ),
                     trade_statistics=trade_statistics,
+                    trade_statistics_interpretation=(
+                        _ensure_trade_statistics_interpretation(
+                            trade_statistics
+                        )
+                    ),
                     installment_payment_statuses=(
                         _installment_payment_statuses_from_state()
                     ),
@@ -6244,11 +7757,14 @@ with stage2_tab:
                     confirmed_transaction=workflow.confirmed_transaction,
                 )
                 _save_decision_support(decision_support)
-                st.success("환율별 현금 영향 계산을 완료했습니다.")
+                transaction_company_funds_slot.success(
+                    "환율별 현금 영향 계산을 완료했습니다."
+                )
                 st.rerun()
             except CashflowValidationError as exc:
                 _persist_cashflow_failure(exc.detail)
-                _render_cashflow_error(exc.detail)
+                with transaction_company_funds_slot:
+                    _render_cashflow_error(exc.detail)
             except (ValueError, TypeError) as exc:
                 input_fingerprint = None
                 offending_value = None
@@ -6273,42 +7789,18 @@ with stage2_tab:
                     supplied_field_path=field_path,
                 )
                 _persist_cashflow_failure(detail)
-                _render_cashflow_error(detail)
+                with transaction_company_funds_slot:
+                    _render_cashflow_error(detail)
 
         stored_cashflow_error = _model_from_state(
             "cashflow_error",
             CashflowErrorDetail,
         )
         if stored_cashflow_error is not None and not stage2_submit:
-            _render_cashflow_error(stored_cashflow_error)
+            with transaction_company_funds_slot:
+                _render_cashflow_error(stored_cashflow_error)
 
         stage2_result = _model_from_state("stage2_result", Stage2Result)
-        if stage2_result is not None and risk_overview is not None:
-            st.divider()
-            _render_financial_overview(
-                risk_overview,
-                stage2_result=stage2_result,
-            )
-            st.button(
-                "상담 준비로 계속",
-                type="primary",
-                key="go_to_consultation_from_summary",
-                on_click=set_active_page,
-                args=(PAGE_CONSULTATION,),
-                width="stretch",
-            )
-            _render_financial_evidence(
-                stage1_load=stage1_load,
-                stage2_result=stage2_result,
-                market_integration=_model_from_state(
-                    "market_integration",
-                    MarketIntegrationResult,
-                ),
-                risk_assessment=_model_from_state(
-                    "risk_assessment",
-                    RiskAssessment,
-                ),
-            )
         if stage2_result is not None and risk_overview is None:
             (
                 risk_tone,
@@ -6509,8 +8001,8 @@ with stage2_tab:
                 st.markdown(
                     "<div class='state-banner {}'><span class='state-icon'>"
                     "{}</span><div><strong>{}</strong><p>가장 불리한 "
-                    "스트레스 시나리오는 {}입니다. 판정은 LLM이 아니라 "
-                    "계산 결과와 임계값 규칙으로 생성했습니다.</p></div></div>".format(
+                    "스트레스 시나리오는 {}입니다. 입력값과 계산 기준으로 "
+                    "판정했습니다.</p></div></div>".format(
                         status_tone,
                         "!" if risk_assessment.status != "SAFE" else "✓",
                         escape(
@@ -6574,9 +8066,9 @@ with stage2_tab:
                         "현재 입력에서는 구조화된 주요 위험 기준을 넘지 않았습니다."
                     )
 
-            if consultation_topics:
+            if consultation_topics and show_internal_debug:
                 with st.expander(
-                    "분석 근거 및 기술 정보 보기",
+                    "개발자용 · 분석 근거 및 기술 정보",
                     expanded=False,
                 ):
                     st.caption(
@@ -6660,29 +8152,58 @@ with stage2_tab:
                         stage2_result.comparison_basis,
                     )
                 )
-            with st.expander("고급 · 계산 입력과 결과 데이터", expanded=False):
-                _advanced_downloads_title()
-                download_cols = st.columns(2)
-                with download_cols[0]:
-                    json_download(
-                        label="현금 계산 입력 JSON",
-                        value=st.session_state["stage2_input"],
-                        filename="stage2_input.json",
-                        key="download_stage2_input",
-                    )
-                with download_cols[1]:
-                    json_download(
-                        label="현금 계산 결과 JSON",
-                        value=stage2_result,
-                        filename="stage2_result.json",
-                        key="download_stage2",
-                    )
+            if show_internal_debug:
+                with st.expander(
+                    "개발자용 · 계산 입력과 결과 데이터",
+                    expanded=False,
+                ):
+                    _advanced_downloads_title()
+                    download_cols = st.columns(2)
+                    with download_cols[0]:
+                        json_download(
+                            label="현금 계산 입력 JSON",
+                            value=st.session_state["stage2_input"],
+                            filename="stage2_input.json",
+                            key="download_stage2_input",
+                        )
+                    with download_cols[1]:
+                        json_download(
+                            label="현금 계산 결과 JSON",
+                            value=stage2_result,
+                            filename="stage2_result.json",
+                            key="download_stage2",
+                        )
+
+completed_transaction_analysis = _model_from_state(
+    "stage2_result",
+    Stage2Result,
+)
+if st.session_state.get("stage2_document_input") is not None:
+    with transaction_analysis_cta_slot:
+        st.markdown(
+            "<div class='stage-bridge'><span>5 · 거래 확정 및 분석 실행"
+            "</span></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "대금 회수조건·회사 자금·환율 가정을 모두 반영한 뒤 "
+            "분석 결과로 이동합니다."
+        )
+        st.button(
+            "거래 확정하고 분석 시작",
+            type="primary",
+            key="go_to_analysis_after_transaction_inputs",
+            on_click=set_active_page,
+            args=(PAGE_ANALYSIS,),
+            disabled=completed_transaction_analysis is None,
+            width="stretch",
+        )
 
 with stage3_tab:
     _section_intro(
         "상담 실행 준비",
-        "상담 준비",
-        "무엇을 은행과 먼저 결정할지 Top 3와 준비자료로 정리합니다.",
+        "상담 준비·보고서",
+        "어떤 기관에 무엇을 묻고 어떤 자료를 준비할지 순서대로 정리합니다.",
     )
     consultation_preparation = _model_from_state(
         "consultation_packet",
@@ -6697,28 +8218,66 @@ with stage3_tab:
             unsafe_allow_html=True,
         )
     else:
-        st.markdown("## 상담 Top 3")
+        st.markdown("## 이 순서로 상담하세요")
         st.caption(
-            "기존 ConsultationPacket 순서입니다. 핵심 숫자와 결정사항을 "
-            "확인한 뒤 필요한 준비자료·은행 질문·공식 후보를 여세요."
+            "거래와 현금흐름에서 확인된 우선순위를 유지합니다. 각 항목의 "
+            "근거·질문·준비자료를 확인한 뒤 기관에 상담하세요."
         )
         with st.container(key="consultation_workspace"):
-            consultation_columns = st.columns([1.72, 0.78], gap="large")
-            with consultation_columns[0]:
-                _render_consultation_priorities(
-                    consultation_preparation,
-                    key_prefix="workspace",
-                    stage2_result=_model_from_state(
-                        "stage2_result",
-                        Stage2Result,
+            _render_consultation_priorities(
+                consultation_preparation,
+                key_prefix="workspace",
+                stage2_result=_model_from_state(
+                    "stage2_result",
+                    Stage2Result,
+                ),
+                layout="stacked",
+                show_heading=False,
+            )
+        preparation_shortlist = _model_from_state(
+            "official_candidate_shortlist",
+            OfficialCandidateShortlist,
+        )
+        if preparation_shortlist is not None and preparation_shortlist.candidates:
+            st.markdown("### 상품별 상담 질문과 준비자료")
+            for index, candidate in enumerate(
+                preparation_shortlist.candidates,
+                start=1,
+            ):
+                with st.expander(
+                    "{}. {} · {}".format(
+                        index,
+                        candidate.display_name or candidate.name,
+                        candidate.institution,
                     ),
-                    layout="stacked",
-                    show_heading=False,
-                )
-            with consultation_columns[1]:
-                _render_download_action_panel(
-                    consultation_preparation,
-                )
+                    expanded=index == 1,
+                ):
+                    st.write(
+                        consultation_user_text(
+                            candidate.strategy_connection_reason
+                        )
+                    )
+                    preparation_columns = st.columns(2)
+                    with preparation_columns[0]:
+                        st.markdown("**상담에서 물어볼 질문**")
+                        for question in candidate.consultation_questions:
+                            st.write(
+                                "· {}".format(
+                                    consultation_user_text(question)
+                                )
+                            )
+                    with preparation_columns[1]:
+                        st.markdown("**준비할 자료**")
+                        for document in candidate.required_documents:
+                            st.write(
+                                "· {}".format(
+                                    consultation_user_text(document)
+                                )
+                            )
+                    st.caption(
+                        "자격·한도·비용과 실제 적용 여부는 기관 심사 및 "
+                        "상담 결과에 따라 달라집니다."
+                    )
     st.markdown(
         "<div class='stage-bridge'><span>선택 · 환율 대응안 비교</span></div>",
         unsafe_allow_html=True,
@@ -6797,51 +8356,17 @@ with stage3_tab:
             type="primary",
             key="optimize_stage3",
         ):
-            st.session_state.pop("stage3_result", None)
-            clear_downstream(
-                st.session_state,
-                4,
-                clear_widgets=False,
-            )
-            workflow = _workflow_from_state()
-            if workflow is None:
-                st.error("분석 세션이 없습니다. 거래 확인부터 다시 시작하세요.")
-                st.stop()
-            workflow = orchestrator.run_hedge(
-                workflow,
+            if _run_hedge_comparison(
                 grid_step_percent=int(grid),
-                stability_preference=format(Decimal(str(stability)), "f"),
-                assumptions=Stage3Assumptions(
-                    forward_effective_rate=(
-                        forward_effective_rate.strip() or None
-                    ),
-                    forward_fee_bps=format(
-                        Decimal(str(forward_fee_bps)),
-                        "f",
-                    ),
-                    staged_conversion_fee_bps=format(
-                        Decimal(str(staged_fee_bps)),
-                        "f",
-                    ),
-                    staged_risk_factor=format(
-                        Decimal(str(staged_risk_factor)),
-                        "f",
-                    ),
-                    risk_aversion_weight=format(
-                        Decimal(str(stability)),
-                        "f",
-                    ),
-                    maximum_forward_ratio=format(
-                        Decimal(str(maximum_forward_ratio)),
-                        "f",
-                    ),
+                stability_preference=Decimal(str(stability)),
+                forward_fee_bps=Decimal(str(forward_fee_bps)),
+                staged_conversion_fee_bps=Decimal(str(staged_fee_bps)),
+                staged_risk_factor=Decimal(str(staged_risk_factor)),
+                maximum_forward_ratio=Decimal(str(maximum_forward_ratio)),
+                forward_effective_rate=(
+                    forward_effective_rate.strip() or None
                 ),
-            )
-            _save_workflow(workflow)
-            if workflow.hedge is not None and workflow.hedge.data is not None:
-                result = workflow.hedge.data
-                _save_model("stage3_result", result)
-                clear_downstream(st.session_state, 4)
+            ):
                 st.rerun()
         stage3_result = _model_from_state("stage3_result", Stage3Result)
         stage3_workflow = _workflow_from_state()
@@ -6878,19 +8403,20 @@ with stage3_tab:
                     "· 환율 관리 상담에서 허용조건 확인  \n"
                     "· 실제 은행 견적과 한도 확인"
                 )
-                with st.expander(
-                    "헤지 비교 기술정보",
-                    expanded=False,
-                ):
-                    st.caption(
-                        "status={} · reason_codes={}".format(
-                            stage3_result.status,
-                            ", ".join(
-                                stage3_result.infeasible_reasons
+                if show_internal_debug:
+                    with st.expander(
+                        "개발자용 · 헤지 비교 기술정보",
+                        expanded=False,
+                    ):
+                        st.caption(
+                            "status={} · reason_codes={}".format(
+                                stage3_result.status,
+                                ", ".join(
+                                    stage3_result.infeasible_reasons
+                                )
+                                or "none",
                             )
-                            or "none",
                         )
-                    )
             if stage3_result.candidates:
                 st.markdown(
                     "<div class='state-banner'><span class='state-icon'>i</span>"
@@ -6978,21 +8504,25 @@ with stage3_tab:
                         )
                         for limitation in candidate.limitations:
                             st.write("· {}".format(limitation))
-            with st.expander("고급 · 전략 후보 데이터", expanded=False):
-                _advanced_downloads_title()
-                json_download(
-                    label="대응 전략 후보 JSON",
-                    value=stage3_result,
-                    filename="stage3_candidates.json",
-                    key="download_stage3",
-                )
+            if show_internal_debug:
+                with st.expander(
+                    "개발자용 · 전략 후보 데이터",
+                    expanded=False,
+                ):
+                    _advanced_downloads_title()
+                    json_download(
+                        label="대응 전략 후보 JSON",
+                        value=stage3_result,
+                        filename="stage3_candidates.json",
+                        key="download_stage3",
+                    )
     if getattr(settings, "enable_kb_macro_hedge_reference", False):
         st.divider()
         _section_intro(
             "외부 환헤지 조합 참고 결과",
             "kb_macro_ai 결과를 현재 거래와 분리 검증합니다",
             "local_cli 모드에서는 확정된 단일 USD 수입 지급 거래를 "
-            "고정된 kb_macro_ai 모델에 전달합니다. 기존 Stage 3를 "
+            "고정된 외부 모델에 전달합니다. 기존 환헤지 비교를 "
             "대체하거나 공식 상품·상담 리포트 순위에 합치지 않습니다.",
         )
         kb_macro_mode = getattr(settings, "kb_macro_hedge_mode", "off")
@@ -7011,7 +8541,7 @@ with stage3_tab:
                 expanded=True,
             ):
                 st.caption(
-                    "다음 값은 기존 Stage 3에서 변환하지 않습니다. "
+                    "다음 값은 기존 환헤지 비교에서 변환하지 않습니다. "
                     "kb_macro_ai 시연값을 시작점으로 표시하므로 테스트 "
                     "조건에 맞게 직접 확인·수정하세요."
                 )
@@ -7164,20 +8694,101 @@ with stage3_tab:
 with stage4_tab:
     stage2_result = _model_from_state("stage2_result", Stage2Result)
     stage3_result = _model_from_state("stage3_result", Stage3Result)
-    if stage2_result is None or stage3_result is None:
-        pass
-    else:
+    _section_intro(
+        "공식 출처 기반 검토 후보",
+        "금융지원 추천",
+        "현재 거래조건과 위험을 기준으로 상담해 볼 금융지원을 정리합니다. "
+        "가입 자격·승인·한도·금리는 확정하지 않고 상담에서 "
+        "확인할 항목으로 남깁니다.",
+    )
+    if stage2_result is None:
         st.markdown(
-            "<div class='stage-bridge'><span>선택 · 공식 상담정보</span></div>",
+            "<div class='state-banner warning'><span class='state-icon'>1</span>"
+            "<div><strong>먼저 환율·현금 영향을 계산하세요</strong>"
+            "<p>거래 금액과 결제일에 따른 자금 영향을 확인하면 현재 거래에 "
+            "맞는 공식 상담 후보를 준비할 수 있습니다.</p></div></div>",
             unsafe_allow_html=True,
         )
-        _section_intro(
-            "선택 · 공식 출처",
-            "필요하면 공식 금융상품·지원제도를 함께 확인합니다",
-            "앞에서 계산한 대응 전략과 관련 있는 후보를 찾습니다. "
-            "가입 자격·승인·한도·금리는 확정하지 않고 상담에서 "
-            "확인할 항목으로 남깁니다.",
+        st.button(
+            "환율 전망·위험으로 이동",
+            key="go_to_analysis_from_financial_support",
+            on_click=set_active_page,
+            args=(PAGE_ANALYSIS,),
+            width="stretch",
         )
+    elif stage3_result is None:
+        st.markdown(
+            "<div class='state-banner warning'><span class='state-icon'>2</span>"
+            "<div><strong>금융지원 후보 준비를 한 번만 완료해 주세요</strong>"
+            "<p>검증된 현금흐름에 기본 환율 대응 가정을 적용해 상담 후보와 "
+            "연결할 준비를 합니다. 추천 순위나 금융 계산식은 바꾸지 "
+            "않습니다.</p></div></div>",
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "환율 대응안 준비하고 금융지원 보기",
+            type="primary",
+            key="prepare_hedge_for_financial_support",
+            width="stretch",
+        ):
+            if _run_hedge_comparison(
+                grid_step_percent=5,
+                stability_preference=Decimal("0.7"),
+                forward_fee_bps=Decimal("15"),
+                staged_conversion_fee_bps=Decimal("5"),
+                staged_risk_factor=Decimal("0.5"),
+                maximum_forward_ratio=Decimal("1"),
+            ):
+                st.rerun()
+    else:
+        _, support_risk_label, support_risk_headline, _ = _risk_summary(
+            stage2_result
+        )
+        st.markdown("## 현재 거래와 위험 요약")
+        support_summary_columns = st.columns(3)
+        support_summary_columns[0].metric(
+            "확인된 외화노출",
+            format_foreign(
+                stage2_result.open_exposure,
+                stage2_result.currency,
+            ),
+        )
+        support_summary_columns[1].metric(
+            (
+                "기준 원화 지급액"
+                if stage2_result.trade_type == "IMPORT"
+                else "기준 원화 수취액"
+            ),
+            format_krw(stage2_result.base_required_or_proceeds_krw),
+        )
+        support_summary_columns[2].metric(
+            "현재 위험 상태",
+            support_risk_label,
+            help=support_risk_headline,
+        )
+        stage4_workflow = _workflow_from_state()
+        if stage4_workflow is not None:
+            notice = st.session_state.pop(
+                "official_profile_saved_notice",
+                None,
+            )
+            if notice:
+                st.success(str(notice))
+            has_profile_validation_notice = bool(
+                st.session_state.get("official_profile_validation_notice")
+            )
+            with st.expander(
+                "추가 금융지원 조건 확인",
+                expanded=has_profile_validation_notice,
+            ):
+                st.caption(
+                    "선적·채권매입·정책금융 등 다른 자금 필요가 있을 때만 "
+                    "열어 확인하세요. 현재 후보를 보기 위해 모든 질문에 "
+                    "답할 필요는 없습니다."
+                )
+                _render_official_candidate_profile_form(stage4_workflow)
+        st.divider()
+        st.markdown("## 추천 조건 확인")
         consultation_topics = _consultation_topics_from_state()
         strategy_terms = (
             stage3_result.candidates[0].required_product_types
@@ -7216,10 +8827,18 @@ with stage4_tab:
                 key="stage4_search_mode_widget",
             )
         stage4_local_errors: List[str] = []
-        if st.button(
-            "우리 거래에 맞는 공식 상담 후보 찾기",
+        auto_refresh_official_candidates = bool(
+            st.session_state.pop("official_candidate_auto_refresh", False)
+        )
+        manual_refresh_official_candidates = st.button(
+            "선택 내용 반영해 추천 업데이트",
             type="primary",
             key="search_stage4",
+            width="stretch",
+        )
+        if (
+            manual_refresh_official_candidates
+            or auto_refresh_official_candidates
         ):
             try:
                 st.session_state.pop("stage4_result", None)
@@ -7253,11 +8872,57 @@ with stage4_tab:
                         )
                     )
                 result = workflow.product_search.data
+                current_consultation = _model_from_state(
+                    "consultation_packet",
+                    ConsultationPacketResult,
+                )
                 shortlist = shortlist_official_candidates(
                     stage4_result=result,
                     trade_type=stage2_result.trade_type,
                     consultation_topics=consultation_topics,
+                    consultation_packet=(
+                        current_consultation.packet
+                        if current_consultation is not None
+                        else None
+                    ),
+                    confirmed_transaction=workflow.confirmed_transaction,
+                    trade_risk_confirmation=_model_from_state(
+                        "trade_risk_confirmation",
+                        TradeRiskConfirmationRecord,
+                    ),
+                    official_candidate_input_profile=(
+                        workflow.official_candidate_input_profile
+                    ),
                 )
+                projected_signals = project_official_candidate_signals(
+                    trade_type=stage2_result.trade_type,
+                    consultation_categories=[
+                        item.category for item in consultation_topics
+                    ],
+                    consultation_packet=(
+                        current_consultation.packet
+                        if current_consultation is not None
+                        else None
+                    ),
+                    confirmed_transaction=workflow.confirmed_transaction,
+                    trade_risk_confirmation=_model_from_state(
+                        "trade_risk_confirmation",
+                        TradeRiskConfirmationRecord,
+                    ),
+                    official_candidate_input_profile=(
+                        workflow.official_candidate_input_profile
+                    ),
+                )
+                auxiliary_candidates = None
+                if workflow.official_candidate_input_profile is not None:
+                    auxiliary_candidates = project_auxiliary_service_candidates(
+                        trade_type=stage2_result.trade_type,
+                        signals=projected_signals,
+                        official_candidate_input_profile=(
+                            workflow.official_candidate_input_profile
+                        ),
+                        confirmed_transaction=workflow.confirmed_transaction,
+                    )
                 extraction = _model_from_state(
                     "extraction",
                     TradeDocumentExtraction,
@@ -7298,11 +8963,21 @@ with stage4_tab:
                         "country_environment_assessment",
                         CountryTradeEnvironmentAssessment,
                     ),
+                    country_economic_interpretation=(
+                        _ensure_country_economic_interpretation()
+                    ),
                     trade_statistics=_model_from_state(
                         "trade_statistics_result",
                         TradeStatisticsResult,
                     ),
+                    trade_statistics_interpretation=(
+                        _ensure_trade_statistics_interpretation()
+                    ),
                     official_candidate_shortlist=shortlist,
+                    official_candidate_input_profile=(
+                        workflow.official_candidate_input_profile
+                    ),
+                    auxiliary_service_candidates=auxiliary_candidates,
                     installment_payment_statuses=(
                         _installment_payment_statuses_from_state()
                     ),
@@ -7314,6 +8989,10 @@ with stage4_tab:
                 _save_model("stage4_result", result)
                 _save_decision_support(decision_support)
                 clear_downstream(st.session_state, 5)
+                if auto_refresh_official_candidates:
+                    st.session_state["official_profile_saved_notice"] = (
+                        "선택한 조건을 반영해 상담 후보를 업데이트했습니다."
+                    )
                 st.rerun()
             except (RuntimeError, TypeError, ValueError) as exc:
                 stage4_local_errors = [
@@ -7364,32 +9043,73 @@ with stage4_tab:
                     "거래은행에 직접 문의하세요.</p></div></div>",
                     unsafe_allow_html=True,
                 )
-            official_details = st.expander(
-                "공식 후보 자세히 보기",
-                expanded=False,
+            official_details = st.container(key="official_candidate_cards")
+            official_details.markdown("## Top 3 상담 후보")
+            official_details.caption(
+                "현재 거래와 연결성이 높은 순서의 상담 후보이며 승인·가입 "
+                "결과가 아닙니다."
             )
-            product_columns = official_details.columns(2)
+            product_columns = official_details.columns(3)
             shortlist_candidates = (
                 official_candidate_shortlist.candidates
                 if official_candidate_shortlist is not None
                 else []
             )
             for index, candidate in enumerate(shortlist_candidates):
-                with product_columns[index % 2]:
+                with product_columns[index % 3]:
                     with st.container(border=True):
                         st.caption(
-                            "{} · 공식 출처 확인".format(
+                            "검토 후보 {} · {}".format(
+                                index + 1,
                                 candidate.institution,
                             )
                         )
-                        st.markdown("### {}".format(candidate.name))
-                        st.write(candidate.summary)
+                        st.markdown(
+                            "### {}".format(
+                                candidate.display_name or candidate.name
+                            )
+                        )
+                        if candidate.matched_review_areas:
+                            st.caption(
+                                "연결 상담 분야 · {}".format(
+                                    " · ".join(
+                                        REVIEW_AREA_DISPLAY_NAMES.get(
+                                            item,
+                                            item,
+                                        )
+                                        for item in (
+                                            candidate.matched_review_areas
+                                        )
+                                    )
+                                )
+                            )
                         st.markdown("**왜 이 거래와 연결되나요?**")
                         st.write(candidate.strategy_connection_reason)
-                        status_cols = st.columns(2)
-                        status_cols[0].metric("분류", "상담 후보")
-                        status_cols[1].metric("자격 여부", "기관 확인 필요")
+                        st.markdown("**현재 확인할 한 가지**")
+                        st.write(
+                            candidate.prerequisite_information[0]
+                            if candidate.prerequisite_information
+                            else "기관의 최신 적용 조건"
+                        )
+                        st.caption("상태 · 상담 확인 필요")
                         with st.expander("상담 전 확인할 조건과 서류"):
+                            st.write(candidate.summary)
+                            if candidate.selection_reasons:
+                                st.markdown(
+                                    "**선정 근거**  \n{}".format(
+                                        " · ".join(
+                                            candidate.selection_reasons
+                                        )
+                                    )
+                                )
+                            if candidate.prerequisite_information:
+                                st.markdown(
+                                    "**확인할 정보**  \n{}".format(
+                                        " · ".join(
+                                            candidate.prerequisite_information
+                                        )
+                                    )
+                                )
                             st.markdown(
                                 "**주요 조건**  \n{}".format(
                                     " · ".join(candidate.key_conditions)
@@ -7408,13 +9128,130 @@ with stage4_tab:
                                     or "기관 확인 필요"
                                 )
                             )
-                        st.markdown(
-                            "[공식 페이지에서 확인 · {}]({})  \n"
-                            "자료 확인일 {}".format(
-                                candidate.source.title,
-                                candidate.source.url,
-                                candidate.source.verified_at,
+                            if candidate.consultation_questions:
+                                st.markdown(
+                                    "**상담 질문**  \n{}".format(
+                                        " · ".join(
+                                            candidate.consultation_questions
+                                        )
+                                    )
+                                )
+                            if candidate.limitations:
+                                st.markdown(
+                                    "**제한사항**  \n{}".format(
+                                        " · ".join(candidate.limitations)
+                                    )
+                                )
+                            if candidate.variants:
+                                st.markdown("**보장 방식 비교**")
+                                st.caption(
+                                    "유형은 자동 선택하지 않으며 비용·보장범위·"
+                                    "조기결제 조건을 상담에서 비교합니다."
+                                )
+                                for variant in candidate.variants:
+                                    st.write(
+                                        "· {} — {}".format(
+                                            variant.official_name,
+                                            variant.summary,
+                                        )
+                                    )
+                            st.markdown(
+                                "[공식 페이지에서 확인 · {}]({})  \n"
+                                "자료 확인일 {}".format(
+                                    candidate.source.title,
+                                    candidate.source.url,
+                                    candidate.source.verified_at,
+                                )
                             )
+            current_profile = (
+                stage4_workflow.official_candidate_input_profile
+                if stage4_workflow is not None
+                else None
+            )
+            profile_has_confirmed_value = bool(
+                current_profile is not None
+                and any(
+                    source != "UNKNOWN"
+                    for source in current_profile.field_sources.values()
+                )
+            )
+            overflow_candidates = (
+                official_candidate_shortlist.eligible_overflow_candidates
+                if official_candidate_shortlist is not None
+                and profile_has_confirmed_value
+                else []
+            )
+            if overflow_candidates:
+                st.markdown(
+                    "## 현재 조건에 맞지만 우선 상담 3개에는 포함되지 않은 금융지원"
+                )
+                st.caption(
+                    "적격 조건은 확인됐지만 상담 우선순위 또는 같은 목적의 대표 "
+                    "후보 때문에 다음 검토 대상으로 분류했습니다."
+                )
+                for candidate in overflow_candidates:
+                    with st.container(border=True):
+                        st.markdown(
+                            "### {}".format(
+                                candidate.display_name or candidate.name
+                            )
+                        )
+                        st.caption(candidate.institution)
+                        st.write(
+                            official_candidate_shortlist.overflow_reasons.get(
+                                candidate.product_id,
+                                "상담 우선순위상 다음 검토 대상입니다.",
+                            )
+                        )
+                        st.write(candidate.summary)
+                        st.markdown(
+                            "[공식 페이지에서 확인]({})".format(
+                                candidate.source.url
+                            )
+                        )
+            deferred_ids = (
+                official_candidate_shortlist.deferred_catalogue_ids
+                if official_candidate_shortlist is not None
+                and profile_has_confirmed_value
+                else []
+            )
+            stage4_candidates_by_id = {
+                item.product_id: item
+                for item in stage4_result.candidates
+            }
+            for product_id, record in (
+                active_official_catalogue_by_id().items()
+            ):
+                if product_id not in stage4_candidates_by_id:
+                    stage4_candidates_by_id[product_id] = record
+            deferred_candidates = [
+                stage4_candidates_by_id[item]
+                for item in deferred_ids
+                if item in stage4_candidates_by_id
+            ][:3]
+            if deferred_candidates:
+                st.markdown("## 추가 확인 후 검토 가능한 금융지원")
+                st.caption(
+                    "관심 조건은 확인됐지만 필수 정보가 남아 있어 현재 추천 "
+                    "목록에는 넣지 않았습니다. 확인 전에는 적용 가능성을 "
+                    "판단하지 않습니다."
+                )
+                for candidate in deferred_candidates:
+                    with st.container(border=True):
+                        st.markdown(
+                            "### {}".format(
+                                candidate.display_name or candidate.name
+                            )
+                        )
+                        st.write(candidate.summary)
+                        st.markdown("**추가로 확인할 내용**")
+                        for information in (
+                            candidate.prerequisite_information[:3]
+                        ):
+                            st.write("· {}".format(information))
+                        st.caption(
+                            "정보 확인 후 다시 후보를 준비하며, 승인·한도·"
+                            "비용은 기관 상담 전 확정되지 않습니다."
                         )
             if official_candidate_shortlist is not None:
                 st.markdown(
@@ -7424,31 +9261,88 @@ with stage4_tab:
                     "공식 페이지와 거래은행에서 조건을 다시 확인하세요.</p></div></div>",
                     unsafe_allow_html=True,
                 )
-                with st.expander(
-                    "고급 · 공식 후보 데이터",
-                    expanded=False,
-                ):
-                    _advanced_downloads_title()
-                    json_download(
-                        label="공식 상담 후보 JSON",
-                        value=official_candidate_shortlist,
-                        filename="official_candidate_shortlist.json",
-                        key="download_stage4",
+                auxiliary = _model_from_state(
+                    "auxiliary_service_candidates",
+                    AuxiliaryServiceCandidates,
+                )
+                if auxiliary is not None and auxiliary.warnings:
+                    for warning in auxiliary.warnings:
+                        st.warning(warning)
+                if auxiliary is not None and auxiliary.candidates:
+                    st.markdown("## 추가 확인 서비스")
+                    st.caption(
+                        "금융상품 순위와 별도로, 거래정보 확인에 도움이 되는 "
+                        "공식 보조 서비스입니다."
                     )
-                    for warning in official_candidate_shortlist.warnings:
-                        st.caption("· {}".format(warning))
+                    for service in auxiliary.candidates:
+                        with st.container(border=True):
+                            st.markdown(
+                                "### {}".format(
+                                    service.display_name or service.name
+                                )
+                            )
+                            st.write(service.summary)
+                            if service.selection_reasons:
+                                st.markdown(
+                                    "**왜 확인하나요?**  \n{}".format(
+                                        " · ".join(service.selection_reasons)
+                                    )
+                                )
+                            st.caption(
+                                "조사 범위·기간·수수료는 기업과 보고서 유형, "
+                                "현지 사정에 따라 달라질 수 있습니다."
+                            )
+                            st.markdown(
+                                "[공식 페이지에서 확인]({})".format(
+                                    service.source.url
+                                )
+                            )
+                if show_internal_debug:
+                    with st.expander(
+                        "개발자용 · 공식 후보 데이터",
+                        expanded=False,
+                    ):
+                        _advanced_downloads_title()
+                        json_download(
+                            label="공식 상담 후보 JSON",
+                            value=official_candidate_shortlist,
+                            filename="official_candidate_shortlist.json",
+                            key="download_stage4",
+                        )
+                        for warning in official_candidate_shortlist.warnings:
+                            st.caption("· {}".format(warning))
+                st.button(
+                    "상담 준비로 계속",
+                    type="primary",
+                    key="go_to_download_from_financial_support",
+                    on_click=set_active_page,
+                    args=(PAGE_DOWNLOAD,),
+                    width="stretch",
+                )
 
 with stage5_tab:
-    _section_intro(
-        "결과 저장",
-        "상담 준비가 완료되었습니다",
-        "거래 요약, 위험 결과, 상담 우선순위, 부족정보, 준비자료와 "
-        "질문을 하나의 상담 준비자료로 정리했습니다.",
+    st.markdown(
+        "<div class='stage-bridge'><span>5 · 상담 자료 저장</span></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("## 상담 자료 다운로드")
+    st.caption(
+        "앞에서 확인한 질문·준비자료·미확인 조건을 상담 준비서와 "
+        "통합 보고서로 저장합니다."
     )
     consultation_packet = _model_from_state(
         "consultation_packet",
         ConsultationPacketResult,
     )
+    if consultation_packet is not None:
+        try:
+            validate_official_candidate_artifact_state(st.session_state)
+        except ValueError:
+            consultation_packet = None
+            st.warning(
+                "거래 또는 금융지원 확인 내용이 변경되어 이전 보고서를 "
+                "사용할 수 없습니다. 금융지원 후보를 다시 준비해 주세요."
+            )
     if consultation_packet is None:
         st.markdown(
             "<div class='state-banner warning'><span class='state-icon'>3</span>"
@@ -7459,19 +9353,31 @@ with stage5_tab:
         )
     else:
         packet = consultation_packet.packet
+        consultation_pdf: Optional[Tuple[bytes, str]] = None
+        consultation_pdf_error: Optional[str] = None
+        try:
+            consultation_pdf = _consultation_pdf_artifact(
+                consultation_packet
+            )
+        except (ConsultationPreparationPdfError, ValueError) as exc:
+            consultation_pdf_error = str(exc)
         with st.container(border=True, key="stage5_download_panel"):
             action_columns = st.columns(2)
-            action_columns[0].download_button(
-                "상담 준비서 다운로드",
-                data=consultation_packet.markdown,
-                file_name="KB_상담_준비서_{}.md".format(
-                    _consultation_artifact_date(consultation_packet)
-                ),
-                mime="text/markdown",
-                key="stage5_handoff_download",
-                type="primary",
-                width="stretch",
-            )
+            if consultation_pdf is not None:
+                action_columns[0].download_button(
+                    "상담 준비서 PDF 다운로드",
+                    data=consultation_pdf[0],
+                    file_name=consultation_pdf[1],
+                    mime=PDF_MIME,
+                    key="stage5_handoff_download",
+                    type="primary",
+                    width="stretch",
+                )
+            else:
+                action_columns[0].warning(
+                    consultation_pdf_error
+                    or "상담 준비서 PDF를 생성할 수 없습니다."
+                )
             with action_columns[1].popover(
                 "공식 출처 확인",
                 use_container_width=True,
@@ -7482,6 +9388,15 @@ with stage5_tab:
             "또는 승인 완료를 의미하지 않습니다."
         )
         if packet.installment_payment_statuses:
+            payment_status_labels = {
+                "UNKNOWN": "확인 필요",
+                "CONFIRMED_RECEIVED": "입금 확인",
+                "CONFIRMED_NOT_RECEIVED": "미입금 확인",
+            }
+            payment_status_values = {
+                label: value
+                for value, label in payment_status_labels.items()
+            }
             payment_status_panel = st.expander(
                 "선지급 실제 입금 상태 확인",
                 expanded=False,
@@ -7518,7 +9433,9 @@ with stage5_tab:
                             if schedule is not None
                             else None
                         ),
-                        "실제 입금 상태": item.status,
+                        "실제 입금 상태": payment_status_labels[
+                            item.status
+                        ],
                         "실제 입금일": (
                             item.actual_payment_date or ""
                         ),
@@ -7533,9 +9450,9 @@ with stage5_tab:
                 column_config={
                     "실제 입금 상태": st.column_config.SelectboxColumn(
                         options=[
-                            "UNKNOWN",
-                            "CONFIRMED_RECEIVED",
-                            "CONFIRMED_NOT_RECEIVED",
+                            "확인 필요",
+                            "입금 확인",
+                            "미입금 확인",
                         ],
                         required=True,
                     ),
@@ -7558,7 +9475,12 @@ with stage5_tab:
                     for row in edited_payment_statuses.to_dict(
                         "records"
                     ):
-                        status = str(row["실제 입금 상태"])
+                        status_label = str(row["실제 입금 상태"])
+                        if status_label not in payment_status_values:
+                            raise ValueError(
+                                "실제 입금 상태를 다시 선택해 주세요."
+                            )
+                        status = payment_status_values[status_label]
                         actual_date = _date_or_none(
                             row.get("실제 입금일")
                         )
@@ -7608,29 +9530,39 @@ with stage5_tab:
                     st.rerun()
                 except (TypeError, ValueError) as exc:
                     st.error(str(exc))
-        with st.expander(
-            "JSON 데이터 및 분석 근거",
-            expanded=False,
-        ):
-            st.caption(
-                "Case ID {} · 계산 버전 {}".format(
-                    packet.case_id[:12],
-                    packet.calculation_version,
+        if show_internal_debug:
+            with st.expander(
+                "개발자용 · JSON 데이터 및 분석 근거",
+                expanded=False,
+            ):
+                st.caption(
+                    "Case ID {} · 계산 버전 {}".format(
+                        packet.case_id[:12],
+                        packet.calculation_version,
+                    )
                 )
-            )
-            json_download(
-                label="JSON 다운로드",
-                value=packet,
-                filename="KB_상담_데이터_{}.json".format(
-                    _consultation_artifact_date(consultation_packet)
-                ),
-                key="download_consultation_packet_json_stage5",
-            )
-        with st.expander(
-            "상담 준비서 미리보기",
-            expanded=False,
-        ):
-            st.markdown(consultation_packet.markdown)
+                json_download(
+                    label="JSON 다운로드",
+                    value=packet,
+                    filename="KB_상담_데이터_{}.json".format(
+                        _consultation_artifact_date(consultation_packet)
+                    ),
+                    key="download_consultation_packet_json_stage5",
+                )
+                st.download_button(
+                    "개발자용 원문 Markdown",
+                    data=_user_facing_markdown(
+                        consultation_packet.markdown
+                    ),
+                    file_name="KB_상담_준비서_{}.md".format(
+                        _consultation_artifact_date(
+                            consultation_packet
+                        )
+                    ),
+                    mime="text/markdown",
+                    key="stage5_handoff_markdown_debug",
+                    width="stretch",
+                )
 
     extraction = _model_from_state("extraction", TradeDocumentExtraction)
     confirmation = _model_from_state("confirmation", ConfirmationRecord)
@@ -7671,11 +9603,11 @@ with stage5_tab:
         )
     ):
         missing_report_steps.append(
-            "1~2단계에서 거래 확인과 금융 리스크 분석을 완료하세요."
+            "거래 분석과 환율·현금흐름 확인을 완료하세요."
         )
     if stage3_result is None:
         missing_report_steps.append(
-            "3단계 ‘상담 준비’에서 ‘대응안 비교하기’를 누르세요."
+            "상담 준비에서 ‘대응안 비교하기’를 누르세요."
         )
     if (
         stage3_result is not None
@@ -7685,14 +9617,11 @@ with stage5_tab:
         )
     ):
         missing_report_steps.append(
-            "3단계 하단에서 ‘우리 거래에 맞는 공식 상담 후보 찾기’를 "
+            "금융지원 추천에서 ‘선택 내용 반영해 추천 업데이트’를 "
             "누르세요."
         )
-    report_panel = st.expander(
-        "고급 · 통합 보고서와 기술정보",
-        expanded=False,
-    )
-    report_panel.markdown("#### 대응안과 공식자료까지 포함하기")
+    report_panel = st.container(border=True, key="report_action_panel")
+    report_panel.markdown("## 상담 준비 보고서 보기")
     if not all_ready and report_result is None:
         report_panel.info(
             "기본 상담 준비서는 위에서 이미 완성됩니다. 대응 시뮬레이션과 "
@@ -7753,7 +9682,7 @@ with stage5_tab:
             field_path="consultation_packet",
         )
 
-    if report_result is not None:
+    if report_result is not None and consultation_packet is not None:
         report_panel.markdown(
             "<div class='state-banner'><span class='state-icon'>✓</span>"
             "<div><strong>통합 상담 리포트가 완성되었습니다</strong>"
@@ -7763,7 +9692,7 @@ with stage5_tab:
         )
         report_panel.download_button(
             "통합 보고서 다운로드",
-            data=report_result.markdown,
+            data=_user_facing_markdown(report_result.markdown),
             file_name="KB_통합_금융분석_{}.md".format(
                 _consultation_artifact_date(consultation_packet)
             ),
@@ -7771,39 +9700,43 @@ with stage5_tab:
             key="download_report_md",
             width="stretch",
         )
-        report_panel.download_button(
-            "근거 데이터 JSON",
-            data=json.dumps(
-                report_result.report_json,
-                ensure_ascii=False,
-                indent=2,
-            ),
-            file_name="KB_통합_금융분석_{}.json".format(
-                _consultation_artifact_date(consultation_packet)
-            ),
-            mime="application/json",
-            key="download_report_json",
-            width="stretch",
-        )
-        report_panel.markdown("#### 통합 상담 리포트 미리보기")
-        report_panel.markdown(report_result.markdown)
-        report_panel.caption(
-            "상태: {} · critic={} · score={} · rewrite={} · "
-            "fallback_reason={}".format(
-                report_result.status,
-                (
-                    "PASS"
-                    if report_result.critique.passed
-                    else "FALLBACK_POLICY"
+        if show_internal_debug:
+            report_panel.download_button(
+                "개발자용 근거 데이터 JSON",
+                data=json.dumps(
+                    report_result.report_json,
+                    ensure_ascii=False,
+                    indent=2,
                 ),
-                report_result.critique.score,
-                report_result.revision_count,
-                report_result.fallback_reason or "none",
+                file_name="KB_통합_금융분석_{}.json".format(
+                    _consultation_artifact_date(consultation_packet)
+                ),
+                mime="application/json",
+                key="download_report_json",
+                width="stretch",
             )
+        report_panel.markdown("#### 통합 상담 리포트 미리보기")
+        report_panel.markdown(
+            _user_facing_markdown(report_result.markdown)
         )
+        if show_internal_debug:
+            report_panel.caption(
+                "상태: {} · critic={} · score={} · rewrite={} · "
+                "fallback_reason={}".format(
+                    report_result.status,
+                    (
+                        "PASS"
+                        if report_result.critique.passed
+                        else "FALLBACK_POLICY"
+                    ),
+                    report_result.critique.score,
+                    report_result.revision_count,
+                    report_result.fallback_reason or "none",
+                )
+            )
 
 workflow_trace_state = _workflow_from_state()
-if workflow_trace_state is not None:
+if workflow_trace_state is not None and show_internal_debug:
     render_workflow_trace(workflow_trace_state)
 
 st.divider()

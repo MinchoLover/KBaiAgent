@@ -196,7 +196,7 @@ class LiveBenchmarkGateTests(unittest.TestCase):
 
     def test_manifest_is_explicitly_synthetic_test_only(self):
         rows = load_manifest(MANIFEST)
-        self.assertEqual(len(rows), 8)
+        self.assertEqual(len(rows), 9)
         self.assertTrue(all(row["split"] == "test" for row in rows))
         self.assertTrue(
             all(row["fine_tuning_eligible"] is False for row in rows)
@@ -207,6 +207,14 @@ class LiveBenchmarkGateTests(unittest.TestCase):
         self.assertTrue(
             all(row["real_customer_document"] is False for row in rows)
         )
+        text_case = next(
+            row
+            for row in rows
+            if row["case_id"] == "us_export_net60_text_009"
+        )
+        self.assertTrue(text_case["text_layer_expected"])
+        self.assertFalse(text_case["registered_api_free"])
+        self.assertFalse(text_case["fixture_prediction"])
 
 
 class LiveBenchmarkExecutionTests(unittest.TestCase):

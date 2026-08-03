@@ -146,11 +146,12 @@ def build_golden_consultation_fixture(
         confirmed_at="2026-07-29T09:00:00+09:00",
     )
     trade_risk = assess_trade_settlement_risk(trade_confirmation)
+    country_environment_input = build_country_environment_input(
+        extraction=extraction,
+        trade_risk_confirmation=trade_confirmation,
+    )
     country_environment = assess_country_trade_environment(
-        build_country_environment_input(
-            extraction=extraction,
-            trade_risk_confirmation=trade_confirmation,
-        )
+        country_environment_input
     )
     trade_statistics_request = build_trade_statistics_request(
         confirmed_transaction=confirmed_transaction,
@@ -186,6 +187,7 @@ def build_golden_consultation_fixture(
         "stage2_input": stage2_input,
         "stage2": stage2,
         "trade_risk": trade_risk,
+        "country_environment_input": country_environment_input,
         "country_environment": country_environment,
         "trade_statistics_request": trade_statistics_request,
         "trade_statistics": trade_statistics,

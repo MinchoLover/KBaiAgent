@@ -303,6 +303,7 @@ def run_offline_demo(
         stage4_result=state.product_search.data,
         trade_type=state.cashflow.data.trade_type,
         consultation_topics=decision_support.consultation_topics,
+        consultation_packet=decision_support.consultation_packet.packet,
     )
     decision_support = build_decision_support(
         case_id=state.case_id,
@@ -488,6 +489,7 @@ def run_decision_support_demo(
         stage4_result=state.product_search.data,
         trade_type=state.cashflow.data.trade_type,
         consultation_topics=decision_support.consultation_topics,
+        consultation_packet=decision_support.consultation_packet.packet,
     )
     decision_support = build_decision_support(
         case_id=state.case_id,

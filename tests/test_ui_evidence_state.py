@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 from sample_data import sample_extraction
 from schemas import TradeDocumentExtraction
+from src.consultation.review_area import (
+    project_consultation_presentation,
+)
 from src.country_environment.assessment import (
     assess_country_trade_environment,
 )
@@ -23,6 +26,7 @@ from src.ui.state import (
     clear_confirmation_and_later,
     clear_country_environment_and_related,
     clear_downstream,
+    clear_official_candidate_outputs,
     clear_trade_risk_and_related,
 )
 from src.ui.components import (
@@ -54,7 +58,7 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
         )
         self.assertEqual(
             consultation_rationale_label("buffer shortfall"),
-            "목표 현금 버퍼 부족",
+            "최소 운영자금 대비 부족액",
         )
         self.assertEqual(
             consultation_status_label("HIGH_REVIEW"),
@@ -225,6 +229,47 @@ class ReviewEvidenceSafetyTests(unittest.TestCase):
         ):
             self.assertNotIn(key, state)
 
+    def test_product_profile_change_preserves_calculations_and_clears_outputs(self):
+        state = {
+            "confirmed_transaction": {"trade": "kept"},
+            "stage1_load": {"market": "kept"},
+            "stage2_input": {"cash": "kept"},
+            "stage2_result": {"cash": "kept"},
+            "stage3_result": {"hedge": "kept"},
+            "consultation_topics": [{"topic": "kept"}],
+            "trade_risk_assessment": {"risk": "kept"},
+            "country_environment_assessment": {"country": "kept"},
+            "trade_statistics_result": {"trade": "kept"},
+            "official_candidate_shortlist": {"products": "stale"},
+            "auxiliary_service_candidates": {"services": "stale"},
+            "consultation_packet": {"packet": "stale"},
+            "report_result": {"report": "stale"},
+            "report_download_payload": b"stale",
+        }
+
+        clear_official_candidate_outputs(state)
+
+        for key in (
+            "confirmed_transaction",
+            "stage1_load",
+            "stage2_input",
+            "stage2_result",
+            "stage3_result",
+            "consultation_topics",
+            "trade_risk_assessment",
+            "country_environment_assessment",
+            "trade_statistics_result",
+        ):
+            self.assertIn(key, state)
+        for key in (
+            "official_candidate_shortlist",
+            "auxiliary_service_candidates",
+            "consultation_packet",
+            "report_result",
+            "report_download_payload",
+        ):
+            self.assertNotIn(key, state)
+
     def test_trade_risk_change_only_clears_derived_shared_outputs(self):
         state = {
             "stage1_load": {"market": "kept"},
@@ -328,10 +373,10 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         self.assertIn("내 거래문서 분석하기", button_labels)
         for navigation_label in (
             "⌂  홈",
-            "▤  거래",
-            "▥  분석",
-            "▣  상담 준비",
-            "⇩  다운로드",
+            "▤  거래 분석",
+            "▥  환율 전망·위험",
+            "▣  금융지원 추천",
+            "⇩  상담 준비·보고서",
         ):
             self.assertIn(navigation_label, button_labels)
         visible_text = " ".join(
@@ -395,6 +440,15 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
                 + [item.value for item in app.caption]
             )
             self.assertIn("검증된 합성문서", visible_text)
+            for internal_term in (
+                "critic",
+                "grounding",
+                "fingerprint",
+                "SHA-256",
+                "catalogue ID",
+                "raw JSON",
+            ):
+                self.assertNotIn(internal_term, visible_text)
             self.assertNotIn(
                 "미국 수출 샘플",
                 visible_text,
@@ -496,34 +550,42 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         )
         for expected in (
             "한국 판매자 → 미국 구매자",
-            "분석 핵심 결과",
+            "이 전망이 우리 거래에 주는 영향",
             "분석 대상 예정 수취액",
             "USD 100,000",
             "환율 -5% 시 원화 수취액",
             "7,000,000원",
             "스트레스 후 예상 현금",
             "8,000,000원",
-            "목표 현금 버퍼",
+            "최소 유지 운영자금",
             "10,000,000원",
-            "목표 현금 버퍼 부족",
+            "최소 운영자금 대비 부족액",
             "2,000,000원",
-            "현금 적자 0원",
-            "지급 또는 post-credit 부족 0원",
+            "실제 현금 적자 0원",
+            "대출한도 반영 후 부족액 0원",
             "현재 미수·미지급 잔액은",
             "지급불능 또는 필요 대출금이 아닙니다",
-            "준비자료",
-            "은행에 물어볼 질문",
-            "상담에서 결정할 사항",
+            "준비할 자료",
+            "은행·기관에 물어볼 질문",
+            "상담 후 결정할 사항",
             "통합 상담 리포트 미리보기",
+            "AI 환율 전망",
+            "시장 뉴스",
         ):
             self.assertIn(expected, visible_text)
         download_labels = [
             item.label for item in app.get("download_button")
         ]
-        self.assertIn("상담 준비서 다운로드", download_labels)
+        self.assertIn("상담 준비서 PDF 다운로드", download_labels)
+        pdf_download = next(
+            item
+            for item in app.get("download_button")
+            if item.label == "상담 준비서 PDF 다운로드"
+        )
+        self.assertTrue(pdf_download.proto.url.endswith(".pdf"))
         self.assertIn("JSON 다운로드", download_labels)
         self.assertLess(
-            download_labels.index("상담 준비서 다운로드"),
+            download_labels.index("상담 준비서 PDF 다운로드"),
             download_labels.index("JSON 다운로드"),
         )
         self.assertNotIn(
@@ -531,7 +593,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             visible_text,
         )
         self.assertNotIn("잔금 예정: USD 80,000", visible_text)
-        self.assertIn(
+        self.assertNotIn(
             "상담 준비서 미리보기",
             [item.label for item in app.expander],
         )
@@ -584,7 +646,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             visible_text,
         )
         self.assertIn(
-            "3단계 ‘상담 준비’에서 ‘대응안 비교하기’를 누르세요.",
+            "상담 준비에서 ‘대응안 비교하기’를 누르세요.",
             visible_text,
         )
 
@@ -609,9 +671,11 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
                 for item in app.get("download_button")
             ],
         )
-        self.assertIn(
-            "고급 · 통합 보고서와 기술정보",
-            [item.label for item in app.expander],
+        self.assertTrue(
+            any(
+                "상담 준비 보고서 보기" in item.value
+                for item in app.markdown
+            )
         )
         self.assertTrue(
             any(
@@ -862,23 +926,23 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             + [item.value for item in app.info]
         )
         for expected in (
-            "상담 Top 3",
+            "상담 우선순위",
             "1순위",
-            "수출대금 회수 보호 상담",
+            "수출대금 회수 보호",
             "2순위",
-            "환율 관리 상담",
+            "환율 관리",
             "3순위",
-            "운영자금 버퍼·수출대금 회수시점 상담",
+            "무역금융·운영자금",
             "7,000,000원",
             "2,000,000원",
             "현금 적자",
-            "지급 또는 post-credit 부족",
-            "핵심 숫자와 결정사항을 확인한 뒤",
+            "대출한도 반영 후 부족액",
+            "각 항목의 근거·질문·준비자료를 확인한 뒤",
             "상품 승인·보험 인수·대출 심사 결과가 아닙니다",
         ):
             self.assertIn(expected, visible_text)
         self.assertIn(
-            "상담 준비서 다운로드",
+            "상담 준비서 PDF 다운로드",
             [item.label for item in app.get("download_button")],
         )
         self.assertTrue(
@@ -890,7 +954,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             )
         )
         self.assertIn(
-            "헤지 비교 기술정보",
+            "개발자용 · 헤지 비교 기술정보",
             [item.label for item in app.expander],
         )
         for prohibited in (
@@ -946,17 +1010,72 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             "8,000,000원",
             "10,000,000원",
             "2,000,000원",
-            "현금 적자 0원",
-            "지급 또는 post-credit 부족 0원",
+            "실제 현금 적자 0원",
+            "대출한도 반영 후 부족액 0원",
             "현재 미수·미지급 잔액은",
         ):
             self.assertIn(expected, visible_text)
-        self.assertIn("선지급 실제 입금 여부", visible_text)
-        self.assertIn("UNKNOWN", visible_text)
+        self.assertIn("선지급의 실제 입금 여부와 입금일", visible_text)
+        self.assertIn("확인 필요", visible_text)
         self.assertIn(
-            "선지급 입금 상태 반영",
+            "수정 내용 저장 및 다시 검증",
             [item.label for item in app.button],
         )
+
+    def test_supporting_check_ui_is_separate_and_has_no_rank_badge(self):
+        from streamlit.testing.v1 import AppTest
+
+        app = AppTest.from_file("app.py", default_timeout=20).run()
+        demo = next(
+            button
+            for button in app.button
+            if button.label == "미국 수출 샘플"
+        )
+        demo.click().run()
+        golden = build_golden_consultation_fixture()
+        packet_result = golden["decision"].consultation_packet
+        packet = packet_result.packet
+        routine_priority = packet.consultation_priorities[0].model_copy(
+            update={"category": "ROUTINE_TRADE_REVIEW"}
+        )
+        presentation = project_consultation_presentation(
+            priorities=[routine_priority],
+            priority_fingerprint=packet.consultation_priority_fingerprint,
+        )
+        supporting_packet = packet.model_copy(
+            update={
+                "consultation_priorities": [routine_priority],
+                "consultation_review_areas": presentation.review_areas,
+                "consultation_supporting_checks": (
+                    presentation.supporting_checks
+                ),
+            }
+        )
+        app.session_state["extraction"] = golden[
+            "extraction"
+        ].model_dump()
+        app.session_state["consultation_packet"] = packet_result.model_copy(
+            update={"packet": supporting_packet}
+        ).model_dump()
+        app.session_state["active_page"] = "consultation"
+        app.run()
+
+        self.assertEqual(len(app.exception), 0)
+        visible_text = " ".join(
+            [item.value for item in app.markdown]
+            + [item.value for item in app.caption]
+        )
+        self.assertIn("추가 확인사항", visible_text)
+        supporting_cards = [
+            item.value
+            for item in app.markdown
+            if "supporting-check-card" in item.value
+        ]
+        self.assertEqual(len(supporting_cards), 1)
+        self.assertIn("정기 거래 점검", supporting_cards[0])
+        self.assertNotIn("정책자금 검토", supporting_cards[0])
+        self.assertNotIn("환율 관리", supporting_cards[0])
+        self.assertNotIn("rank", supporting_cards[0])
 
     def test_review_edit_clears_evidence_and_prior_confirmation_state(self):
         from streamlit.testing.v1 import AppTest

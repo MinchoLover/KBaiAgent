@@ -17,14 +17,24 @@ from src.domain.consultation_models import (
 from src.domain.country_environment_models import (
     CountryTradeEnvironmentAssessment,
 )
+from src.domain.country_economic_interpretation_models import (
+    CountryEconomicInterpretationResult,
+)
 from src.domain.confirmed_transaction_models import (
     ConfirmedTransactionSnapshot,
 )
-from src.domain.product_models import OfficialCandidateShortlist
+from src.domain.product_models import (
+    AuxiliaryServiceCandidates,
+    OfficialCandidateInputProfile,
+    OfficialCandidateShortlist,
+)
 from src.domain.stage1_models import NormalizedScenarioSet
 from src.domain.stage2_models import Stage2Input, Stage2Result
 from src.domain.trade_risk_models import TradeSettlementRiskAssessment
 from src.domain.trade_statistics_models import TradeStatisticsResult
+from src.domain.trade_statistics_interpretation_models import (
+    TradeStatisticsInterpretationResult,
+)
 
 
 def _dedupe(values: List[str]) -> List[str]:
@@ -97,9 +107,21 @@ def build_decision_support(
     country_environment: Optional[
         CountryTradeEnvironmentAssessment
     ] = None,
+    country_economic_interpretation: Optional[
+        CountryEconomicInterpretationResult
+    ] = None,
     trade_statistics: Optional[TradeStatisticsResult] = None,
+    trade_statistics_interpretation: Optional[
+        TradeStatisticsInterpretationResult
+    ] = None,
     official_candidate_shortlist: Optional[
         OfficialCandidateShortlist
+    ] = None,
+    official_candidate_input_profile: Optional[
+        OfficialCandidateInputProfile
+    ] = None,
+    auxiliary_service_candidates: Optional[
+        AuxiliaryServiceCandidates
     ] = None,
     installment_payment_statuses: Optional[
         List[InstallmentPaymentStatus]
@@ -144,8 +166,14 @@ def build_decision_support(
         consultation_topics=topics,
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
+        country_economic_interpretation=country_economic_interpretation,
         trade_statistics=trade_statistics,
+        trade_statistics_interpretation=(
+            trade_statistics_interpretation
+        ),
         official_candidate_shortlist=official_candidate_shortlist,
+        official_candidate_input_profile=official_candidate_input_profile,
+        auxiliary_service_candidates=auxiliary_service_candidates,
         installment_payment_statuses=installment_payment_statuses,
         missing_information=missing_information,
         generated_at=generated_at,
@@ -155,8 +183,13 @@ def build_decision_support(
         risk_assessment=assessment,
         trade_settlement_risk=trade_settlement_risk,
         country_environment=country_environment,
+        country_economic_interpretation=country_economic_interpretation,
         trade_statistics=trade_statistics,
+        trade_statistics_interpretation=(
+            trade_statistics_interpretation
+        ),
         consultation_topics=topics,
         official_candidate_shortlist=official_candidate_shortlist,
+        auxiliary_service_candidates=auxiliary_service_candidates,
         consultation_packet=packet,
     )
