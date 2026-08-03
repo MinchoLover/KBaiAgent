@@ -29,7 +29,7 @@ from src.application.stage2_input_service import (
 )
 from src.application.registered_document_service import (
     PRESENTATION_FIXTURE_ID,
-    extract_registered_document,
+    analyze_document,
     presentation_demo_inputs,
     presentation_document,
     presentation_document_sha256,
@@ -91,7 +91,6 @@ from src.document_intake.confirmation import (
 )
 from src.document_intake.extractor import (
     ExtractionError,
-    extract_trade_document_with_metadata,
 )
 from src.document_intake.normalization import (
     normalize_country_name,
@@ -119,6 +118,15 @@ from src.domain.confirmed_transaction_models import (
 )
 from src.domain.integration_readiness_models import (
     IntegrationReadinessReport,
+)
+from src.domain.document_analysis_models import (
+    DocumentAnalysisProvenance,
+    FALLBACK_WARNING_CODE,
+    GOLDEN_SAMPLE,
+    LIVE_API,
+    OPENAI_ANALYSIS_SOURCE,
+    USER_UPLOAD,
+    VERIFIED_FIXTURE,
 )
 from src.domain.kb_macro_hedge_models import (
     KbMacroHedgeExecutionConstraints,
@@ -202,6 +210,7 @@ from src.ui.layout import (
     active_page,
     render_demo_summary,
     render_page_header,
+    render_page_scroll_reset,
     render_sample_info_card,
     render_sidebar_navigation,
     render_step_indicator,
@@ -258,6 +267,97 @@ def _model_from_state(key: str, model_class: Any) -> Optional[Any]:
 
 def _save_model(key: str, value: Any) -> None:
     st.session_state[key] = value.model_dump()
+
+
+def _document_analysis_from_state(
+) -> Optional[DocumentAnalysisProvenance]:
+    return _model_from_state(
+        "document_analysis_provenance",
+        DocumentAnalysisProvenance,
+    )
+
+
+def _render_document_analysis_status() -> None:
+    provenance = _document_analysis_from_state()
+    document_source = st.session_state.get(
+        "document_source",
+        USER_UPLOAD,
+    )
+    analysis_mode = st.session_state.get("analysis_mode", LIVE_API)
+    document_label = (
+        "Golden 수출 샘플"
+        if document_source == GOLDEN_SAMPLE
+        else "내 문서 업로드"
+    )
+    if provenance is not None:
+        analysis_label = (
+            "AI 실시간 분석"
+            if provenance.analysis_source == OPENAI_ANALYSIS_SOURCE
+            else "검증된 데모 결과"
+        )
+        api_status = (
+            "정상"
+            if provenance.analysis_source == OPENAI_ANALYSIS_SOURCE
+            else "대체 결과 사용"
+            if provenance.fallback_used
+            else "명시적 fixture 선택"
+        )
+        model_label = (
+            provenance.model
+            if provenance.analysis_source == OPENAI_ANALYSIS_SOURCE
+            else "해당 없음 · verified fixture"
+        )
+    else:
+        analysis_label = (
+            "AI 실시간 분석"
+            if analysis_mode == LIVE_API
+            else "검증된 데모 결과"
+        )
+        api_status = (
+            "분석 전 · 설정됨"
+            if settings.live_extraction_ready
+            else "분석 전 · 연결 필요"
+            if analysis_mode == LIVE_API
+            else "호출 안 함 · 명시적 선택"
+        )
+        model_label = (
+            settings.openai_model
+            if analysis_mode == LIVE_API
+            else "해당 없음 · verified fixture"
+        )
+    st.markdown("**문서 분석 상태**")
+    st.caption("문서 분석: {}".format(analysis_label))
+    st.caption(
+        "분석 자료: {}".format(
+            "실시간 AI 분석 결과"
+            if provenance is not None
+            and provenance.analysis_source == OPENAI_ANALYSIS_SOURCE
+            else "검증된 저장자료 사용"
+            if provenance is not None
+            else "분석 전"
+        )
+    )
+    st.caption("입력 문서: {}".format(document_label))
+    if provenance is not None:
+        if provenance.fallback_used:
+            st.warning(
+                "실시간 문서 분석 연결이 원활하지 않아 사전 검증된 동일 "
+                "샘플 결과를 사용했습니다."
+            )
+    if show_internal_debug:
+        st.caption("API 연결: {}".format(api_status))
+        st.caption("사용 모델: {}".format(model_label))
+        if provenance is not None:
+            st.caption(
+                "source: {} · fallback_used: {}".format(
+                    provenance.analysis_source,
+                    str(provenance.fallback_used).lower(),
+                )
+            )
+            if provenance.fallback_used:
+                st.caption(
+                    "warning code: {}".format(FALLBACK_WARNING_CODE)
+                )
 
 
 def _ensure_country_economic_interpretation(
@@ -340,7 +440,7 @@ def _trade_statistics_source_preference() -> str:
         return "OFFICIAL_FIXTURE"
     is_demo_transaction = bool(
         _registered_demo_inputs_from_state() is not None
-        or st.session_state.get("run_mode_widget") == "데모 모드"
+        or st.session_state.get("document_source") == GOLDEN_SAMPLE
     )
     return "OFFICIAL_FIXTURE" if is_demo_transaction else "LIVE"
 
@@ -2473,6 +2573,7 @@ def _rebuild_consultation_with_payment_statuses(
             extraction.missing_required_fields
         ),
         confirmed_transaction=workflow.confirmed_transaction,
+        document_analysis=_document_analysis_from_state(),
     )
     _save_decision_support(decision_support)
     clear_downstream(st.session_state, 5)
@@ -3842,6 +3943,7 @@ def _render_trade_risk_section(
                         confirmed_transaction=(
                             workflow.confirmed_transaction
                         ),
+                        document_analysis=_document_analysis_from_state(),
                     )
                     stage4_result = _model_from_state(
                         "stage4_result",
@@ -3888,6 +3990,9 @@ def _render_trade_risk_section(
                             ),
                             confirmed_transaction=(
                                 workflow.confirmed_transaction
+                            ),
+                            document_analysis=(
+                                _document_analysis_from_state()
                             ),
                         )
                     _save_decision_support(decision_support)
@@ -4025,6 +4130,17 @@ def _render_trade_risk_details(
 def _scenario_label(value: str) -> str:
     if value == "BASE":
         return "기준 환율"
+    if value.startswith("DOWN_") or value.startswith("UP_"):
+        direction, _, raw_percentage = value.partition("_")
+        try:
+            percentage = format(
+                Decimal(raw_percentage).normalize(),
+                "f",
+            )
+        except InvalidOperation:
+            percentage = raw_percentage
+        sign = "-" if direction == "DOWN" else "+"
+        return "환율 {}{}%".format(sign, percentage)
     if value.startswith("STRESS_") and value.endswith("PCT"):
         percentage = value[len("STRESS_") : -len("PCT")]
         try:
@@ -4040,16 +4156,16 @@ def _five_percent_adverse_result(
 ) -> Optional[Any]:
     if result is None:
         return None
-    expected_name = (
-        "STRESS_+5.00PCT"
+    expected_names = (
+        ("STRESS_+5.00PCT", "UP_5")
         if result.trade_type == "IMPORT"
-        else "STRESS_-5.00PCT"
+        else ("STRESS_-5.00PCT", "DOWN_5")
     )
     return next(
         (
             item
             for item in result.scenario_results
-            if item.scenario_name == expected_name
+            if item.scenario_name in expected_names
         ),
         None,
     )
@@ -4060,16 +4176,16 @@ def _five_percent_favorable_result(
 ) -> Optional[Any]:
     if result is None:
         return None
-    expected_name = (
-        "STRESS_-5.00PCT"
+    expected_names = (
+        ("STRESS_-5.00PCT", "DOWN_5")
         if result.trade_type == "IMPORT"
-        else "STRESS_+5.00PCT"
+        else ("STRESS_+5.00PCT", "UP_5")
     )
     return next(
         (
             item
             for item in result.scenario_results
-            if item.scenario_name == expected_name
+            if item.scenario_name in expected_names
         ),
         None,
     )
@@ -4387,7 +4503,9 @@ def _render_download_action_panel(
 def _demo_all(company_role: str = "BUYER") -> None:
     _reset_state()
     st.session_state["journey_started"] = True
-    st.session_state["run_mode_widget"] = "데모 모드"
+    st.session_state["legacy_full_demo"] = True
+    st.session_state["document_source"] = GOLDEN_SAMPLE
+    st.session_state["analysis_mode"] = VERIFIED_FIXTURE
     st.session_state["company_role_widget"] = (
         "구매자 · BUYER"
         if company_role == "BUYER"
@@ -4503,15 +4621,19 @@ def _reset_state() -> None:
 def _start_document_registration() -> None:
     _reset_state()
     st.session_state["journey_started"] = True
-    st.session_state["run_mode_widget"] = "실제 문서 분석"
+    st.session_state["document_source"] = USER_UPLOAD
+    st.session_state["analysis_mode"] = LIVE_API
     set_active_page(PAGE_TRANSACTION)
 
 
 def _start_golden_registration() -> None:
     _start_document_registration()
+    st.session_state["document_source"] = GOLDEN_SAMPLE
+    st.session_state["analysis_mode"] = LIVE_API
     st.session_state["registered_document_id"] = PRESENTATION_FIXTURE_ID
     st.session_state["company_role_widget"] = "판매자 · SELLER"
     st.session_state["company_country_widget"] = "KR"
+    st.session_state["auto_analyze_document"] = True
 
 
 PROFILE_OPTION_LABELS: Dict[str, Dict[str, str]] = {
@@ -4971,10 +5093,70 @@ def _render_official_candidate_profile_form(
 load_dotenv()
 settings = Settings.from_env()
 presentation_mode = settings.app_env == "presentation"
-show_internal_debug = bool(
-    settings.app_env == "development" or settings.show_internal_debug
-)
+show_internal_debug = settings.internal_debug_enabled
 orchestrator = WorkflowOrchestrator(settings=settings)
+
+
+def _prepare_market_risk_for_transaction(
+    *,
+    trade_currency: str,
+    target_date: str,
+    base_rate: str,
+    scenario_mode: str,
+    payload: Optional[bytes],
+    endpoint: Optional[str],
+    stage1_provider: Optional[str],
+    spot_provider: Optional[str],
+    manual_spot_confirmed: bool,
+) -> Stage1LoadResult:
+    """Prepare the existing Stage 1 result without a separate UI click."""
+
+    clear_downstream(
+        st.session_state,
+        1,
+        clear_widgets=False,
+    )
+    workflow = _workflow_from_state()
+    if workflow is None:
+        raise ValueError(
+            "분석 세션을 찾을 수 없습니다. 거래 확인부터 다시 시작하세요."
+        )
+    workflow = orchestrator.run_market_risk(
+        workflow,
+        expected_currency=trade_currency,
+        expected_target_date=target_date,
+        manual_base_rate=decimal_text(
+            base_rate,
+            "기준 환율",
+            allow_zero=False,
+        ),
+        mode=scenario_mode,
+        payload=payload,
+        endpoint=endpoint,
+        stage1_provider=stage1_provider,
+        spot_provider=spot_provider,
+        manual_spot_confirmed=manual_spot_confirmed,
+    )
+    _save_workflow(workflow)
+    if workflow.market_risk is None or workflow.market_risk.data is None:
+        raise ValueError(
+            "환율 시나리오 실행에 실패했습니다: {}".format(
+                ", ".join(
+                    workflow.market_risk.errors
+                    if workflow.market_risk is not None
+                    else []
+                )
+            )
+        )
+    loaded = workflow.market_risk.data
+    _save_model("stage1_load", loaded)
+    if workflow.market_integration is not None:
+        _save_model(
+            "market_integration",
+            workflow.market_integration,
+        )
+    clear_downstream(st.session_state, 2)
+    return loaded
 
 
 def _run_hedge_comparison(
@@ -5656,16 +5838,12 @@ if not show_internal_debug:
         unsafe_allow_html=True,
     )
 
-st.session_state.setdefault(
-    "run_mode_widget",
-    (
-        "데모 모드"
-        if settings.demo_mode or not settings.live_extraction_ready
-        else "실제 문서 분석"
-    ),
+st.session_state.pop("run_mode_widget", None)
+st.session_state.setdefault("document_source", USER_UPLOAD)
+st.session_state.setdefault("analysis_mode", LIVE_API)
+run_mode = (
+    "DEMO" if st.session_state.get("legacy_full_demo") else "LIVE"
 )
-if st.session_state.get("run_mode_widget") == "실제 API 모드":
-    st.session_state["run_mode_widget"] = "실제 문서 분석"
 st.session_state.setdefault(
     "company_role_widget",
     "구매자 · BUYER",
@@ -5769,50 +5947,92 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     with st.expander("분석 환경 및 고급 설정", expanded=False):
-        live_label = "실제 문서 분석"
         if presentation_mode:
-            mode_label = live_label
-            st.caption("분석할 문서 · 브라질 Golden 수출 계약")
-        else:
-            mode_label = st.radio(
-                "분석할 문서",
-                ["데모 모드", live_label],
-                key="run_mode_widget",
-                help="API 키는 서버 환경변수에서만 읽습니다.",
-            )
-        run_mode = "LIVE" if mode_label == live_label else "DEMO"
-        if (
-            run_mode == "LIVE"
-            and not settings.live_extraction_ready
-            and not presentation_mode
-        ):
-            st.warning(
-                "실제 문서 분석 연결이 준비되지 않았습니다. "
-                "서버 설정을 확인하거나 데모 모드를 선택하세요."
-            )
-        st.caption(
-            "문서 AI · {}".format(
-                "사용 가능" if settings.live_extraction_ready else "데모 전용"
-            )
-        )
-        st.caption(
-            "API 인증 · {}".format(
-                (
-                    "사용 안 함 · API-free"
-                    if presentation_mode
-                    else "설정됨"
-                    if settings.openai_api_key
-                    else "설정되지 않음"
+            st.caption(
+                "분석 문서 · {}".format(
+                    "Golden 수출 샘플"
+                    if st.session_state["document_source"]
+                    == GOLDEN_SAMPLE
+                    else "내 문서 업로드"
                 )
             )
-        )
-        st.caption(
-            "문서 모델 환경변수 · {}".format(settings.openai_model)
-        )
-        if presentation_mode and show_internal_debug:
-            st.caption(
-                "등록된 합성문서는 content SHA-256이 일치할 때만 "
-                "API-free 검토 adapter를 사용합니다."
+        else:
+            document_options = [
+                "Golden 수출 샘플",
+                "내 문서 업로드",
+            ]
+            st.session_state.setdefault(
+                "document_source_widget",
+                (
+                    document_options[0]
+                    if st.session_state["document_source"]
+                    == GOLDEN_SAMPLE
+                    else document_options[1]
+                ),
+            )
+            selected_document = st.radio(
+                "분석 문서",
+                document_options,
+                key="document_source_widget",
+                help="API 키는 서버 환경변수에서만 읽습니다.",
+            )
+            selected_source = (
+                GOLDEN_SAMPLE
+                if selected_document == document_options[0]
+                else USER_UPLOAD
+            )
+            if selected_source != st.session_state["document_source"]:
+                st.session_state["document_source"] = selected_source
+                st.session_state["analysis_mode"] = LIVE_API
+                st.session_state.pop("analysis_mode_widget", None)
+                st.session_state.pop(
+                    "document_analysis_provenance",
+                    None,
+                )
+                if selected_source == GOLDEN_SAMPLE:
+                    st.session_state["registered_document_id"] = (
+                        PRESENTATION_FIXTURE_ID
+                    )
+                else:
+                    st.session_state.pop("registered_document_id", None)
+            if selected_source == GOLDEN_SAMPLE:
+                analysis_options = [
+                    "AI 실시간 분석",
+                    "검증된 데모 결과",
+                ]
+                st.session_state.setdefault(
+                    "analysis_mode_widget",
+                    (
+                        analysis_options[0]
+                        if st.session_state["analysis_mode"] == LIVE_API
+                        else analysis_options[1]
+                    ),
+                )
+                selected_analysis = st.selectbox(
+                    "문서 분석 방식 · 고급 설정",
+                    analysis_options,
+                    key="analysis_mode_widget",
+                    help=(
+                        "기본값은 실제 API입니다. 검증된 결과는 명시적으로 "
+                        "선택하거나 API 실패 시에만 사용합니다."
+                    ),
+                )
+                st.session_state["analysis_mode"] = (
+                    LIVE_API
+                    if selected_analysis == analysis_options[0]
+                    else VERIFIED_FIXTURE
+                )
+            else:
+                st.session_state["analysis_mode"] = LIVE_API
+                st.session_state.pop("analysis_mode_widget", None)
+        _render_document_analysis_status()
+        if (
+            st.session_state["document_source"] == USER_UPLOAD
+            and not settings.live_extraction_ready
+        ):
+            st.warning(
+                "내 문서를 분석할 실시간 API 연결이 준비되지 않았습니다. "
+                "서버 설정을 확인하세요."
             )
         st.divider()
         st.markdown("**환율 데이터 연결**")
@@ -5973,6 +6193,7 @@ with st.sidebar:
             )
 
 current_page = active_page()
+render_page_scroll_reset(current_page)
 if current_page == PAGE_HOME:
     render_page_header(
         step="1",
@@ -6005,9 +6226,10 @@ if current_page == PAGE_HOME:
                 key="service_register_document",
             )
         render_sample_info_card(
-            "브라질 Golden 수출 샘플",
-            "실제 고객정보가 없는 검증된 합성문서입니다. 모든 데이터는 "
-            "가명·합성 데이터로 구성되어 있습니다.",
+            "Golden 수출 샘플",
+            "가명·합성 계약서를 실제 AI가 분석합니다. 별도 파일 업로드 "
+            "없이 전체 분석 흐름을 확인할 수 있습니다. 모든 데이터는 "
+            "가명·합성 데이터입니다.",
         )
         completed_step = (
             4
@@ -6056,6 +6278,7 @@ with stage0_tab:
         "계약서에서 확인한 거래 정보",
         "AI가 이해한 거래를 원문과 대조한 뒤 분석을 시작합니다.",
     )
+    _render_document_analysis_status()
     existing_extraction = _model_from_state(
         "extraction",
         TradeDocumentExtraction,
@@ -6120,6 +6343,11 @@ with stage0_tab:
     )
     with intake_controls:
         control_col, preview_col = st.columns([1, 1])
+    document_source = st.session_state.get(
+        "document_source",
+        USER_UPLOAD,
+    )
+    analysis_mode = st.session_state.get("analysis_mode", LIVE_API)
     with control_col:
         role_label = st.radio(
             "이 거래에서 우리 회사의 역할",
@@ -6134,63 +6362,52 @@ with stage0_tab:
             "우리 회사 국가 · 예: KR, Republic of Korea",
             key="company_country_widget",
         ).strip()
-        uploaded = st.file_uploader(
-            "거래문서 업로드",
-            type=["pdf", "png", "jpg", "jpeg"],
-            help="Commercial Invoice, Sales Contract, Purchase Order · 최대 15MB",
-        )
-        st.caption("PDF · PNG · JPG/JPEG 지원")
+        uploaded = None
+        if document_source == USER_UPLOAD:
+            uploaded = st.file_uploader(
+                "거래문서 업로드",
+                type=["pdf", "png", "jpg", "jpeg"],
+                help=(
+                    "Commercial Invoice, Sales Contract, Purchase Order · "
+                    "최대 15MB"
+                ),
+            )
+            st.caption("PDF · PNG · JPG/JPEG 지원")
+        else:
+            st.info(
+                "제공된 Golden PDF가 자동 선택되었습니다. 파일·국가·금액·"
+                "날짜를 직접 입력하지 않고 분석을 시작합니다."
+            )
 
     registered_document = None
-    if (
-        st.session_state.get("registered_document_id")
-        == PRESENTATION_FIXTURE_ID
-    ):
+    if document_source == GOLDEN_SAMPLE:
+        st.session_state["registered_document_id"] = PRESENTATION_FIXTURE_ID
         registered_document = presentation_document()
 
-    if run_mode == "DEMO":
-        demo_path, preview_mime, demo_extraction = _demo_fixture(
-            company_role
-        )
-        preview_bytes = demo_path.read_bytes()
-        preview_name = demo_path.name
-        if uploaded is not None:
-            st.info(
-                "데모 모드에서는 업로드 파일을 전송·분석하지 않고 고정된 가상 "
-                "역할별 fixture를 사용합니다. 실제 문서는 실제 문서 분석을 "
-                "선택하세요."
-            )
-    else:
-        preview_bytes = (
-            uploaded.getvalue()
-            if uploaded is not None
-            else (
-                registered_document.file_bytes
-                if registered_document is not None
-                else b""
-            )
-        )
-        preview_name = (
-            uploaded.name
-            if uploaded is not None
-            else (
-                registered_document.filename
-                if registered_document is not None
-                else "uploaded_document"
-            )
-        )
-        preview_mime = (
-            uploaded.type
-            if uploaded is not None
-            else (
-                registered_document.mime_type
-                if registered_document is not None
-                else "application/octet-stream"
-            )
-        )
+    preview_bytes = (
+        registered_document.file_bytes
+        if registered_document is not None
+        else uploaded.getvalue()
+        if uploaded is not None
+        else b""
+    )
+    preview_name = (
+        registered_document.filename
+        if registered_document is not None
+        else uploaded.name
+        if uploaded is not None
+        else "uploaded_document"
+    )
+    preview_mime = (
+        registered_document.mime_type
+        if registered_document is not None
+        else uploaded.type
+        if uploaded is not None
+        else "application/octet-stream"
+    )
 
     preview_error: Optional[str] = None
-    if run_mode == "LIVE" and preview_bytes:
+    if preview_bytes:
         try:
             validate_upload(
                 file_bytes=preview_bytes,
@@ -6216,7 +6433,7 @@ with stage0_tab:
             st.info("업로드 후 이 영역에서 문서를 확인할 수 있습니다.")
 
     signature = input_signature(
-        mode=run_mode,
+        mode="{}:{}".format(document_source, analysis_mode),
         company_role=company_role,
         company_country=company_country,
         file_bytes=preview_bytes,
@@ -6230,7 +6447,7 @@ with stage0_tab:
     elif st.session_state.pop("transaction_change_notice", False):
         st.info("문서·역할·모드 변경을 감지해 이전 계산 결과를 비웠습니다.")
 
-    if st.button(
+    analyze_requested = st.button(
         (
             "문서 다시 분석"
             if existing_extraction is not None
@@ -6239,103 +6456,69 @@ with stage0_tab:
         type=("secondary" if existing_extraction is not None else "primary"),
         width="stretch",
         key="analyze_document",
-    ):
+    )
+    auto_analyze_requested = bool(
+        st.session_state.pop("auto_analyze_document", False)
+    )
+    if analyze_requested or auto_analyze_requested:
         try:
             auto_matched_company_role = None
             normalized_company_country = _normalized_company_country(
                 company_country
             )
-            if run_mode == "LIVE":
-                if not preview_bytes:
-                    raise ValueError(
-                        "실제 문서 분석에서는 문서를 업로드하거나 등록된 "
-                        "합성문서를 선택하세요."
-                    )
-                extraction_run = extract_registered_document(
+            if not preview_bytes:
+                raise ValueError(
+                    "내 거래분석을 시작하려면 분석할 문서를 업로드하세요."
+                )
+            with st.spinner(
+                "문서를 안전 검사하고 AI로 추출 중입니다..."
+            ):
+                extraction_run = analyze_document(
                     file_bytes=preview_bytes,
                     filename=preview_name,
                     mime_type=preview_mime,
                     company_role=company_role,
                     company_country=company_country,
+                    document_source=document_source,
+                    analysis_mode=analysis_mode,
                     settings=settings,
                 )
-                if extraction_run is None:
-                    if not settings.live_extraction_ready:
-                        raise ValueError(
-                            "현재 이 문서를 분석할 연결이 준비되지 않았습니다. "
-                            "브라질 Golden 데모 문서를 선택하거나 관리자가 "
-                            "실제 문서 분석 연결을 준비한 뒤 다시 시도하세요."
-                        )
-                    with st.spinner(
-                        "문서를 안전 검사하고 모델로 추출 중입니다..."
-                    ):
-                        extraction_run = (
-                            extract_trade_document_with_metadata(
-                                file_bytes=preview_bytes,
-                                filename=preview_name,
-                                mime_type=preview_mime,
-                                company_role=company_role,
-                                company_country=company_country,
-                                settings=settings,
-                            )
-                        )
-                else:
-                    st.info(
-                        "등록된 Golden 계약서와 일치해 검증된 거래정보를 "
-                        "불러왔습니다."
-                    )
-                extraction = extraction_run.extraction
-                validation = extraction_run.validation
-                original_extraction = extraction_run.raw_extraction
-                auto_matched_company_role = (
-                    extraction_run.auto_matched_company_role
-                )
-                provider_name = extraction_run.usage.model
-                metadata_dict = {
-                    "filename": extraction_run.upload.filename,
-                    "mime_type": extraction_run.upload.mime_type,
-                    "size_bytes": extraction_run.upload.size_bytes,
-                    "sha256": extraction_run.upload.sha256,
-                    "page_count": extraction_run.upload.page_count,
-                    "latency_seconds": extraction_run.usage.latency_seconds,
-                    "input_tokens": extraction_run.usage.input_tokens,
-                    "output_tokens": extraction_run.usage.output_tokens,
-                    "provider": (
-                        provider_name
-                        if provider_name
-                        == "registered_api_free_fixture"
-                        else "openai:{}".format(provider_name)
-                    ),
-                    "attempts": extraction_run.usage.attempts,
-                }
-            else:
-                metadata = validate_upload(
-                    file_bytes=preview_bytes,
-                    filename=preview_name,
-                    claimed_mime_type=preview_mime,
-                    settings=settings,
-                )
-                extraction, validation = apply_deterministic_review_state(
-                    demo_extraction,
-                    company_role=company_role,
-                    company_country=company_country,
-                )
-                original_extraction = demo_extraction
-                metadata_dict = {
-                    "filename": metadata.filename,
-                    "mime_type": metadata.mime_type,
-                    "size_bytes": metadata.size_bytes,
-                    "sha256": metadata.sha256,
-                    "page_count": metadata.page_count,
-                    "latency_seconds": 0.0,
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "provider": "offline_fixture",
-                    "attempts": 1,
-                }
+            provenance = extraction_run.provenance
+            if provenance is None:
+                raise ValueError("문서 분석 출처를 확인할 수 없습니다.")
+            extraction = extraction_run.extraction
+            validation = extraction_run.validation
+            original_extraction = extraction_run.raw_extraction
+            auto_matched_company_role = (
+                extraction_run.auto_matched_company_role
+            )
+            provider_name = (
+                "openai:{}".format(provenance.model)
+                if provenance.analysis_source == OPENAI_ANALYSIS_SOURCE
+                else VERIFIED_FIXTURE
+            )
+            metadata_dict = {
+                "filename": extraction_run.upload.filename,
+                "mime_type": extraction_run.upload.mime_type,
+                "size_bytes": extraction_run.upload.size_bytes,
+                "sha256": extraction_run.upload.sha256,
+                "page_count": extraction_run.upload.page_count,
+                "latency_seconds": extraction_run.usage.latency_seconds,
+                "input_tokens": extraction_run.usage.input_tokens,
+                "output_tokens": extraction_run.usage.output_tokens,
+                "provider": provider_name,
+                "attempts": extraction_run.usage.attempts,
+                "document_source": provenance.document_source,
+                "analysis_source": provenance.analysis_source,
+                "model": provenance.model,
+                "generated_at": provenance.generated_at,
+                "fallback_used": provenance.fallback_used,
+                "warnings": list(provenance.warnings),
+            }
             _save_model("extraction", extraction)
             _save_model("extraction_original", original_extraction)
             _save_model("extraction_validation", validation)
+            _save_model("document_analysis_provenance", provenance)
             st.session_state["upload_metadata"] = metadata_dict
             if auto_matched_company_role is not None:
                 st.session_state["pending_company_role_widget"] = (
@@ -6361,7 +6544,7 @@ with stage0_tab:
             clear_review_widgets(st.session_state)
             clear_confirmation_and_later(st.session_state)
             _store_intake_workflow(
-                mode=run_mode,
+                mode="LIVE",
                 extraction=extraction,
                 validation=validation,
                 provider=str(metadata_dict["provider"]),
@@ -7222,60 +7405,22 @@ with stage1_tab:
             )
         )
         if scenario_settings.button(
-            "환율 위험 범위 준비하기",
-            type="primary",
+            "환율 범위 먼저 확인하기 · 선택",
             key="load_stage1",
             disabled=not bool(target_date),
         ):
             try:
-                clear_downstream(
-                    st.session_state,
-                    1,
-                    clear_widgets=False,
-                )
-                workflow = _workflow_from_state()
-                if workflow is None:
-                    raise ValueError(
-                        "분석 세션을 찾을 수 없습니다. 거래 확인부터 다시 시작하세요."
-                    )
-                workflow = orchestrator.run_market_risk(
-                    workflow,
-                    expected_currency=trade["currency"],
-                    expected_target_date=target_date,
-                    manual_base_rate=decimal_text(
-                        base_rate,
-                        "기준 환율",
-                        allow_zero=False,
-                    ),
-                    mode=scenario_mode,
+                _prepare_market_risk_for_transaction(
+                    trade_currency=trade["currency"],
+                    target_date=target_date,
+                    base_rate=base_rate,
+                    scenario_mode=scenario_mode,
                     payload=payload,
                     endpoint=endpoint,
                     stage1_provider=stage1_provider,
                     spot_provider=spot_provider,
                     manual_spot_confirmed=manual_spot_confirmed,
                 )
-                _save_workflow(workflow)
-                if (
-                    workflow.market_risk is None
-                    or workflow.market_risk.data is None
-                ):
-                    raise ValueError(
-                        "환율 시나리오 실행에 실패했습니다: {}".format(
-                            ", ".join(
-                                workflow.market_risk.errors
-                                if workflow.market_risk is not None
-                                else []
-                            )
-                        )
-                    )
-                loaded = workflow.market_risk.data
-                _save_model("stage1_load", loaded)
-                if workflow.market_integration is not None:
-                    _save_model(
-                        "market_integration",
-                        workflow.market_integration,
-                    )
-                clear_downstream(st.session_state, 2)
                 transaction_assumptions_slot.success(
                     "환율 가정이 준비되었습니다. 회사 자금 입력을 확인하세요."
                 )
@@ -7408,8 +7553,8 @@ with stage2_tab:
                 )
         if stage1_load is None:
             transaction_company_funds_slot.info(
-                "회사 자금을 입력한 뒤 아래 금융분석 전제에서 환율 범위를 "
-                "준비하면 계산을 시작할 수 있습니다."
+                "회사 자금을 입력하고 계산 버튼을 누르면 아래 금융분석 "
+                "전제를 기준으로 환율 범위와 현금 영향을 함께 계산합니다."
             )
         company_input_panel = transaction_company_funds_slot.expander(
             (
@@ -7635,21 +7780,30 @@ with stage2_tab:
             stage2_submit = st.form_submit_button(
                 "환율·자금 위험 계산하기",
                 type="primary",
-                disabled=(
-                    not bool(confirmed_analysis_due_date)
-                    or stage1_load is None
-                ),
+                disabled=not bool(confirmed_analysis_due_date),
             )
 
         if stage2_submit:
-            clear_downstream(
-                st.session_state,
-                2,
-                clear_widgets=False,
-            )
             form_input: Optional[Stage2FormInput] = None
             stage2_input: Optional[Stage2Input] = None
             try:
+                if stage1_load is None:
+                    stage1_load = _prepare_market_risk_for_transaction(
+                        trade_currency=trade["currency"],
+                        target_date=confirmed_analysis_due_date,
+                        base_rate=base_rate,
+                        scenario_mode=scenario_mode,
+                        payload=payload,
+                        endpoint=endpoint,
+                        stage1_provider=stage1_provider,
+                        spot_provider=spot_provider,
+                        manual_spot_confirmed=manual_spot_confirmed,
+                    )
+                clear_downstream(
+                    st.session_state,
+                    2,
+                    clear_widgets=False,
+                )
                 form_input = Stage2FormInput(
                     as_of_date=as_of.isoformat(),
                     current_krw_cash=current_cash,
@@ -7755,6 +7909,7 @@ with stage2_tab:
                         extraction_for_decision.missing_required_fields
                     ),
                     confirmed_transaction=workflow.confirmed_transaction,
+                    document_analysis=_document_analysis_from_state(),
                 )
                 _save_decision_support(decision_support)
                 transaction_company_funds_slot.success(
@@ -7766,31 +7921,38 @@ with stage2_tab:
                 with transaction_company_funds_slot:
                     _render_cashflow_error(exc.detail)
             except (ValueError, TypeError) as exc:
-                input_fingerprint = None
-                offending_value = None
-                field_path = None
-                if form_input is not None:
-                    input_fingerprint = (
-                        stage2_form_fingerprint(
-                            document_input=document_input,
-                            form=form_input,
+                if stage1_load is None:
+                    transaction_company_funds_slot.error(
+                        "환율 범위를 준비하지 못했습니다: {}".format(
+                            str(exc)
                         )
-                        if stage2_input is None
-                        else None
                     )
-                    field_path, offending_value = (
-                        stage2_form_error_context(exc, form_input)
+                else:
+                    input_fingerprint = None
+                    offending_value = None
+                    field_path = None
+                    if form_input is not None:
+                        input_fingerprint = (
+                            stage2_form_fingerprint(
+                                document_input=document_input,
+                                form=form_input,
+                            )
+                            if stage2_input is None
+                            else None
+                        )
+                        field_path, offending_value = (
+                            stage2_form_error_context(exc, form_input)
+                        )
+                    detail = classify_cashflow_error(
+                        exc,
+                        stage2_input=stage2_input,
+                        input_fingerprint=input_fingerprint,
+                        supplied_offending_value=offending_value,
+                        supplied_field_path=field_path,
                     )
-                detail = classify_cashflow_error(
-                    exc,
-                    stage2_input=stage2_input,
-                    input_fingerprint=input_fingerprint,
-                    supplied_offending_value=offending_value,
-                    supplied_field_path=field_path,
-                )
-                _persist_cashflow_failure(detail)
-                with transaction_company_funds_slot:
-                    _render_cashflow_error(detail)
+                    _persist_cashflow_failure(detail)
+                    with transaction_company_funds_slot:
+                        _render_cashflow_error(detail)
 
         stored_cashflow_error = _model_from_state(
             "cashflow_error",
@@ -8985,6 +9147,7 @@ with stage4_tab:
                         extraction.missing_required_fields
                     ),
                     confirmed_transaction=workflow.confirmed_transaction,
+                    document_analysis=_document_analysis_from_state(),
                 )
                 _save_model("stage4_result", result)
                 _save_decision_support(decision_support)

@@ -386,8 +386,8 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         for expected in (
             "수출입 거래 금융 리스크 분석",
             "3분 동안 확인할 내용",
-            "합성문서",
-            "실제 고객정보가 없는",
+            "Golden 수출 샘플",
+            "가명·합성 계약서를 실제 AI가 분석합니다",
             "금융상품 가입·승인, 보험 인수 또는 대출 심사 결과가 아닙니다",
             "계약서를 검증하고",
         ):
@@ -405,12 +405,24 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
         register.click().run()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual(
-            app.session_state["run_mode_widget"],
-            "실제 문서 분석",
+            app.session_state["document_source"],
+            "user_upload",
         )
+        self.assertEqual(app.session_state["analysis_mode"], "live_api")
+        self.assertNotIn("extraction", app.session_state)
         self.assertIn(
             "거래문서 업로드",
             [item.label for item in app.get("file_uploader")],
+        )
+        next(
+            button
+            for button in app.button
+            if button.key == "analyze_document"
+        ).click().run()
+        self.assertNotIn("extraction", app.session_state)
+        self.assertIn(
+            "내 거래분석을 시작하려면 분석할 문서를 업로드하세요",
+            " ".join(item.value for item in app.error),
         )
 
     def test_presentation_mode_uses_golden_sample_as_primary_path(self):
@@ -418,7 +430,11 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
 
         with patch.dict(
             "os.environ",
-            {"APP_ENV": "presentation"},
+            {
+                "APP_ENV": "presentation",
+                "OPENAI_API_KEY": "",
+                "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            },
         ):
             app = AppTest.from_file(
                 "app.py",
@@ -439,7 +455,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
                 [item.value for item in app.markdown]
                 + [item.value for item in app.caption]
             )
-            self.assertIn("검증된 합성문서", visible_text)
+            self.assertIn("가명·합성 계약서를 실제 AI가 분석합니다", visible_text)
             for internal_term in (
                 "critic",
                 "grounding",
@@ -476,16 +492,43 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             sample.click().run()
             self.assertEqual(len(app.exception), 0)
             self.assertEqual(
-                app.session_state["run_mode_widget"],
-                "실제 문서 분석",
+                app.session_state["document_source"],
+                "golden_sample",
             )
-            self.assertIn(
-                "거래문서 업로드",
-                [item.label for item in app.get("file_uploader")],
+            self.assertEqual(
+                app.session_state["analysis_mode"],
+                "live_api",
             )
+            self.assertEqual(len(app.get("file_uploader")), 0)
             self.assertEqual(
                 app.session_state["registered_document_id"],
                 "golden_export_contract_v1",
+            )
+            self.assertIn("extraction", app.session_state)
+            provenance = app.session_state[
+                "document_analysis_provenance"
+            ]
+            self.assertEqual(
+                provenance["document_source"],
+                "golden_sample",
+            )
+            self.assertEqual(
+                provenance["analysis_source"],
+                "verified_fixture",
+            )
+            self.assertTrue(provenance["fallback_used"])
+            self.assertEqual(provenance["warnings"], ["FALLBACK_USED"])
+            result_text = " ".join(
+                [item.value for item in app.caption]
+                + [item.value for item in app.warning]
+            )
+            self.assertIn("검증된 저장자료 사용", result_text)
+            self.assertNotIn("source: verified_fixture", result_text)
+            self.assertNotIn("warning code: FALLBACK_USED", result_text)
+            self.assertNotIn("fallback_used", result_text)
+            self.assertIn(
+                "사전 검증된 동일 샘플 결과를 사용했습니다",
+                result_text,
             )
             self.assertNotIn(
                 "consultation_packet",
@@ -583,11 +626,8 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
             if item.label == "상담 준비서 PDF 다운로드"
         )
         self.assertTrue(pdf_download.proto.url.endswith(".pdf"))
-        self.assertIn("JSON 다운로드", download_labels)
-        self.assertLess(
-            download_labels.index("상담 준비서 PDF 다운로드"),
-            download_labels.index("JSON 다운로드"),
-        )
+        self.assertNotIn("JSON 다운로드", download_labels)
+        self.assertNotIn("개발자용 원문 Markdown", download_labels)
         self.assertNotIn(
             "한국 판매자 → 브라질 구매자",
             visible_text,
@@ -953,7 +993,7 @@ class StreamlitReviewEvidenceTests(unittest.TestCase):
                 for item in app.info
             )
         )
-        self.assertIn(
+        self.assertNotIn(
             "개발자용 · 헤지 비교 기술정보",
             [item.label for item in app.expander],
         )

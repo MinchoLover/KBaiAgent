@@ -33,7 +33,6 @@ KBaiAgent는 확인된 수출입 거래 사실을 환율 전망, 현금흐름,
 - `docs/SUBMISSION_CHECKLIST.md`
 - `docs/DEMO_SCENARIO_MATRIX.md`
 - `docs/SCREENSHOT_MANIFEST.md`
-- `docs/FINAL_DIFF_REVIEW.md`
 - `docs/INDEX.md`
 - `docs/REPOSITORY_MAP.md`
 
@@ -58,8 +57,7 @@ KBaiAgent는 확인된 수출입 거래 사실을 환율 전망, 현금흐름,
   generated output, historical live report와 evidence 이미지 bytes를 읽지 않는다.
 - 보호 데이터, 전체 historical docs와 전체 audit 문서는 사용자가 요청하거나
   해당 계약 검증에 필요한 경우에만 연다.
-- `src/demo 2.py`, `src/stage5/critic 2.py`,
-  `src/stage5/report_agent 2.py`, `docs/PROJECT_BRIEF 2.md`는
-  실행 경로가 아닌 historical copy 후보이며 자동 삭제·import하지 않는다.
+- Finder식 역사 사본과 내부 프롬프트 팩은 최종 제출 정리에서 제거했으며
+  실행 경로에 다시 추가하거나 import하지 않는다.
 - 전체 검증은 `python scripts/verify.py`, whitespace 검사는
   `git diff --check`를 사용한다.

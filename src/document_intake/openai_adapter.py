@@ -125,7 +125,7 @@ class OpenAIDocumentAdapter:
         if not self.settings.openai_api_key or self.client is None:
             raise OpenAIAdapterError(
                 "OPENAI_API_KEY가 없어 실제 추출을 실행할 수 없습니다. "
-                "데모 모드를 사용하세요."
+                "서버의 문서 분석 연결 설정을 확인하세요."
             )
         if not self.settings.enable_live_document_extraction:
             raise OpenAIAdapterError(

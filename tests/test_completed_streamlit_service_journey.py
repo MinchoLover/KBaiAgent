@@ -5,7 +5,8 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from src.application.registered_document_service import (
-    extract_registered_document,
+    PRESENTATION_EXTRACTION_PATH,
+    analyze_document,
     presentation_document,
 )
 from src.application.stage2_input_service import (
@@ -15,6 +16,14 @@ from src.application.stage2_input_service import (
     classify_cashflow_error,
 )
 from src.config import Settings
+from src.document_intake.extractor import ExtractionError
+from src.document_intake.openai_adapter import (
+    AdapterExtractionResult,
+    ExtractionUsage,
+    OpenAIAdapterError,
+)
+from src.domain.document_analysis_models import FALLBACK_WARNING_CODE
+from schemas import TradeDocumentExtraction
 from src.stage2.binding import (
     confirmed_transaction_from_confirmation,
     document_input_from_confirmed_transaction,
@@ -44,87 +53,163 @@ class ConfirmedTransactionProductionTests(unittest.TestCase):
     def setUp(self):
         self.golden = build_golden_consultation_fixture()
 
-    def test_registered_document_uses_content_identity_without_api(self):
-        registered = presentation_document()
-        result = extract_registered_document(
-            file_bytes=registered.file_bytes,
-            filename="renamed-upload.pdf",
-            mime_type=registered.mime_type,
-            company_role="SELLER",
-            company_country="KR",
-            settings=Settings(
-                app_env="presentation",
-                openai_api_key=None,
-                enable_live_document_extraction=False,
-            ),
+    @staticmethod
+    def _successful_adapter():
+        extraction = TradeDocumentExtraction.model_validate_json(
+            PRESENTATION_EXTRACTION_PATH.read_text(encoding="utf-8")
         )
 
-        self.assertIsNotNone(result)
-        self.assertEqual(
-            result.usage.model,
-            "registered_api_free_fixture",
-        )
+        class Adapter:
+            def extract(self, **_kwargs):
+                return AdapterExtractionResult(
+                    extraction=extraction,
+                    usage=ExtractionUsage(
+                        model="mock-live-model",
+                        prompt_version="test-prompt",
+                        request_id="mock-request",
+                        latency_seconds=0.01,
+                        input_tokens=10,
+                        output_tokens=20,
+                        total_tokens=30,
+                        attempts=1,
+                    ),
+                )
+
+        return Adapter()
+
+    @staticmethod
+    def _failing_adapter():
+        class Adapter:
+            def extract(self, **_kwargs):
+                raise OpenAIAdapterError("mock transport failure")
+
+        return Adapter()
+
+    def test_golden_live_success_does_not_use_fixture(self):
+        registered = presentation_document()
+        with patch(
+            "src.application.registered_document_service."
+            "extract_registered_document",
+            side_effect=AssertionError("fixture must not be loaded"),
+        ):
+            result = analyze_document(
+                file_bytes=registered.file_bytes,
+                filename="renamed-upload.pdf",
+                mime_type=registered.mime_type,
+                company_role="SELLER",
+                company_country="KR",
+                document_source="golden_sample",
+                analysis_mode="live_api",
+                settings=Settings(openai_api_key="test-key"),
+                adapter=self._successful_adapter(),
+            )
+
+        self.assertEqual(result.usage.model, "mock-live-model")
+        self.assertIsNotNone(result.provenance)
+        self.assertEqual(result.provenance.document_source, "golden_sample")
+        self.assertEqual(result.provenance.analysis_source, "openai")
+        self.assertFalse(result.provenance.fallback_used)
+        self.assertEqual(result.provenance.warnings, [])
         self.assertEqual(result.extraction.contract_date, "2026-07-29")
         self.assertEqual(result.extraction.shipment_date, "2026-08-05")
         self.assertEqual(result.extraction.explicit_due_date, "2026-08-20")
         self.assertEqual(result.extraction.amount_due, "100000.00")
         self.assertFalse(result.validation.stage2_allowed)
 
-    def test_registered_document_corrects_wrong_default_role_from_source(self):
+    def test_golden_live_failure_uses_disclosed_fixture_fallback(self):
         registered = presentation_document()
-        result = extract_registered_document(
+        result = analyze_document(
             file_bytes=registered.file_bytes,
             filename=registered.filename,
             mime_type=registered.mime_type,
             company_role="BUYER",
             company_country="KR",
+            document_source="golden_sample",
+            analysis_mode="live_api",
             settings=Settings(
-                app_env="presentation",
-                openai_api_key=None,
-                enable_live_document_extraction=False,
+                openai_api_key="test-key",
             ),
+            adapter=self._failing_adapter(),
         )
 
-        self.assertIsNotNone(result)
         self.assertEqual(result.auto_matched_company_role, "SELLER")
         self.assertEqual(result.extraction.company_role, "SELLER")
         self.assertEqual(result.extraction.trade_type, "EXPORT")
+        self.assertEqual(result.provenance.analysis_mode, "live_api")
+        self.assertEqual(
+            result.provenance.analysis_source,
+            "verified_fixture",
+        )
+        self.assertTrue(result.provenance.fallback_used)
+        self.assertEqual(
+            result.provenance.warnings,
+            [FALLBACK_WARNING_CODE],
+        )
         self.assertNotIn(
             "COMPANY_COUNTRY_ROLE_MISMATCH",
             {item.code for item in result.validation.issues},
         )
 
-    def test_registered_document_is_available_only_in_demo_boundaries(self):
+    def test_user_upload_live_failure_never_uses_golden_fixture(self):
         registered = presentation_document()
-        development_result = extract_registered_document(
-            file_bytes=registered.file_bytes,
-            filename=registered.filename,
-            mime_type=registered.mime_type,
-            company_role="SELLER",
-            company_country="KR",
-            settings=Settings(
-                app_env="development",
-                demo_mode=True,
-                openai_api_key=None,
-                enable_live_document_extraction=False,
-            ),
-        )
-        production_result = extract_registered_document(
-            file_bytes=registered.file_bytes,
-            filename=registered.filename,
-            mime_type=registered.mime_type,
-            company_role="SELLER",
-            company_country="KR",
-            settings=Settings(
-                app_env="production",
-                demo_mode=False,
-                openai_api_key=None,
-                enable_live_document_extraction=False,
-            ),
-        )
+        with self.assertRaises(ExtractionError):
+            analyze_document(
+                file_bytes=registered.file_bytes,
+                filename=registered.filename,
+                mime_type=registered.mime_type,
+                company_role="SELLER",
+                company_country="KR",
+                document_source="user_upload",
+                analysis_mode="live_api",
+                settings=Settings(openai_api_key="test-key"),
+                adapter=self._failing_adapter(),
+            )
 
-        self.assertIsNotNone(development_result)
-        self.assertIsNone(production_result)
+    def test_golden_input_validation_failure_does_not_use_fixture(self):
+        registered = presentation_document()
+        with patch(
+            "src.application.registered_document_service."
+            "extract_registered_document",
+            side_effect=AssertionError("fixture must not be loaded"),
+        ):
+            with self.assertRaises(ExtractionError):
+                analyze_document(
+                    file_bytes=registered.file_bytes,
+                    filename=registered.filename,
+                    mime_type=registered.mime_type,
+                    company_role="INVALID",
+                    company_country="KR",
+                    document_source="golden_sample",
+                    analysis_mode="live_api",
+                    settings=Settings(openai_api_key="test-key"),
+                    adapter=self._successful_adapter(),
+                )
+
+    def test_verified_fixture_is_explicit_and_golden_only(self):
+        registered = presentation_document()
+        result = analyze_document(
+            file_bytes=registered.file_bytes,
+            filename=registered.filename,
+            mime_type=registered.mime_type,
+            company_role="SELLER",
+            company_country="KR",
+            document_source="golden_sample",
+            analysis_mode="verified_fixture",
+            settings=Settings(openai_api_key=None),
+        )
+        self.assertEqual(result.provenance.analysis_mode, "verified_fixture")
+        self.assertFalse(result.provenance.fallback_used)
+        with self.assertRaises(ExtractionError):
+            analyze_document(
+                file_bytes=registered.file_bytes,
+                filename=registered.filename,
+                mime_type=registered.mime_type,
+                company_role="SELLER",
+                company_country="KR",
+                document_source="user_upload",
+                analysis_mode="verified_fixture",
+                settings=Settings(openai_api_key=None),
+            )
 
     def test_snapshot_is_the_stage_contract_and_keeps_dates_separate(self):
         snapshot = confirmed_transaction_from_confirmation(
@@ -254,7 +339,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             app.button,
             "service_sample_export",
         ).click().run(timeout=30)
-        _by_key(app.button, "analyze_document").click().run(timeout=30)
+        assert _state(app, "extraction") is not None
         _by_key(
             app.button,
             (
@@ -397,7 +482,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 {item.key for item in app.button},
             )
 
-    def test_click_journey_reaches_report_then_invalidates_and_resets(self):
+    def test_company_cashflow_submit_prepares_missing_fx_range(self):
         from streamlit.testing.v1 import AppTest
 
         environment = {
@@ -414,11 +499,134 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 default_timeout=30,
             ).run(timeout=30)
             self._confirm_document(app)
+            _by_key(
+                app.radio,
+                "stage1_mode_widget",
+            ).set_value("MANUAL_STRESS")
+            _by_key(
+                app.text_input,
+                "stage1_base_rate_widget",
+            ).set_value("1400")
+
+            self.assertIsNone(_state(app, "stage1_load"))
+            submit = _by_key(
+                app.button,
+                (
+                    "FormSubmitter:stage2_company_input-"
+                    "환율·자금 위험 계산하기"
+                ),
+            )
+            self.assertFalse(submit.disabled)
+
+            self._run_golden_cashflow(app)
+
+            self.assertEqual(len(app.exception), 0)
+            self.assertIsNotNone(_state(app, "stage1_load"))
+            stage2 = _state(app, "stage2_result")
+            self.assertIsNotNone(stage2)
+            down_five = next(
+                item
+                for item in stage2["scenario_results"]
+                if item["scenario_name"] == "STRESS_-5.00PCT"
+            )
+            self.assertEqual(
+                Decimal(down_five["loss_vs_base"]),
+                Decimal("7000000.00"),
+            )
+
+    def test_web_forecast_ui_uses_five_percent_representative_scenario(self):
+        from streamlit.testing.v1 import AppTest
+
+        environment = {
+            "APP_ENV": "presentation",
+            "DEMO_MODE": "true",
+            "SHOW_INTERNAL_DEBUG": "false",
+            "OPENAI_API_KEY": "",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "STAGE1_MODE": "web_forecast",
+            "STAGE1_PROVIDER": "file",
+            "SPOT_RATE_PROVIDER": "fixture",
+            "TRADE_STATISTICS_PROVIDER": "fixture",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=30,
+            ).run(timeout=30)
+            self._confirm_document(app)
+            _by_key(
+                app.checkbox,
+                "trade_risk_confirm_widget",
+            ).set_value(True)
+            _by_key(
+                app.button,
+                (
+                    "FormSubmitter:trade_risk_confirmation_form-"
+                    "대금 회수조건 확인"
+                ),
+            ).click().run(timeout=30)
+            self._run_golden_cashflow(app)
+
+            stage2 = _state(app, "stage2_result")
+            self.assertIsNotNone(
+                stage2,
+                [item.value for item in app.error],
+            )
+            down_five = next(
+                item
+                for item in stage2["scenario_results"]
+                if item["scenario_name"] == "DOWN_5"
+            )
+            self.assertEqual(
+                Decimal(down_five["loss_vs_base"]),
+                Decimal("7000000.00"),
+            )
+            _by_key(
+                app.button,
+                "go_to_analysis_after_transaction_inputs",
+            ).click().run(timeout=30)
+            visible = " ".join(
+                [item.value for item in app.markdown]
+                + [item.value for item in app.caption]
+            )
+            for expected in (
+                "환율 -5%",
+                "기준 원화 수취액",
+                "140,000,000원",
+                "환율 -5% 원화 수취액",
+                "133,000,000원",
+                "7,000,000원",
+                "8,000,000원",
+                "2,000,000원",
+            ):
+                self.assertIn(expected, visible)
+            self.assertNotIn("DOWN_5", visible)
+
+    def test_click_journey_reaches_report_then_invalidates_and_resets(self):
+        from streamlit.testing.v1 import AppTest
+
+        environment = {
+            "APP_ENV": "presentation",
+            "SHOW_INTERNAL_DEBUG": "true",
+            "OPENAI_API_KEY": "",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "STAGE1_MODE": "manual",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            app = AppTest.from_file(
+                "app.py",
+                default_timeout=30,
+            ).run(timeout=30)
+            self._confirm_document(app)
 
             self.assertEqual(len(app.exception), 0)
             self.assertEqual(
                 _state(app, "upload_metadata")["provider"],
-                "registered_api_free_fixture",
+                "verified_fixture",
             )
             snapshot = _state(app, "confirmed_transaction")
             self.assertEqual(_state(app, "active_page"), "transaction")
@@ -451,8 +659,29 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             self.assertEqual(len(app.error), 0)
             stage2_input = _state(app, "stage2_input")
             stage2 = _state(app, "stage2_result")
-            packet = _state(app, "consultation_packet")["packet"]
+            consultation = _state(app, "consultation_packet")
+            packet = consultation["packet"]
             trade_statistics = _state(app, "trade_statistics_result")
+            self.assertEqual(
+                packet["document_analysis"]["document_source"],
+                "golden_sample",
+            )
+            self.assertEqual(
+                packet["document_analysis"]["analysis_source"],
+                "verified_fixture",
+            )
+            self.assertTrue(
+                packet["document_analysis"]["fallback_used"]
+            )
+            self.assertEqual(
+                packet["document_analysis"]["warnings"],
+                ["FALLBACK_USED"],
+            )
+            self.assertIn(
+                "실제 분석 source: `verified_fixture`",
+                consultation["markdown"],
+            )
+            self.assertIn("FALLBACK_USED", consultation["markdown"])
             self.assertEqual(
                 stage2_input["exposures"][0]["settlement_date"],
                 "2026-08-20",
@@ -560,6 +789,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 [item.value for item in app.markdown]
                 + [item.value for item in app.caption]
                 + [item.value for item in app.info]
+                + [item.value for item in app.warning]
                 + [
                     "{} {} {}".format(
                         item.label,
@@ -585,6 +815,14 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                 "수출 FOB / 수입 CIF",
             ):
                 self.assertIn(expected, financial_page_text)
+            for internal_code in (
+                "UNCALIBRATED_DIRECTION_SCORE",
+                "PARTIAL_FALLBACK_USED",
+                "FAILED_MARKET_SERIES",
+                "NEWS_QUERY_ERRORS",
+                "RESEARCH_ONLY",
+            ):
+                self.assertNotIn(internal_code, financial_page_text)
             self.assertNotIn(
                 "출처 및 기술정보",
                 [item.label for item in app.expander],
@@ -644,7 +882,7 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                         for item in app.info
                     )
                 )
-                self.assertIn(
+                self.assertNotIn(
                     "헤지 비교 기술정보",
                     [item.label for item in app.expander],
                 )
@@ -680,6 +918,18 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
                     ("한국무역보험공사", "환변동보험 검토"),
                 ],
             )
+            consultation_expanders = {
+                item.label for item in app.expander
+            }
+            for internal_label in (
+                "개발자용 · 전략 후보 데이터",
+                "개발자용 · 공식 후보 데이터",
+                "분석 근거 및 기술 정보 보기",
+            ):
+                self.assertNotIn(
+                    internal_label,
+                    consultation_expanders,
+                )
             _by_key(
                 app.button,
                 "generate_report",
@@ -707,7 +957,16 @@ class CompletedGoldenStreamlitJourneyTests(unittest.TestCase):
             }
             self.assertIn("상담 준비서 PDF 다운로드", labels)
             self.assertNotIn("JSON 다운로드", labels)
+            self.assertNotIn("개발자용 원문 Markdown", labels)
             self.assertIn("통합 보고서 다운로드", labels)
+            report_expanders = {
+                item.label for item in app.expander
+            }
+            for internal_label in (
+                "개발자용 · JSON 데이터 및 분석 근거",
+                "분석 근거 및 기술 정보 보기",
+            ):
+                self.assertNotIn(internal_label, report_expanders)
 
             _by_key(
                 app.text_input,

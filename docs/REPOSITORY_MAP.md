@@ -123,8 +123,6 @@ UI·다운로드
 - `docs/SUBMISSION_FREEZE.md`
 - `docs/DEMO_SCENARIO_MATRIX.md`
 - `docs/SCREENSHOT_MANIFEST.md`
-- `docs/FINAL_DIFF_REVIEW.md`
-- `docs/PROPOSED_STAGING_PLAN.md`
 
 문서의 전체 분류는 `docs/INDEX.md`를 따른다.
 
@@ -136,13 +134,11 @@ UI·다운로드
 - `reports/country_validation_live/`의 과거 live run
 - `dataset/**/predictions/live/`
 - `docs/evidence/ui/` 이미지의 binary bytes
-- `KB_AI_Codex_Autopilot_Prompt_Pack_v1/`
 - `docs/repositioning/`과 과거 audit·handoff 문서
-- `src/demo 2.py`, `src/stage5/critic 2.py`,
-  `src/stage5/report_agent 2.py`, `docs/PROJECT_BRIEF 2.md`
 
-위 경로는 삭제 대상이라는 뜻이 아니다. 사용자가 명시하거나 특정 회귀·감사에
-필요한 경우 경로를 직접 지정해 읽는다.
+위 경로는 기본 실행과 제출 검토에서 제외하고, 특정 회귀·감사에 필요한 경우에만
+직접 지정해 읽는다. 내부 프롬프트 팩과 Finder식 역사 사본은 최종 제출 정리에서
+제거했다.
 
 ## app.py boundary
 

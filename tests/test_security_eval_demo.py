@@ -476,7 +476,7 @@ class EndToEndTests(unittest.TestCase):
                 for item in app.markdown
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             any(
                 item.label == "분석 근거 및 기술 정보 보기"
                 for item in app.expander

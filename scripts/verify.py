@@ -17,12 +17,13 @@ if str(ROOT) not in sys.path:
 
 REQUIRED_FILES = (
     "app.py",
+    ".env.example",
+    "judge-demo.env.example",
     "env.template",
     ".gitignore",
     "requirements.txt",
     "run_mac.command",
     "run_windows.bat",
-    "CHANGELOG.md",
     "START_HERE.md",
     "README.md",
     "ARCHITECTURE.md",
@@ -70,6 +71,8 @@ REQUIRED_FILES = (
     "docs/TEAM_HANDOFF.md",
     "docs/TEAM_HANDOFF_KO.md",
     "docs/VALIDATION_REPORT.md",
+    "docs/JUDGE_DEMO_RUNBOOK.md",
+    "docs/SUBMISSION_SECRET_DELIVERY.md",
     "dataset/golden_import_hedge_demo/README.md",
     "dataset/golden_import_hedge_demo/golden_import_payable_contract.pdf",
     "dataset/golden_import_hedge_demo/expected_extraction.json",
@@ -118,6 +121,9 @@ def _check_env_and_secrets(errors: List[str]) -> None:
     ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
     for required in (
         ".env",
+        ".env.*",
+        "judge-demo.env",
+        ".judge-private/",
         ".venv/",
         "real_uploads/",
         ".cache/",
@@ -126,6 +132,51 @@ def _check_env_and_secrets(errors: List[str]) -> None:
     ):
         if required not in ignore_text:
             errors.append(".gitignore missing {}".format(required))
+    for public_example_name in (
+        ".env.example",
+        "judge-demo.env.example",
+    ):
+        public_example = (ROOT / public_example_name).read_text(
+            encoding="utf-8"
+        )
+        for empty_secret in (
+            "OPENAI_API_KEY",
+            "OPEN_AI_API_KEY",
+            "KOREAEXIM_KEY",
+            "ECOS_KEY",
+            "CREDIT_KEY",
+            "CUSTOMS_TRADE_API_KEY",
+        ):
+            if not re.search(
+                r"^{}=$".format(empty_secret),
+                public_example,
+                re.MULTILINE,
+            ):
+                errors.append(
+                    "{} must keep {} empty".format(
+                        public_example_name,
+                        empty_secret,
+                    )
+                )
+    judge_example = (ROOT / "judge-demo.env.example").read_text(
+        encoding="utf-8"
+    )
+    for stable_setting in (
+        "APP_ENV=presentation",
+        "DEMO_MODE=true",
+        "STAGE1_PROVIDER=file",
+        "SPOT_RATE_PROVIDER=fixture",
+    ):
+        if not re.search(
+            r"^{}$".format(re.escape(stable_setting)),
+            judge_example,
+            re.MULTILINE,
+        ):
+            errors.append(
+                "judge-demo.env.example missing stable setting {}".format(
+                    stable_setting
+                )
+            )
     example = (ROOT / "env.template").read_text(encoding="utf-8")
     if not re.search(r"^OPENAI_API_KEY=$", example, re.MULTILINE):
         errors.append("env.template must keep OPENAI_API_KEY empty")
@@ -173,6 +224,8 @@ def _check_env_and_secrets(errors: List[str]) -> None:
     secret_pattern = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")
     roots = [
         ROOT / "app.py",
+        ROOT / ".env.example",
+        ROOT / "judge-demo.env.example",
         ROOT / "src",
         ROOT / "scripts",
         ROOT / "prompts",
@@ -241,6 +294,27 @@ def _check_readme(errors: List[str]) -> None:
             errors.append(
                 "README integration document link missing: {}".format(
                     document
+                )
+            )
+    for quick_start_text in (
+        "압축파일로 5분 실행",
+        "./run_mac.command",
+        ".\\run_windows.bat",
+        "cp judge-demo.env.example .env",
+        "3분 데모 시작하기",
+    ):
+        if quick_start_text not in readme:
+            errors.append(
+                "README quick-start text missing: {}".format(
+                    quick_start_text
+                )
+            )
+    for launcher_name in ("run_mac.command", "run_windows.bat"):
+        launcher = (ROOT / launcher_name).read_text(encoding="utf-8")
+        if "judge-demo.env.example" not in launcher:
+            errors.append(
+                "{} must prepare the safe judge demo env".format(
+                    launcher_name
                 )
             )
 
@@ -611,7 +685,37 @@ def main() -> int:
     args = parser.parse_args()
     errors: List[str] = []
     env = dict(os.environ)
-    env["PYTHONPYCACHEPREFIX"] = "/tmp/invoice_intake_verify_pycache"
+    env.update(
+        {
+            "PYTHONPYCACHEPREFIX": "/tmp/invoice_intake_verify_pycache",
+            # Verification must be deterministic even after a judge copies a
+            # presentation .env into the repository.  These values apply only
+            # to the compile/test subprocesses and never rewrite the user's
+            # .env or application runtime configuration.
+            "APP_ENV": "development",
+            "SHOW_INTERNAL_DEBUG": "false",
+            "DEMO_MODE": "true",
+            "OPENAI_API_KEY": "",
+            "OPEN_AI_API_KEY": "",
+            "ENABLE_DOCUMENT_AI": "false",
+            "ENABLE_LIVE_DOCUMENT_EXTRACTION": "false",
+            "ENABLE_LLM_REPORT": "false",
+            "ENABLE_COUNTRY_ECONOMIC_INTERPRETATION": "false",
+            "ENABLE_TRADE_STATISTICS_INTERPRETATION": "false",
+            "ENABLE_OFFICIAL_WEB_SEARCH": "false",
+            "KOREAEXIM_KEY": "",
+            "CUSTOMS_TRADE_API_KEY": "",
+            "STAGE1_MODE": "manual",
+            "STAGE1_PROVIDER": "file",
+            "STAGE1_FORECAST_FILE": (
+                "src/integration_assets/stage1/latest_forecast.json"
+            ),
+            "SPOT_RATE_PROVIDER": "fixture",
+            "TRADE_STATISTICS_PROVIDER": "auto",
+            "ENABLE_KB_MACRO_HEDGE_REFERENCE": "false",
+            "KB_MACRO_HEDGE_MODE": "off",
+        }
+    )
 
     _check_required_files(errors)
     _check_env_and_secrets(errors)

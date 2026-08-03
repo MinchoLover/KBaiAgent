@@ -393,6 +393,16 @@ class GoldenStreamlitStateTests(unittest.TestCase):
     def test_cashflow_error_is_actionable_and_has_safe_technical_detail(self):
         from streamlit.testing.v1 import AppTest
 
+        environment = patch.dict(
+            "os.environ",
+            {
+                "APP_ENV": "development",
+                "SHOW_INTERNAL_DEBUG": "true",
+            },
+            clear=False,
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
         app = AppTest.from_file("app.py", default_timeout=30).run()
         sample = next(
             item
@@ -518,11 +528,12 @@ class GoldenStreamlitStateTests(unittest.TestCase):
                 "app.py",
                 default_timeout=30,
             ).run()
-            app.session_state["run_mode_widget"] = "실제 문서 분석"
+            app.session_state["document_source"] = "user_upload"
+            app.session_state["analysis_mode"] = "live_api"
             app.session_state["company_role_widget"] = "판매자 · SELLER"
             app.session_state["company_country_widget"] = "KR"
             app.session_state["input_signature"] = input_signature(
-                mode="LIVE",
+                mode="user_upload:live_api",
                 company_role="SELLER",
                 company_country="KR",
                 filename="uploaded_document",
