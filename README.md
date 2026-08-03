@@ -289,7 +289,8 @@ SPOT_RATE_PROVIDER=manual
 MANUAL_USDKRW_RATE=1400
 ```
 
-전체 변수는 `.env.example`, 빠른 시작은 [START_HERE.md](START_HERE.md)를 봅니다.
+전체 변수는 `.env.example`, 빠른 시작과 오류 해결은
+[심사위원 실행 안내서](docs/JUDGE_DEMO_RUNBOOK.md)를 봅니다.
 팀 모델 연결은
 [docs/STAGE1_INTEGRATION.md](docs/STAGE1_INTEGRATION.md), 환율 출처 설정은
 [docs/SPOT_PROVIDER_SETUP.md](docs/SPOT_PROVIDER_SETUP.md)를 봅니다.
@@ -334,8 +335,8 @@ live LLM 정확도가 아니며 테스트셋은 파인튜닝 후보에서 제외
 미국·브라질 합성문서 Live 평가는 기본 비활성이고, 양수 사례 제한·명시적 확인·
 고유 run ID가 모두 필요합니다. 실행·비용·주장 범위는
 [docs/LIVE_BENCHMARK_RUNBOOK.md](docs/LIVE_BENCHMARK_RUNBOOK.md), 제출 전 사실
-확인은 [docs/SUBMISSION_READINESS.md](docs/SUBMISSION_READINESS.md), 실행한
-Baseline v1/v2 합성 8건씩의 결과는
+확인은 [docs/VALIDATION_REPORT.md](docs/VALIDATION_REPORT.md), 실행한 Baseline
+v1/v2 합성 8건씩의 결과는
 [docs/LIVE_BENCHMARK_RESULTS.md](docs/LIVE_BENCHMARK_RESULTS.md)를 봅니다.
 
 ## 11. 현재 구현 상태
@@ -359,14 +360,10 @@ Baseline v1/v2 합성 8건씩의 결과는
 | Golden text-layer 발표자료 | 완료 | 불변 PDF·expected evidence·Golden 상담 통합 tests |
 | 인증·DB·독립 API·은행 내부연동 | 미구현 | 운영 확장 범위 |
 
-구조는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 기존 canonical 설명은
-[ARCHITECTURE.md](ARCHITECTURE.md), 감사는
-[docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md), 과거 리팩터링 내역은
-[REFACTORING_REPORT.md](REFACTORING_REPORT.md)를 봅니다.
+구조와 데이터 흐름은 [아키텍처](docs/ARCHITECTURE.md)를 봅니다.
 
 제출 범위와 검증 결과는
 [기술설명서](docs/KB_AI_CHALLENGE_TECHNICAL_DESCRIPTION_KO.md),
-[제출 체크리스트](docs/SUBMISSION_CHECKLIST.md),
 [검증 보고서](docs/VALIDATION_REPORT.md)를 기준으로 확인합니다.
 
 ## 12. 미구현 기능과 향후 확장
@@ -379,7 +376,6 @@ Baseline v1/v2 합성 8건씩의 결과는
 - malware scan, 비동기 queue, CI/CD와 production observability
 - 허가된 실제 문서·live LLM·공식 환율 API 운영 benchmark
 
-현재 한계는 [docs/LIMITATIONS.md](docs/LIMITATIONS.md), 팀 인계는
-[docs/TEAM_HANDOFF_KO.md](docs/TEAM_HANDOFF_KO.md), 데모 대본은
-[docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md), 7장 발표 원고는
+현재 한계는 [docs/LIMITATIONS.md](docs/LIMITATIONS.md), 데모 대본은
+[docs/DEMO_SCRIPT_KO.md](docs/DEMO_SCRIPT_KO.md), 발표 원고는
 [docs/PITCH_3MIN_KO.md](docs/PITCH_3MIN_KO.md)를 확인하세요.
